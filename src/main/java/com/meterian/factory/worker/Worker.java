@@ -1,6 +1,7 @@
 package com.meterian.factory.worker;
 
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
@@ -37,7 +38,6 @@ public final class Worker {
     private static final String FACTORY_LABEL = "factory";
     private static final String APPROVE_LABEL = "factory:approve";
     private static final String BLOCK_LABEL = "factory:block";
-    private static final String ENTER_LABEL = "factory:enter";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
@@ -52,15 +52,21 @@ public final class Worker {
     private final WorkspaceLayout layout;
     private final StatusPublisher statusPublisher;
     private final RestartPreparation restartPreparation;
+    private final IgnoredLabelNote ignoredLabelNote;
+    private final EnterRequests enterRequests;
+    private final LiveRecordCheck liveRecordCheck;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
+    /** The issues in work with a request of factory:enter. The loop enters after its current step. */
+    private final Set<Integer> enterRequestedIssues = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor) {
+                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
+                  LiveSessions liveSessions) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
@@ -71,6 +77,9 @@ public final class Worker {
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
         this.restartPreparation = new RestartPreparation(gitHub, layout);
+        this.ignoredLabelNote = new IgnoredLabelNote(gitHub, requests, workerLogin);
+        this.enterRequests = new EnterRequests(gitHub, requests, ignoredLabelNote, workflow);
+        this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
     }
 
     /** Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. */
@@ -112,7 +121,8 @@ public final class Worker {
 
     /**
      * Stops the worker, ends the phases in work, and waits for the loops. A loop that ends because of the stop
-     * writes back the record from before the stopped step.
+     * writes back the record from before the stopped step, except when the result of the step is final. After
+     * the timeout, the loops get an interrupt: an open of a live session in progress then closes its session.
      *
      * @return true when all loops ended in the timeout
      */
@@ -126,6 +136,8 @@ public final class Worker {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return false;
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -140,7 +152,7 @@ public final class Worker {
         gitHub.ensureLabel(FACTORY_LABEL, "1d76db", "The factory works on this issue.");
         gitHub.ensureLabel(APPROVE_LABEL, "0e8a16", "The owner approves the merge of the factory.");
         gitHub.ensureLabel(BLOCK_LABEL, "b60205", "The owner stops the factory on this issue.");
-        gitHub.ensureLabel(ENTER_LABEL, "fbca04", "The owner enters the session of the agent.");
+        gitHub.ensureLabel(EnterRequests.ENTER_LABEL, "fbca04", "The owner enters the session of the agent.");
         gitHub.ensureStatusLabels();
         labelsEnsured = true;
     }
@@ -175,9 +187,12 @@ public final class Worker {
                 requestBlock(issueNumber);
                 return Optional.empty();
             }
-            noteIgnoredLabel(issueNumber, BLOCK_LABEL, gitHub.comments(issueNumber));
+            ignoredLabelNote.write(issueNumber, BLOCK_LABEL, gitHub.comments(issueNumber));
         }
         if (isInWork(issueNumber)) {
+            if (enterRequests.isRequested(issue)) {
+                rememberEnterRequest(issueNumber);
+            }
             return Optional.empty();
         }
         List<IssueComment> comments = gitHub.comments(issueNumber);
@@ -189,11 +204,26 @@ public final class Worker {
         if (record.isEmpty()) {
             return takeIntoQueue(issue, comments);
         }
-        return record.filter(found -> isStartable(issue, found));
+        IssueRecord current = enterRequests.isRequested(issue) ? enterRequests.enter(record.get()) : record.get();
+        current = liveRecordCheck.forgetEndedSession(issue, current);
+        return Optional.of(current).filter(found -> isStartable(issue, found));
     }
 
-    /** A record in phase DONE that still has the label factory has a finish step that did not end. */
+    /** A loop that ended already gets no request: the label stays, and the next poll enters at once. */
+    private synchronized void rememberEnterRequest(int issueNumber) {
+        if (issuesInWork.contains(issueNumber)) {
+            enterRequestedIssues.add(issueNumber);
+        }
+    }
+
+    /**
+     * A record in phase DONE that still has the label factory has a finish step that did not end. A live record
+     * starts only on /factory:continue, in any status.
+     */
     private boolean isStartable(Issue issue, IssueRecord record) {
+        if (IssueWorkflow.isLive(record)) {
+            return liveRecordCheck.isContinueRequested(record);
+        }
         return !workflow.isWaiting(record) || record.phase() == Phase.DONE
                 || waitsForAGivenApprovalLabel(issue, record);
     }
@@ -205,22 +235,11 @@ public final class Worker {
 
     private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments) {
         if (!requests.isGivenByAllowedAccount(issue.number(), FACTORY_LABEL)) {
-            noteIgnoredLabel(issue.number(), FACTORY_LABEL, comments);
+            ignoredLabelNote.write(issue.number(), FACTORY_LABEL, comments);
             return Optional.empty();
         }
         IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
         return Optional.of(publishFirstRecord(issue, queued));
-    }
-
-    /** Writes the note once: a comment of the worker with the same text means the note is there. */
-    private void noteIgnoredLabel(int issueNumber, String label, List<IssueComment> comments) {
-        String actor = requests.findLabelActor(issueNumber, label).orElse("an unknown account");
-        String note = "The label " + label + " from " + actor + " is ignored: the account is not in accounts.allowed.";
-        boolean isNoted = comments.stream()
-                .anyMatch(comment -> workerLogin.equals(comment.authorLogin()) && note.equals(comment.body()));
-        if (!isNoted) {
-            gitHub.createComment(issueNumber, note);
-        }
     }
 
     /** The new status comment becomes the newest record, so the broken record never counts again. */
@@ -271,15 +290,18 @@ public final class Worker {
         return blockedIssues.contains(issueNumber);
     }
 
-    /** Keeps the result of a step only when no block and no stop came during the step, or when it merged. */
+    /**
+     * Keeps the result of a step only when no block and no stop came during the step, or when it is final. A request
+     * of factory:enter ends the loop after the current step, and the loop enters on the record that it kept.
+     */
     private void runIssue(IssueRecord start) {
         int issueNumber = start.issueNumber();
         IssueRecord kept = start;
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
-            while (mayContinue(issueNumber)) {
+            while (mayContinue(issueNumber) && !isEnterRequested(issueNumber)) {
                 IssueRecord next = workflow.advance(kept);
-                if (!mayContinue(issueNumber) && next.phase() != Phase.DONE) {
+                if (!mayContinue(issueNumber) && !FinalStepResult.isFinal(kept, next)) {
                     interruptedResult = Optional.of(next);
                     break;
                 }
@@ -291,6 +313,9 @@ public final class Worker {
                 if (workflow.isWaiting(kept)) {
                     break;
                 }
+            }
+            if (mayContinue(issueNumber) && isEnterRequested(issueNumber)) {
+                kept = enterRequests.enter(kept);
             }
         } catch (ApiKeyDetectedException exception) {
             stopOnApiKey(issueNumber, exception);
@@ -308,6 +333,10 @@ public final class Worker {
 
     private synchronized boolean mayContinue(int issueNumber) {
         return !isStopped() && !blockedIssues.contains(issueNumber);
+    }
+
+    private synchronized boolean isEnterRequested(int issueNumber) {
+        return enterRequestedIssues.contains(issueNumber);
     }
 
     /**
@@ -344,9 +373,12 @@ public final class Worker {
         boolean isBlocked;
         synchronized (this) {
             issuesInWork.remove(kept.issueNumber());
+            enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
         }
         if (isBlocked) {
+            // A block during the enter of the loop came before the session was open.
+            phaseStopper.closeLiveSession(kept.issueNumber());
             finishBlock(kept.issueNumber(), Optional.of(kept), interruptedResult);
         } else if (interruptedResult.isPresent()) {
             restoreKeptRecord(kept, interruptedResult.get());
@@ -355,7 +387,7 @@ public final class Worker {
 
     /**
      * Writes BLOCKED over the record. The record of a loop is the last record that the loop kept; without a
-     * loop, the record on GitHub is the last result.
+     * loop, the record on GitHub is the last result. The block closed the live session, so the record drops it.
      */
     private void finishBlock(int issueNumber, Optional<IssueRecord> keptByLoop,
                              Optional<IssueRecord> interruptedResult) {
@@ -372,7 +404,8 @@ public final class Worker {
                 noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
                 return;
             }
-            IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER);
+            IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
+                    .withoutLive();
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
             gitHub.removeLabel(issueNumber, BLOCK_LABEL);
         } catch (GitHubException exception) {
@@ -447,8 +480,9 @@ public final class Worker {
         stopPhasesInWork();
     }
 
+    /** A stop of the worker never closes a live session. */
     private void stopPhasesInWork() {
-        issuesInWork().forEach(phaseStopper::stopIssue);
+        issuesInWork().forEach(phaseStopper::stopRunningWork);
     }
 
     private Optional<IssueRecord> readRecord(int issueNumber) {

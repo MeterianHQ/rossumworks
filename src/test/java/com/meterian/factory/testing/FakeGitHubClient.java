@@ -47,6 +47,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
+    private boolean failsTheNextCommentCreate;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
@@ -124,6 +125,11 @@ public final class FakeGitHubClient implements GitHubClient {
         return List.copyOf(squashMergeShas);
     }
 
+    /** The next createComment throws a GitHubException, as a lost connection does. */
+    public synchronized void failTheNextCommentCreate() {
+        failsTheNextCommentCreate = true;
+    }
+
     /** The next editComment throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextCommentEdit() {
         failsTheNextCommentEdit = true;
@@ -180,6 +186,11 @@ public final class FakeGitHubClient implements GitHubClient {
         return List.copyOf(removedLabels);
     }
 
+    /** The next removeLabel throws a GitHubException. */
+    public synchronized void failTheNextRemoveLabel() {
+        nextRemoveLabelFailure = new GitHubException("GitHub answered 502 for DELETE /labels");
+    }
+
     /** The first removeLabel after a successful squash merge throws a GitHubException. */
     public synchronized void failTheRemoveLabelAfterTheMerge() {
         removeLabelFailureAfterTheMerge = new GitHubException("GitHub answered 502 for DELETE /labels");
@@ -233,6 +244,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized long createComment(int issueNumber, String body) {
+        if (failsTheNextCommentCreate) {
+            failsTheNextCommentCreate = false;
+            throw new GitHubException("GitHub answered 502 for POST /issues/" + issueNumber + "/comments");
+        }
         return addCommentBy(issueNumber, authenticatedLogin, body);
     }
 

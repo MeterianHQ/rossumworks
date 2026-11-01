@@ -59,6 +59,20 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void theLiveDirectoryDefaultsToTheWorkDirectory() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION);
+
+        assertThat(configuration.liveDirectory()).isEqualTo(Path.of("/work/factory/live"));
+    }
+
+    @Test
+    void readsTheLiveDirectory() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION + "live-directory: /work/live-files\n");
+
+        assertThat(configuration.liveDirectory()).isEqualTo(Path.of("/work/live-files"));
+    }
+
+    @Test
     void acceptsThePollIntervalInMinutes() throws Exception {
         FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION + """
                 limits:

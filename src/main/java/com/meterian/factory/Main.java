@@ -1,6 +1,9 @@
 package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
+import com.meterian.factory.agent.LiveFiles;
+import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
@@ -23,6 +26,7 @@ import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
@@ -72,16 +76,28 @@ public final class Main {
         System.exit(run(arguments, System.getenv(), System.err));
     }
 
-    /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
+    /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
+    @FunctionalInterface
+    interface WorkerStarter {
+        int start(FactoryConfiguration configuration, String token, PrintStream errors)
+                throws InterruptedException, StartupException;
+    }
+
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors) {
+        return run(arguments, environment, errors, Main::readTokenFromGh, Main::runWorker);
+    }
+
+    /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
+    static int run(String[] arguments, Map<String, String> environment, PrintStream errors, TokenSource ghToken,
+                   WorkerStarter workerStarter) {
         try {
             Path configurationFile = readConfigurationPath(arguments);
             verifyNoApiKey(environment);
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
             Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.target().sshUrl());
-            String token = readToken(environment, Main::readTokenFromGh);
-            return runWorker(configuration, token, errors);
+            String token = readToken(environment, ghToken);
+            return workerStarter.start(configuration, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -107,7 +123,7 @@ public final class Main {
     }
 
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
-        List<String> commands = List.of(configuration.claude().command(), "git", "setsid", "kill");
+        List<String> commands = List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq");
         List<String> missing = findMissingCommands(commands, path);
         if (!missing.isEmpty()) {
             throw new StartupException("The factory needs these commands on the PATH: " + String.join(", ", missing));
@@ -209,17 +225,22 @@ public final class Main {
     }
 
     private static int runWorker(FactoryConfiguration configuration, String token, PrintStream errors)
-            throws InterruptedException {
+            throws InterruptedException, StartupException {
+        LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
         BuildRunner buildRunner = new BuildRunner();
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin);
+        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
+                liveSessions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
-                new WorkspaceLayout(configuration.workDirectory()));
-        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor);
+                new WorkspaceLayout(configuration.workDirectory()), liveSessions);
+        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
+                liveSessions);
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
         worker.runUntilStopped();
         worker.shutDown(LOOP_END_TIMEOUT);
@@ -231,6 +252,25 @@ public final class Main {
         return EXIT_API_KEY;
     }
 
+    /** The install runs before the first poll: a live folder that is not private stops the start. */
+    private static LiveFiles installLiveFiles(FactoryConfiguration configuration) throws StartupException {
+        LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
+        try {
+            liveFiles.install();
+        } catch (IllegalStateException | UncheckedIOException | UnsupportedOperationException exception) {
+            throw new StartupException(describeLiveFilesFailure(exception));
+        }
+        return liveFiles;
+    }
+
+    private static String describeLiveFilesFailure(RuntimeException exception) {
+        if (exception instanceof UnsupportedOperationException) {
+            return "The factory needs a file system with POSIX permissions for the live folder.";
+        }
+        Throwable cause = exception.getCause();
+        return cause == null ? exception.getMessage() : exception.getMessage() + ": " + cause.getMessage();
+    }
+
     /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
     static Thread createShutdownHook(Worker worker) {
         return new Thread(() -> worker.shutDown(SHUTDOWN_TIMEOUT), "factory-shutdown");
@@ -238,7 +278,8 @@ public final class Main {
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
-                                                RequestReader requests, String workerLogin) {
+                                                RequestReader requests, String workerLogin,
+                                                LiveSessions liveSessions) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
@@ -247,6 +288,6 @@ public final class Main {
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger, usage,
-                requests, layout, workerLogin);
+                requests, layout, workerLogin, liveSessions);
     }
 }

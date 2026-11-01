@@ -18,6 +18,7 @@ public final class ConfigurationLoader {
     public static FactoryConfiguration load(Path file) throws ConfigurationException {
         ConfigurationSection root = new ConfigurationSection(readTree(file), "");
         ConfigurationSection accountsSection = root.requireSection("accounts");
+        Path workDirectory = root.requirePath("work-directory");
         return new FactoryConfiguration(
                 readTarget(root.requireSection("target")),
                 root.requireNestedText("merge", "target-branch"),
@@ -25,9 +26,10 @@ public final class ConfigurationLoader {
                 readAllowedAccounts(accountsSection),
                 readIsolationMode(root),
                 readClaudeSettings(root),
-                root.requirePath("work-directory"),
+                workDirectory,
                 root.requirePath("gatekeeper-directory"),
-                root.findPath("prompts-directory"));
+                root.findPath("prompts-directory"),
+                root.findPath("live-directory").orElse(workDirectory.resolve("live")));
     }
 
     private static JsonNode readTree(Path file) throws ConfigurationException {

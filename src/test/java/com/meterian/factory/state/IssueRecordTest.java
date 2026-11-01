@@ -2,12 +2,16 @@ package com.meterian.factory.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class IssueRecordTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());
 
     private final IssueRecord queued = IssueRecord.queued(3);
 
@@ -117,5 +121,63 @@ class IssueRecordTest {
 
         assertThat(reviewed.reviewedHeadCommit()).contains("ccc");
         assertThat(reviewed.withoutReviews().reviewedHeadCommit()).isEmpty();
+    }
+
+    private static final LiveSession SESSION =
+            new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.empty());
+
+    @Test
+    void anOldRecordWithoutTheLiveFieldsReadsAsNotLive() throws Exception {
+        String json = MAPPER.writeValueAsString(queued)
+                .replace(",\"live\":null", "")
+                .replace(",\"afterConversation\":false", "");
+
+        IssueRecord old = MAPPER.readValue(json, IssueRecord.class);
+
+        assertThat(json).doesNotContain("live").doesNotContain("afterConversation");
+        assertThat(old.live()).isEmpty();
+        assertThat(old.afterConversation()).isFalse();
+    }
+
+    @Test
+    void withLiveKeepsTheStateBeforeTheConversation() {
+        IssueRecord live = queued.withLive(SESSION);
+
+        assertThat(live.live().orElseThrow().statusBefore()).isEqualTo(IssueStatus.IN_REVIEW);
+        assertThat(live.live().orElseThrow().waitBefore()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void withLiveLinkSetsOnlyTheLink() {
+        IssueRecord linked = queued.withLive(SESSION).withLiveLink("https://claude.ai/code/session_x");
+
+        assertThat(linked.live().orElseThrow().link()).contains("https://claude.ai/code/session_x");
+        assertThat(linked.live().orElseThrow().startHeadCommit()).isEqualTo("abc");
+        assertThat(linked.withoutLiveLink().live().orElseThrow().link()).isEmpty();
+    }
+
+    @Test
+    void withoutLiveClearsTheLiveState() {
+        assertThat(queued.withLive(SESSION).withoutLive().live()).isEmpty();
+    }
+
+    @Test
+    void aPhaseOutsideImplementClearsTheAfterConversationFlag() {
+        IssueRecord afterConversation = queued.withPhase(Phase.IMPLEMENT).withAfterConversation();
+
+        assertThat(afterConversation.withPhase(Phase.IMPLEMENT).afterConversation()).isTrue();
+        assertThat(afterConversation.withPhase(Phase.BUILD).afterConversation()).isFalse();
+    }
+
+    @Test
+    void theAfterConversationFlagSetsAndClears() {
+        assertThat(queued.withAfterConversation().afterConversation()).isTrue();
+        assertThat(queued.withAfterConversation().withoutAfterConversation().afterConversation()).isFalse();
+    }
+
+    @Test
+    void withLiveLinkDoesNothingWhenTheIssueIsNotLive() {
+        assertThat(queued.withLiveLink("https://claude.ai/code/session_x")).isEqualTo(queued);
+        assertThat(queued.withoutLiveLink()).isEqualTo(queued);
     }
 }
