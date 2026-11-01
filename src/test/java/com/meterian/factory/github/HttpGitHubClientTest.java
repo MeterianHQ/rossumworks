@@ -32,7 +32,10 @@ class HttpGitHubClientTest {
     private record RecordedRequest(String method, String target, Map<String, String> headers, String body) {
     }
 
-    private record Answer(int status, String body) {
+    private record Answer(int status, String body, String link) {
+        Answer(int status, String body) {
+            this(status, body, null);
+        }
     }
 
     private HttpServer server;
@@ -54,6 +57,9 @@ class HttpGitHubClientTest {
             Answer answer = responder.apply(request);
             byte[] bytes = answer.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
+            if (answer.link() != null) {
+                exchange.getResponseHeaders().add("Link", answer.link());
+            }
             exchange.sendResponseHeaders(answer.status(), bytes.length == 0 ? -1 : bytes.length);
             if (bytes.length > 0) {
                 exchange.getResponseBody().write(bytes);
@@ -186,6 +192,79 @@ class HttpGitHubClientTest {
         responder = request -> new Answer(500, "{\"message\":\"boom\"}");
 
         assertThatThrownBy(() -> client.authenticatedLogin())
+                .isInstanceOf(GitHubException.class)
+                .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
+    }
+
+    private String baseUrl() {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    private static String labeledEvent(String time, String label, String actorJson) {
+        return "{\"event\":\"labeled\",\"created_at\":\"" + time + "\",\"label\":{\"name\":\"" + label
+                + "\"},\"actor\":" + actorJson + "}";
+    }
+
+    @Test
+    void followsTheLinkHeaderToTheNextPage() {
+        responder = request -> {
+            boolean secondPage = request.target().contains("page=2");
+            boolean events = request.target().contains("/events");
+            String body = events
+                    ? "[" + (secondPage ? labeledEvent("2026-11-01T12:00:00Z", "factory:approve", "{\"login\":\"newest\"}")
+                    : labeledEvent("2026-11-01T10:00:00Z", "factory:approve", "{\"login\":\"older\"}")) + "]"
+                    : "[{\"number\":" + (secondPage ? 2 : 1) + ",\"node_id\":\"N\",\"title\":\"T\",\"labels\":[]}]";
+            String link = secondPage ? null : "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"";
+            return new Answer(200, body, link);
+        };
+
+        assertThat(client.lastLabelActor(4, "factory:approve")).contains("newest");
+        assertThat(client.openIssuesWithLabel("factory")).extracting(Issue::number).containsExactly(1, 2);
+    }
+
+    @Test
+    void refusesANextLinkToAnotherHost() {
+        responder = request -> new Answer(200, "[]", "<http://other.invalid/next?page=2>; rel=\"next\"");
+
+        assertThatThrownBy(() -> client.openIssuesWithLabel("factory")).isInstanceOf(GitHubException.class);
+        assertThat(requests).hasSize(1);
+    }
+
+    @Test
+    void failsOnGraphQlErrorsInASuccessfulAnswer() {
+        responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"Could not resolve\"}]}");
+
+        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", java.util.Set.of()), IssueStatus.QUEUED))
+                .isInstanceOf(GitHubException.class);
+    }
+
+    @Test
+    void returnsNoActorWhenNoEventMatches() {
+        responder = request -> new Answer(200, "[]");
+        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
+
+        responder = request -> new Answer(200, "[" + labeledEvent("2026-11-01T10:00:00Z", "other",
+                "{\"login\":\"x\"}") + "]");
+        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
+    }
+
+    @Test
+    void returnsNoActorWhenTheNewestEventHasNoActor() {
+        responder = request -> new Answer(200, "["
+                + labeledEvent("2026-11-01T10:00:00Z", "factory:approve", "{\"login\":\"old\"}") + ","
+                + labeledEvent("2026-11-01T12:00:00Z", "factory:approve", "null") + "]");
+
+        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
+    }
+
+    @Test
+    void neverPutsTheTokenInAnyError() {
+        responder = request -> new Answer(404, "{\"message\":\"Not Found\"}");
+        assertThatThrownBy(() -> client.issue(9)).isInstanceOf(GitHubException.class)
+                .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
+
+        responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"bad\"}]}");
+        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", java.util.Set.of()), IssueStatus.QUEUED))
                 .isInstanceOf(GitHubException.class)
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
     }

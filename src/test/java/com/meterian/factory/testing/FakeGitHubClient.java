@@ -29,6 +29,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, IssueStatus> statuses = new TreeMap<>();
     private final List<LabelEvent> labelEvents = new ArrayList<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
+    private final Set<Integer> mergedPullRequests = new java.util.HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
     private final List<Integer> squashMergeCalls = new ArrayList<>();
     private String authenticatedLogin = "factory-bot";
@@ -46,8 +47,9 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     public synchronized void addLabelBy(int issueNumber, String label, String actor) {
-        labels.get(issueNumber).add(label);
-        labelEvents.add(new LabelEvent(issueNumber, label, actor));
+        if (labels.get(issueNumber).add(label)) {
+            labelEvents.add(new LabelEvent(issueNumber, label, actor));
+        }
     }
 
     public synchronized long addCommentBy(int issueNumber, String author, String body) {
@@ -146,7 +148,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized Optional<PullRequest> openPullRequest(String headBranch) {
-        return pullRequests.stream().filter(pullRequest -> pullRequest.headBranch().equals(headBranch)).findFirst();
+        return pullRequests.stream()
+                .filter(pullRequest -> pullRequest.headBranch().equals(headBranch))
+                .filter(pullRequest -> !mergedPullRequests.contains(pullRequest.number()))
+                .findFirst();
     }
 
     @Override
@@ -161,6 +166,10 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized MergeOutcome squashMerge(int pullRequestNumber) {
         squashMergeCalls.add(pullRequestNumber);
-        return mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();
+        MergeOutcome outcome = mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();
+        if (outcome == MergeOutcome.MERGED) {
+            mergedPullRequests.add(pullRequestNumber);
+        }
+        return outcome;
     }
 }

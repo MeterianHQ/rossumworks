@@ -94,17 +94,18 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public Optional<String> lastLabelActor(int issueNumber, String label) {
         String newestTime = "";
-        String newestActor = null;
+        Optional<String> newestActor = Optional.empty();
         for (JsonNode event : readAllPages(repositoryPath + "/issues/" + issueNumber + "/events?per_page=100")) {
             boolean matches = "labeled".equals(event.path("event").asText())
                     && label.equals(event.path("label").path("name").asText());
             String createdAt = event.path("created_at").asText("");
             if (matches && createdAt.compareTo(newestTime) >= 0) {
                 newestTime = createdAt;
-                newestActor = event.path("actor").path("login").asText();
+                JsonNode login = event.path("actor").path("login");
+                newestActor = login.isTextual() ? Optional.of(login.asText()) : Optional.empty();
             }
         }
-        return Optional.ofNullable(newestActor);
+        return newestActor;
     }
 
     @Override
