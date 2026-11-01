@@ -5,6 +5,7 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
@@ -19,6 +20,7 @@ import com.meterian.factory.workflow.MergedIssue;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -55,6 +57,7 @@ public final class Worker {
     private final IgnoredLabelNote ignoredLabelNote;
     private final EnterRequests enterRequests;
     private final LiveRecordCheck liveRecordCheck;
+    private final RateLimitWait rateLimitWait;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
@@ -66,7 +69,7 @@ public final class Worker {
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
                   PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions) {
+                  LiveSessions liveSessions, Clock clock) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
@@ -80,11 +83,15 @@ public final class Worker {
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, requests, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, requests, ignoredLabelNote, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
+        this.rateLimitWait = new RateLimitWait(clock);
     }
 
-    /** Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. */
+    /**
+     * Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. In a
+     * wait for the reset of the GitHub rate limit, the poll sends no request.
+     */
     public void pollOnce() {
-        if (isStopped()) {
+        if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
         try {
@@ -167,6 +174,8 @@ public final class Worker {
     private Optional<IssueRecord> checkIssue(Issue issue) {
         try {
             return findStartableRecord(issue);
+        } catch (GitHubRateLimitException exception) {
+            throw exception;
         } catch (GitHubException exception) {
             logGitHubFailure("The check of the issue #" + issue.number(), exception);
             return Optional.empty();
@@ -489,8 +498,15 @@ public final class Worker {
         return StatusComment.findRecord(gitHub.comments(issueNumber), workerLogin);
     }
 
-    /** The message of a GitHubException never holds the token. */
-    private static void logGitHubFailure(String step, GitHubException exception) {
+    /**
+     * The message of a GitHubException never holds the token. The rate limit is not a failure of the step: the
+     * step runs again after the reset.
+     */
+    private void logGitHubFailure(String step, GitHubException exception) {
+        if (exception instanceof GitHubRateLimitException rateLimit) {
+            rateLimitWait.waitUntil(rateLimit.resetTime());
+            return;
+        }
         LOGGER.log(System.Logger.Level.WARNING, "{0} failed: {1}", step, exception.getMessage());
     }
 }

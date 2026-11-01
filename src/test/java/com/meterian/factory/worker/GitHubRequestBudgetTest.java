@@ -24,6 +24,8 @@ import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeGitHubServer;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.RequestReader;
@@ -38,9 +40,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.function.BooleanSupplier;
+import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.SimpleFormatter;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -53,6 +59,11 @@ class GitHubRequestBudgetTest {
 
     private static final int ISSUE = 7;
     private static final String WORKER_LOGIN = "factory-bot";
+    private static final String TOKEN = "test-token-value";
+    private static final Instant NOW = Instant.parse("2026-11-01T10:00:00Z");
+    private static final Instant RESET = Instant.parse("2026-11-01T10:20:00Z");
+    private static final String RATE_LIMIT_LINE =
+            "The GitHub rate limit is reached. The factory waits until 2026-11-01T10:20:00Z.";
     private static final int MEASURED_POLLS = 5;
     private static final String ISSUE_LIST_REQUEST = "GET /repos/{o}/{r}/issues";
     /** The issue list has the labels, so an issue in work without a request label needs no other read. */
@@ -67,6 +78,22 @@ class GitHubRequestBudgetTest {
     private final Git git = new ProcessGit();
     private final FakeGitHubClient fakeGitHub = new FakeGitHubClient();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
+    private final MutableClock clock = new MutableClock(NOW);
+    private final List<String> workerLog = new CopyOnWriteArrayList<>();
+    private final Handler workerLogHandler = new Handler() {
+        @Override
+        public void publish(LogRecord logRecord) {
+            workerLog.add(new SimpleFormatter().formatMessage(logRecord));
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+    };
     private FakeGitHubServer server;
     private HttpGitHubClient gitHub;
     private Path clone;
@@ -90,9 +117,15 @@ class GitHubRequestBudgetTest {
         fakeGitHub.setAuthenticatedLogin(WORKER_LOGIN);
         fakeGitHub.readPullRequestHeadsFrom(githubRepository);
         server = new FakeGitHubServer(fakeGitHub, "MeterianHQ", "sample");
-        gitHub = new HttpGitHubClient(server.apiBase(), "test-token", createTarget(), HttpClient.newHttpClient());
+        gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createTarget(), HttpClient.newHttpClient(), clock);
         fakeGitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         fakeGitHub.addLabelBy(ISSUE, "factory", "bbossola");
+    }
+
+    @BeforeEach
+    void recordTheWorkerLog() {
+        WORKER_LOGGER.addHandler(workerLogHandler);
+        WORKER_LOGGER.setLevel(Level.ALL);
     }
 
     @AfterEach
@@ -101,6 +134,8 @@ class GitHubRequestBudgetTest {
             worker.shutDown(TIME_BOUND);
         }
         server.close();
+        WORKER_LOGGER.removeHandler(workerLogHandler);
+        WORKER_LOGGER.setLevel(Level.OFF);
     }
 
     private TargetRepository createTarget() {
@@ -124,7 +159,7 @@ class GitHubRequestBudgetTest {
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions);
+                liveSessions, clock);
     }
 
     private Optional<IssueRecord> readRecord() {
@@ -168,5 +203,60 @@ class GitHubRequestBudgetTest {
 
     private static int sum(Map<String, Integer> counts) {
         return counts.values().stream().mapToInt(Integer::intValue).sum();
+    }
+
+    private List<String> rateLimitLines() {
+        return workerLog.stream().filter(line -> line.startsWith("The GitHub rate limit")).toList();
+    }
+
+    @Test
+    void sendsNoRequestUntilTheResetWhenFewRequestsRemain() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        server.sendRateLimitHeaders(50, RESET);
+        worker.pollOnce();
+        int requestsBeforeTheWait = server.receivedRequestCount();
+
+        clock.set(RESET.minusSeconds(1));
+        worker.pollOnce();
+        worker.pollOnce();
+
+        assertThat(server.receivedRequestCount()).isEqualTo(requestsBeforeTheWait);
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+
+        server.answerNormally();
+        clock.set(RESET);
+        worker.pollOnce();
+
+        assertThat(server.receivedRequestCount()).isGreaterThan(requestsBeforeTheWait);
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+    }
+
+    @Test
+    void aStepThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFileAnd(() -> server.refuseWithTheRateLimit(RESET))
+                .thenChangeFile().thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(readRecord().orElseThrow().fixLoops()).isZero();
+        int requestsInTheWait = server.receivedRequestCount();
+        worker.pollOnce();
+        assertThat(server.receivedRequestCount()).isEqualTo(requestsInTheWait);
+
+        server.answerNormally();
+        clock.set(RESET);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+
+        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+        assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));
     }
 }

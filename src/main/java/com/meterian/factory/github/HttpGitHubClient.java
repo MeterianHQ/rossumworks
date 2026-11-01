@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -37,19 +38,30 @@ public final class HttpGitHubClient implements GitHubClient {
     private final Duration requestTimeout;
     private final ObjectMapper mapper = new ObjectMapper();
     private final GitHubRequestCounter requestCounter;
+    private final GitHubRateLimit rateLimit;
 
     public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
-        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT);
+        this(apiBase, token, target, httpClient, Clock.systemUTC());
+    }
+
+    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient, Clock clock) {
+        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT, clock);
     }
 
     HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
                      Duration requestTimeout) {
+        this(apiBase, token, target, httpClient, requestTimeout, Clock.systemUTC());
+    }
+
+    HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
+                     Duration requestTimeout, Clock clock) {
         this.apiBase = apiBase;
         this.token = token;
         this.repositoryPath = "/repos/" + target.fullName();
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
         this.requestCounter = new GitHubRequestCounter(repositoryPath);
+        this.rateLimit = new GitHubRateLimit(clock);
     }
 
     /** The number of requests since the start or the last reset, by method and path template. */
@@ -283,8 +295,12 @@ public final class HttpGitHubClient implements GitHubClient {
                     .header("Content-Type", "application/json")
                     .header("X-GitHub-Api-Version", API_VERSION)
                     .build();
+            rateLimit.verifyRequestIsAllowed();
             requestCounter.count(method, uri);
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            rateLimit.readAnswer(response.statusCode(), response.headers());
+            return response;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new GitHubException("the request " + method + " " + uri.getRawPath() + " was interrupted");

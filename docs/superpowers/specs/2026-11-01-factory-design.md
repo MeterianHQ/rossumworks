@@ -116,6 +116,11 @@ GitHub (issues, labels with the status, pull requests)
   seconds). This interval is the delay of each reaction.
 - The worker uses one GitHub token. The token stays in the worker. It
   never goes to the browser or to an agent session.
+- The worker respects the GitHub rate limit. When less than 100 requests
+  remain, or GitHub refuses a request with a rate-limit header, the worker
+  sends no request until the reset time. It logs one line for each wait. A
+  step that meets the limit runs again at the first poll after the reset. It
+  is not a failure of the issue.
 - The worker can stop and start again at any time. At start, it reads the
   state from GitHub and continues. A phase that ran when the worker
   stopped runs again from its start.

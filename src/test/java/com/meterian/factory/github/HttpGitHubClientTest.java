@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.testing.MutableClock;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -15,6 +16,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,13 +31,23 @@ import org.junit.jupiter.api.Test;
 class HttpGitHubClientTest {
 
     private static final String TOKEN = "secret-token-value";
+    private static final Instant NOW = Instant.parse("2026-11-01T10:00:00Z");
+    private static final Instant RESET = Instant.parse("2026-11-01T10:20:00Z");
 
     private record RecordedRequest(String method, String target, Map<String, String> headers, String body) {
     }
 
-    private record Answer(int status, String body, String link) {
+    private record Answer(int status, String body, String link, Map<String, String> headers) {
         Answer(int status, String body) {
-            this(status, body, null);
+            this(status, body, null, Map.of());
+        }
+
+        Answer(int status, String body, String link) {
+            this(status, body, link, Map.of());
+        }
+
+        Answer(int status, String body, Map<String, String> headers) {
+            this(status, body, null, headers);
         }
     }
 
@@ -43,6 +55,7 @@ class HttpGitHubClientTest {
     private final List<RecordedRequest> requests = new CopyOnWriteArrayList<>();
     private Function<RecordedRequest, Answer> responder = request -> new Answer(200, "{}");
     private HttpGitHubClient client;
+    private final MutableClock clock = new MutableClock(NOW);
 
     @BeforeEach
     void startServer() throws IOException {
@@ -61,6 +74,7 @@ class HttpGitHubClientTest {
             if (answer.link() != null) {
                 exchange.getResponseHeaders().add("Link", answer.link());
             }
+            answer.headers().forEach(exchange.getResponseHeaders()::add);
             exchange.sendResponseHeaders(answer.status(), bytes.length == 0 ? -1 : bytes.length);
             if (bytes.length > 0) {
                 exchange.getResponseBody().write(bytes);
@@ -70,7 +84,8 @@ class HttpGitHubClientTest {
         server.start();
         URI apiBase = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         TargetRepository target = new TargetRepository("o", "r", Path.of("clone"), "true", Map.of());
-        client = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient());
+        client = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient(),
+                HttpGitHubClient.REQUEST_TIMEOUT, clock);
     }
 
     @AfterEach
@@ -443,5 +458,81 @@ class HttpGitHubClientTest {
         responder = request -> new Answer(404, "{\"message\":\"Not Found\"}");
         assertThatThrownBy(() -> client.issue(9)).isInstanceOf(GitHubException.class)
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
+    }
+
+    private static Map<String, String> rateLimitHeaders(int remaining, Instant reset) {
+        return Map.of("X-RateLimit-Remaining", Integer.toString(remaining),
+                "X-RateLimit-Reset", Long.toString(reset.getEpochSecond()));
+    }
+
+    @Test
+    void raisesTheRateLimitWithTheResetTimeOnA403WithoutRemainingRequests() {
+        responder = request -> new Answer(403, "{\"message\":\"API rate limit exceeded\"}",
+                rateLimitHeaders(0, RESET));
+
+        assertThatThrownBy(() -> client.issue(4))
+                .isInstanceOf(GitHubRateLimitException.class)
+                .satisfies(exception -> {
+                    assertThat(((GitHubRateLimitException) exception).resetTime()).isEqualTo(RESET);
+                    assertThat(exception.getMessage()).doesNotContain(TOKEN);
+                });
+    }
+
+    @Test
+    void waitsTheRetryAfterTimeOfA429() {
+        responder = request -> new Answer(429, "{\"message\":\"secondary rate limit\"}",
+                Map.of("Retry-After", "30"));
+
+        assertThatThrownBy(() -> client.issue(4))
+                .isInstanceOf(GitHubRateLimitException.class)
+                .satisfies(exception -> assertThat(((GitHubRateLimitException) exception).resetTime())
+                        .isEqualTo(NOW.plusSeconds(30)));
+
+        responder = request -> new Answer(200, issueJson());
+        clock.set(NOW.plusSeconds(29));
+        assertThatThrownBy(() -> client.issue(4)).isInstanceOf(GitHubRateLimitException.class);
+        assertThat(requests).hasSize(1);
+
+        clock.set(NOW.plusSeconds(30));
+        assertThat(client.issue(4).number()).isEqualTo(4);
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void sendsNoRequestUntilTheResetWhenFewRequestsRemain() {
+        responder = request -> new Answer(200, issueJson(), rateLimitHeaders(50, RESET));
+
+        assertThat(client.issue(4).number()).isEqualTo(4);
+        assertThatThrownBy(() -> client.issue(4))
+                .isInstanceOf(GitHubRateLimitException.class)
+                .satisfies(exception -> assertThat(((GitHubRateLimitException) exception).resetTime())
+                        .isEqualTo(RESET));
+        assertThat(requests).hasSize(1);
+
+        responder = request -> new Answer(200, issueJson(), rateLimitHeaders(5000, RESET.plusSeconds(3600)));
+        clock.set(RESET);
+        assertThat(client.issue(4).number()).isEqualTo(4);
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void continuesWhenEnoughRequestsRemain() {
+        responder = request -> new Answer(200, issueJson(), rateLimitHeaders(100, RESET));
+
+        client.issue(4);
+        client.issue(4);
+
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void treatsA403WithoutARateLimitHeaderAsAnOrdinaryFailure() {
+        responder = request -> new Answer(403, "{\"message\":\"Resource not accessible\"}",
+                Map.of("X-RateLimit-Remaining", "4000"));
+
+        assertThatThrownBy(() -> client.issue(4))
+                .isInstanceOf(GitHubException.class)
+                .isNotInstanceOf(GitHubRateLimitException.class)
+                .hasMessageContaining("403");
     }
 }

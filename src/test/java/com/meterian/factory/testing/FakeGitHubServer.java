@@ -20,11 +20,13 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -52,6 +54,9 @@ public final class FakeGitHubServer implements AutoCloseable {
     private final String repositoryPath;
     private final HttpServer server;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final AtomicInteger receivedRequests = new AtomicInteger();
+    private volatile Map<String, String> rateLimitHeaders = Map.of();
+    private volatile boolean refusesWithTheRateLimit;
 
     public FakeGitHubServer(FakeGitHubClient gitHub, String owner, String name) {
         this.gitHub = gitHub;
@@ -69,6 +74,27 @@ public final class FakeGitHubServer implements AutoCloseable {
         return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
     }
 
+    /** Each answer gets these headers, as GitHub sends them. */
+    public void sendRateLimitHeaders(int remaining, Instant reset) {
+        rateLimitHeaders = Map.of("X-RateLimit-Remaining", Integer.toString(remaining),
+                "X-RateLimit-Reset", Long.toString(reset.getEpochSecond()));
+    }
+
+    /** Each request gets a 403 with no remaining requests, until the reset time of the headers. */
+    public void refuseWithTheRateLimit(Instant reset) {
+        sendRateLimitHeaders(0, reset);
+        refusesWithTheRateLimit = true;
+    }
+
+    public void answerNormally() {
+        refusesWithTheRateLimit = false;
+        rateLimitHeaders = Map.of();
+    }
+
+    public int receivedRequestCount() {
+        return receivedRequests.get();
+    }
+
     @Override
     public void close() {
         server.stop(0);
@@ -76,12 +102,16 @@ public final class FakeGitHubServer implements AutoCloseable {
 
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
+            receivedRequests.incrementAndGet();
             String method = exchange.getRequestMethod();
             URI uri = exchange.getRequestURI();
             JsonNode payload = readPayload(exchange);
-            Answer answer = answerOrFail(method, uri, payload);
+            Answer answer = refusesWithTheRateLimit
+                    ? new Answer(403, mapper.createObjectNode().put("message", "API rate limit exceeded"))
+                    : answerOrFail(method, uri, payload);
             byte[] body = mapper.writeValueAsBytes(answer.body());
             exchange.getResponseHeaders().add("Content-Type", "application/json");
+            rateLimitHeaders.forEach(exchange.getResponseHeaders()::add);
             if ("GET".equals(method) && answer.status() == 200) {
                 String entityTag = "\"" + hash(body) + "\"";
                 exchange.getResponseHeaders().add("ETag", entityTag);
