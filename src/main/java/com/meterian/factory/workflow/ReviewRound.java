@@ -15,21 +15,23 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /** Runs the four reviews of one tree, each in a new session. A result for another tree is a reject. */
 final class ReviewRound {
 
-    /** The record with the four verdicts, and the findings of the rejecting reviews. */
-    record Outcome(IssueRecord record, List<Finding> findings) {
+    /** The record with the four verdicts and the findings of the rejecting reviews, or a failed session. */
+    record Outcome(IssueRecord record, List<Finding> findings, boolean sessionFailed) {
+
+        static Outcome failedSession(IssueRecord record) {
+            return new Outcome(record, List.of(), true);
+        }
 
         boolean allApprove() {
             return record.reviews().values().stream().allMatch(Verdict.APPROVE::equals)
                     && record.reviews().size() == ReviewKind.values().length;
         }
     }
-
-    private static final Finding SESSION_FAILED = new Finding("The review session did not end with success.",
-            "The session failed or the factory stopped it. The review runs again after the fix.");
 
     private final PhaseRunner phaseRunner;
     private final PromptLibrary prompts;
@@ -44,24 +46,30 @@ final class ReviewRound {
         IssueRecord reviewed = record.withoutReviews();
         List<Finding> findings = new ArrayList<>();
         for (ReviewKind kind : ReviewKind.values()) {
-            ReviewResult result = runReview(issue, kind, worktree, treeHash);
+            Optional<ReviewResult> completed = runReview(issue, kind, worktree, treeHash);
+            if (completed.isEmpty()) {
+                return Outcome.failedSession(record);
+            }
+            ReviewResult result = completed.get();
             Verdict verdict = judge(result, treeHash);
             reviewed = reviewed.withReview(kind, verdict);
             if (verdict == Verdict.REJECT) {
                 findings.addAll(describeRejection(kind, result, treeHash));
             }
         }
-        return new Outcome(reviewed, findings);
+        return new Outcome(reviewed, findings, false);
     }
 
-    private ReviewResult runReview(Issue issue, ReviewKind kind, Path worktree, String treeHash)
+    /** Returns empty when the session does not end with success. */
+    private Optional<ReviewResult> runReview(Issue issue, ReviewKind kind, Path worktree, String treeHash)
             throws AgentException, ApiKeyDetectedException {
         new FactoryFolder(worktree).deleteReviewResult(kind);
-        SessionReport report = phaseRunner.runInNewSession(issue.number(), worktree, prompts.review(kind, issue, treeHash));
+        String prompt = prompts.review(kind, issue, treeHash);
+        SessionReport report = phaseRunner.runInNewSession(issue.number(), worktree, prompt);
         if (!report.success()) {
-            return new ReviewResult(Verdict.REJECT, treeHash, List.of(SESSION_FAILED));
+            return Optional.empty();
         }
-        return ReviewResultReader.read(worktree, kind);
+        return Optional.of(ReviewResultReader.read(worktree, kind));
     }
 
     private static Verdict judge(ReviewResult result, String treeHash) {

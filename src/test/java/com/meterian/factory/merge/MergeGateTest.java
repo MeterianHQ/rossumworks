@@ -100,7 +100,8 @@ class MergeGateTest {
         record = new IssueRecord(record.issueNumber(), record.sessionId(), record.status(), record.phase(),
                 record.reviews(), 0, Optional.empty(), true, record.reviewedTreeHash(),
                 record.reviewedPatchId(), record.builtTreeHash(), record.waitReason(), record.pullRequestNumber(),
-                record.statusCommentId(), record.notes(), record.agentSessionStarted());
+                record.statusCommentId(), record.notes(), record.agentSessionStarted(),
+                record.failedReviewRounds());
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false);
 

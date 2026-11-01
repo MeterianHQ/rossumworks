@@ -37,6 +37,15 @@ public interface Git {
     /** Merges the upstream and does not commit. Returns the paths with a conflict; the merge stays open. */
     List<String> mergeWithoutCommit(Path worktree, String upstream);
 
+    /** True when a merge waits for its commit. */
+    boolean hasOpenMerge(Path worktree);
+
+    /** Returns the paths that have a conflict in the index. */
+    List<String> conflictedPaths(Path worktree);
+
+    /** Moves HEAD to the commit and keeps the index and the files. */
+    void resetSoft(Path worktree, String commit);
+
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);
 

@@ -53,6 +53,7 @@ class IssueWorkflowTest {
     private static final int ISSUE = 7;
     private static final String WORKER_LOGIN = "factory-bot";
     private static final String APPROVE_LABEL = "factory:approve";
+    private static final String REVIEW_RETRY_NOTE = "A review session failed; the factory runs the reviews again.";
     private static final String MALLORY_NOTE =
             "The label factory:approve from mallory is ignored: the account is not in accounts.allowed.";
 
@@ -357,28 +358,45 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aReviewSessionWithoutSuccessIsAReject() throws ApiKeyDetectedException {
+    void runsTheReviewsAgainAfterAFailedReviewSession() throws ApiKeyDetectedException {
         agent.thenChangeFile()
-                .thenApproveReview().thatFails().thenApproveReview().thenApproveReview().thenApproveReview()
-                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+                .thenApproveReview().thatFails()
+                .thenApproveAllReviews().thenAssessRisk("low", true);
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
 
-        assertThat(record.fixLoops()).isEqualTo(1);
-        assertThat(agent.requests().get(5).prompt()).contains("The review session did not end with success.");
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(record.failedReviewRounds()).isZero();
+        assertThat(record.notes()).contains(REVIEW_RETRY_NOTE);
+        assertThat(agent.requests()).hasSize(7);
     }
 
     @Test
-    void aRiskSessionWithoutSuccessIsAHighRisk() throws ApiKeyDetectedException {
-        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatFails();
+    void runsTheRiskAgainAfterAFailedRiskSession() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatFails()
+                .thenAssessRisk("medium", true);
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
 
-        assertThat(record.risk()).contains(RiskLevel.HIGH);
-        assertThat(record.small()).isFalse();
+        assertThat(record.risk()).contains(RiskLevel.MEDIUM);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(record.notes()).contains(REVIEW_RETRY_NOTE);
         assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void blocksAfterTwoFailedReviewRounds() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveReview().thatFails().thenApproveReview().thatFails();
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.notes()).contains("The review sessions failed two times.");
+        assertThat(record.reviews()).isEmpty();
+        assertThat(record.fixLoops()).isZero();
     }
 
     @Test
@@ -386,13 +404,16 @@ class IssueWorkflowTest {
         gitHub.failTheCommentEditAfterTheMerge();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        assertThatThrownBy(() -> advanceUntilWaiting(workflow, IssueRecord.queued(ISSUE)))
-                .isInstanceOf(GitHubException.class);
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        assertThatThrownBy(() -> advanceUntilWaiting(workflow, beforeMerge)).isInstanceOf(GitHubException.class);
 
         IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
 
+        String mergedTree = run(temporaryDirectory.resolve("gatekeeper.git"), "rev-parse", "factory/issue-7^{tree}");
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+        assertThat(record.builtTreeHash()).contains(mergedTree).isNotEqualTo(beforeMerge.builtTreeHash());
         assertThat(worktree()).doesNotExist();
     }
 
@@ -411,6 +432,45 @@ class IssueWorkflowTest {
         assertThat(agent.requests().get(6).prompt())
                 .contains("The branch has a conflict with main in these files: a.txt");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void keepsTheBranchLinearAfterAConflictFix() throws ApiKeyDetectedException {
+        agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
+                .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("a.txt", "main\n");
+        IssueRecord inFixLoop = workflow.advance(beforeMerge);
+        IssueRecord beforeSecondMerge = advanceUntilPhase(workflow, inFixLoop, Phase.MERGE);
+        moveTheBase("b.txt", "other file\n");
+
+        IssueRecord record = advanceUntilPhase(workflow, beforeSecondMerge, Phase.DONE);
+
+        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+        assertThat(run(worktree(), "rev-list", "--count", "origin/main..HEAD")).isEqualTo("1");
+        assertThat(run(worktree(), "rev-list", "--merges", "origin/main..HEAD")).isEmpty();
+    }
+
+    @Test
+    void startsAFixLoopWhenTheConflictMarkersStay() throws ApiKeyDetectedException, IOException {
+        agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
+                .thenChangeNothing();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("a.txt", "main\n");
+        IssueRecord inFixLoop = workflow.advance(beforeMerge);
+        String headBefore = run(worktree(), "rev-parse", "HEAD");
+
+        IssueRecord record = workflow.advance(inFixLoop);
+
+        assertThat(record.fixLoops()).isEqualTo(2);
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(Files.readString(worktree().resolve(".factory/fix-prompt.md")))
+                .contains("The files still hold conflict markers: a.txt.");
+        assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(headBefore);
     }
 
     @Test

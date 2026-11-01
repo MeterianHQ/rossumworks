@@ -131,13 +131,28 @@ public final class ProcessGit implements Git {
     @Override
     public List<String> mergeWithoutCommit(Path worktree, String upstream) {
         Result result = execute(worktree, null, withIdentity("merge", "--no-commit", "--no-ff", upstream));
-        List<String> conflictedPaths = run(worktree, "diff", "--name-only", "--diff-filter=U").lines()
-                .filter(line -> !line.isBlank())
-                .toList();
+        List<String> conflictedPaths = conflictedPaths(worktree);
         if (result.exitCode() != 0 && conflictedPaths.isEmpty()) {
             throw failure(List.of("merge", "--no-commit", "--no-ff", upstream), result);
         }
         return conflictedPaths;
+    }
+
+    @Override
+    public boolean hasOpenMerge(Path worktree) {
+        return isGitPathPresent(worktree, "MERGE_HEAD");
+    }
+
+    @Override
+    public List<String> conflictedPaths(Path worktree) {
+        return run(worktree, "diff", "--name-only", "--diff-filter=U").lines()
+                .filter(line -> !line.isBlank())
+                .toList();
+    }
+
+    @Override
+    public void resetSoft(Path worktree, String commit) {
+        run(worktree, "reset", "-q", "--soft", commit);
     }
 
     /** A merge commit can contain the upstream. A rebase then replays old commits, so it must not run. */

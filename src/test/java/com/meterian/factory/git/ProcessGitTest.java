@@ -245,6 +245,33 @@ class ProcessGitTest {
         assertThat(run(clone, "worktree", "list")).doesNotContain(worktree.toString());
     }
 
+    @Test
+    void hasOpenMergeOnlyDuringAMergeWithoutCommit() {
+        createConflictBetweenFeatureAndMain();
+        assertThat(git.hasOpenMerge(clone)).isFalse();
+
+        git.mergeWithoutCommit(clone, "main");
+
+        assertThat(git.hasOpenMerge(clone)).isTrue();
+        assertThat(git.conflictedPaths(clone)).containsExactly("a.txt");
+    }
+
+    @Test
+    void resetSoftKeepsTheFilesAndMovesHead() throws IOException {
+        createConflictBetweenFeatureAndMain();
+        git.mergeWithoutCommit(clone, "main");
+        Files.writeString(clone.resolve("a.txt"), "feature and main\n");
+        git.commitAll(clone, "Solve the conflict");
+        String mergedTree = git.treeHash(clone);
+
+        git.resetSoft(clone, "main");
+        git.commitAll(clone, "One commit");
+
+        assertThat(git.treeHash(clone)).isEqualTo(mergedTree);
+        assertThat(run(clone, "rev-list", "--count", "main..HEAD")).isEqualTo("1");
+        assertThat(git.hasOpenMerge(clone)).isFalse();
+    }
+
     private void createConflictBetweenFeatureAndMain() {
         run(clone, "checkout", "-q", "-b", "feature");
         commitFile(clone, "a.txt", "feature\n", "Feature change");

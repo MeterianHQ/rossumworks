@@ -18,7 +18,8 @@ final class OwnerApproval {
     }
 
     boolean isGiven(Issue issue) {
-        return issue.labels().contains(APPROVE_LABEL) && requests.isGivenByAllowedAccount(issue.number(), APPROVE_LABEL);
+        return issue.labels().contains(APPROVE_LABEL)
+                && requests.isGivenByAllowedAccount(issue.number(), APPROVE_LABEL);
     }
 
     /** Call it only when the approval is not given. A label from another account gets a note. */

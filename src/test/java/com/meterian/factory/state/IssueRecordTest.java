@@ -58,4 +58,12 @@ class IssueRecordTest {
         assertThat(started.agentSessionStarted()).isTrue();
         assertThat(started.withSessionId(UUID.randomUUID()).agentSessionStarted()).isFalse();
     }
+
+    @Test
+    void countsAndClearsTheFailedReviewRounds() {
+        IssueRecord failedTwice = queued.withFailedReviewRound().withFailedReviewRound();
+
+        assertThat(failedTwice.failedReviewRounds()).isEqualTo(2);
+        assertThat(failedTwice.withoutFailedReviewRounds().failedReviewRounds()).isZero();
+    }
 }

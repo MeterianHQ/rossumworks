@@ -23,7 +23,8 @@ public record IssueRecord(
         Optional<Integer> pullRequestNumber,
         Optional<Long> statusCommentId,
         List<String> notes,
-        boolean agentSessionStarted) {
+        boolean agentSessionStarted,
+        int failedReviewRounds) {
 
     public IssueRecord {
         reviews = Map.copyOf(reviews);
@@ -33,32 +34,44 @@ public record IssueRecord(
     public static IssueRecord queued(int issueNumber) {
         return new IssueRecord(issueNumber, UUID.randomUUID(), IssueStatus.QUEUED, Phase.PREPARE,
                 Map.of(), 0, Optional.empty(), false, Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), List.of(), false);
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), List.of(), false, 0);
     }
 
     /** A new session has not started yet, so the next agent run starts it. */
     public IssueRecord withSessionId(UUID newSessionId) {
         return new IssueRecord(issueNumber, newSessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, false);
+                statusCommentId, notes, false, failedReviewRounds);
+    }
+
+    public IssueRecord withFailedReviewRound() {
+        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
+                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds + 1);
+    }
+
+    public IssueRecord withoutFailedReviewRounds() {
+        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
+                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
+                statusCommentId, notes, agentSessionStarted, 0);
     }
 
     public IssueRecord withAgentSessionStarted() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, true);
+                statusCommentId, notes, true, failedReviewRounds);
     }
 
     public IssueRecord withStatus(IssueStatus newStatus) {
         return new IssueRecord(issueNumber, sessionId, newStatus, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withPhase(Phase newPhase) {
         return new IssueRecord(issueNumber, sessionId, status, newPhase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withReview(ReviewKind kind, Verdict verdict) {
@@ -66,61 +79,61 @@ public record IssueRecord(
         newReviews.put(kind, verdict);
         return new IssueRecord(issueNumber, sessionId, status, phase, newReviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withoutReviews() {
         return new IssueRecord(issueNumber, sessionId, status, phase, Map.of(), fixLoops, risk, small,
                 Optional.empty(), Optional.empty(), builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withFixLoop() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops + 1, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withRisk(RiskLevel newRisk, boolean newSmall) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops,
                 Optional.of(newRisk), newSmall, reviewedTreeHash, reviewedPatchId, builtTreeHash,
-                waitReason, pullRequestNumber, statusCommentId, notes, agentSessionStarted);
+                waitReason, pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withReviewedTree(String treeHash, String patchId) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 Optional.of(treeHash), Optional.of(patchId), builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withBuiltTree(String treeHash) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, Optional.of(treeHash), waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withWaitReason(WaitReason newWaitReason) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.of(newWaitReason),
-                pullRequestNumber, statusCommentId, notes, agentSessionStarted);
+                pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withoutWaitReason() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.empty(),
-                pullRequestNumber, statusCommentId, notes, agentSessionStarted);
+                pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withPullRequest(int number) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, Optional.of(number),
-                statusCommentId, notes, agentSessionStarted);
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withStatusComment(long commentId) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                Optional.of(commentId), notes, agentSessionStarted);
+                Optional.of(commentId), notes, agentSessionStarted, failedReviewRounds);
     }
 
     public IssueRecord withNote(String note) {
@@ -131,6 +144,6 @@ public record IssueRecord(
         newNotes.add(note);
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, newNotes, agentSessionStarted);
+                statusCommentId, newNotes, agentSessionStarted, failedReviewRounds);
     }
 }
