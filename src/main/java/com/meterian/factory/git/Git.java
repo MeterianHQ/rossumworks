@@ -23,6 +23,9 @@ public interface Git {
     /** Returns the hash of the tree of the commit. */
     String treeHashOf(Path worktree, String commit);
 
+    /** Returns the hash of the commit that the reference points to. */
+    String commitOf(Path repository, String reference);
+
     /** Returns the hash of the commit of HEAD. */
     String headCommit(Path worktree);
 

@@ -96,6 +96,11 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public String commitOf(Path repository, String reference) {
+        return run(repository, "rev-parse", "--verify", reference + "^{commit}").trim();
+    }
+
+    @Override
     public String headCommit(Path worktree) {
         return run(worktree, "rev-parse", "HEAD").trim();
     }

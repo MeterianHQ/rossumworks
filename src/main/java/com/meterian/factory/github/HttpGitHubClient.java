@@ -167,6 +167,17 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public Optional<String> mergeCommitTree(int pullRequestNumber) {
+        JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("merge_commit_sha");
+        if (!mergeCommit.isTextual()) {
+            return Optional.empty();
+        }
+        JsonNode tree = send("GET", repositoryPath + "/git/commits/" + mergeCommit.asText(), null)
+                .path("tree").path("sha");
+        return tree.isTextual() ? Optional.of(tree.asText()) : Optional.empty();
+    }
+
+    @Override
     public MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha) {
         String path = repositoryPath + "/pulls/" + pullRequestNumber + "/merge";
         HttpResponse<String> response = sendRaw("PUT", path, Map.of("merge_method", "squash", "sha", expectedHeadSha));

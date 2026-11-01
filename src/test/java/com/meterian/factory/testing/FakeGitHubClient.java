@@ -7,9 +7,10 @@ import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueStatus;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -35,6 +36,9 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
     private final List<Integer> squashMergeCalls = new ArrayList<>();
     private final List<String> squashMergeShas = new ArrayList<>();
+    private final Map<Integer, String> baseBranches = new TreeMap<>();
+    private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
+    private SquashMergeSimulation squashMergeSimulation;
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
@@ -123,6 +127,11 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The next squash merge runs the action first, in the thread of the merge. */
     public synchronized void whenSquashMerging(Runnable action) {
         squashMergeAction = action;
+    }
+
+    /** Each successful squash merge writes a squash commit on the origin of the clone, as GitHub does. */
+    public synchronized void squashMergeInto(Path clone) {
+        squashMergeSimulation = new SquashMergeSimulation(clone);
     }
 
     /** The first comment edit with a body that contains the text runs the action first, in the same thread. */
@@ -264,6 +273,7 @@ public final class FakeGitHubClient implements GitHubClient {
         int number = nextPullRequestNumber++;
         PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch);
         pullRequests.add(pullRequest);
+        baseBranches.put(number, baseBranch);
         return pullRequest;
     }
 
@@ -275,6 +285,9 @@ public final class FakeGitHubClient implements GitHubClient {
         squashMergeCalls.add(pullRequestNumber);
         squashMergeShas.add(expectedHeadSha);
         MergeOutcome outcome = mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();
+        if (outcome == MergeOutcome.MERGED && !simulateSquashMerge(pullRequestNumber, expectedHeadSha)) {
+            return MergeOutcome.NOT_MERGEABLE;
+        }
         if (outcome == MergeOutcome.MERGED) {
             mergedPullRequests.add(pullRequestNumber);
             failsTheNextCommentEdit = failsTheNextCommentEdit || failsTheCommentEditAfterTheMerge;
@@ -290,5 +303,20 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized boolean isMerged(int pullRequestNumber) {
         return mergedPullRequests.contains(pullRequestNumber);
+    }
+
+    @Override
+    public synchronized Optional<String> mergeCommitTree(int pullRequestNumber) {
+        return Optional.ofNullable(mergeCommitTrees.get(pullRequestNumber));
+    }
+
+    /** Without a simulation, a merge always succeeds and leaves the origin as it is. */
+    private boolean simulateSquashMerge(int pullRequestNumber, String headCommit) {
+        if (squashMergeSimulation == null) {
+            return true;
+        }
+        Optional<String> tree = squashMergeSimulation.squashMerge(headCommit, baseBranches.get(pullRequestNumber));
+        tree.ifPresent(mergedTree -> mergeCommitTrees.put(pullRequestNumber, mergedTree));
+        return tree.isPresent();
     }
 }

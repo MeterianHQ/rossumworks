@@ -50,6 +50,9 @@ public interface GitHubClient {
     /** Tells if GitHub merged the pull request. */
     boolean isMerged(int pullRequestNumber);
 
+    /** Returns the tree hash of the merge commit of a merged pull request. Empty when GitHub has no merge commit. */
+    Optional<String> mergeCommitTree(int pullRequestNumber);
+
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
 }

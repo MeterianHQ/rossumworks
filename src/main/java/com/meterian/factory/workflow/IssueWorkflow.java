@@ -266,10 +266,12 @@ public final class IssueWorkflow {
     private IssueRecord mergePullRequest(IssueRecord record, Path worktree) {
         MergeResult result = merger.merge(worktree, record);
         return switch (result) {
-            case MergeResult.Merged merged -> record.withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
+            case MergeResult.Merged merged -> merged.note().map(record::withNote).orElse(record)
+                    .withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
             case MergeResult.NeedsNewReviews needsNewReviews -> record.withoutReviews().withPhase(Phase.BUILD);
             case MergeResult.NeedsFix needsFix -> startMergeFix(record, worktree, needsFix);
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
+            case MergeResult.Postponed postponed -> record;
         };
     }
 

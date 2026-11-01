@@ -234,6 +234,15 @@ worker runs the build again and records the new tree hash. If the
 patch-id changes, the four reviews and the risk check run again. A rebase
 conflict goes back to the agent in charge as a fix loop.
 
+The factory merges one issue of a target at a time. Just before the squash
+merge, the worker fetches the merge target branch again. If the branch
+moved after the rebase, the merge starts again from the rebase, at most 3
+times. A push by a person in the short time between this check and the
+merge can still pass. After the merge, the worker compares the tree of the
+merge commit with the built tree and writes a note when they differ. The
+owner can close the window with the GitHub branch protection "require
+branches to be up to date before merging".
+
 ### 6.2 Changes across repositories
 
 An issue of the target can also change a related repository.

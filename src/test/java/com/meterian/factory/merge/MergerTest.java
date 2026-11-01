@@ -23,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +38,7 @@ class MergerTest {
 
     private final Git git = new ProcessGit();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
+    private Path origin;
     private Path clone;
     private Path worktree;
     private Path gatekeeper;
@@ -46,7 +49,7 @@ class MergerTest {
 
     @BeforeEach
     void createRepositories() {
-        Path origin = createBare(temporaryDirectory.resolve("origin.git"));
+        origin = createBare(temporaryDirectory.resolve("origin.git"));
         clone = createClone(origin, temporaryDirectory.resolve("clone"));
         commitFile(clone, "m.txt", "1\n2\n3\n4\n5\n6\n7\n8\n", "Add m");
         run(clone, "push", "-q", "origin", "main");
@@ -61,17 +64,57 @@ class MergerTest {
                 Map.of());
         merger = new Merger(git, gitHub, new BuildRunner(), target, "main", Duration.ZERO);
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
+        gitHub.squashMergeInto(clone);
     }
 
     private IssueRecord reviewedRecord() {
-        IssueRecord record = IssueRecord.queued(7).withPullRequest(pullRequest.number())
+        return reviewedRecord(7, worktree, pullRequest);
+    }
+
+    private IssueRecord reviewedRecord(int issueNumber, Path issueWorktree, PullRequest issuePullRequest) {
+        IssueRecord record = IssueRecord.queued(issueNumber).withPullRequest(issuePullRequest.number())
                 .withRisk(RiskLevel.LOW, true)
-                .withReviewedTree(git.treeHash(worktree), git.patchId(worktree, "origin/main"))
-                .withBuiltTree(git.treeHash(worktree));
+                .withReviewedTree(git.treeHash(issueWorktree), git.patchId(issueWorktree, "origin/main"))
+                .withBuiltTree(git.treeHash(issueWorktree));
         for (ReviewKind kind : ReviewKind.values()) {
             record = record.withReview(kind, Verdict.APPROVE);
         }
         return record;
+    }
+
+    /** A clone of a person who pushes to the merge target while the factory merges. */
+    private Path createPersonClone() {
+        Path person = temporaryDirectory.resolve("person");
+        run(temporaryDirectory, "clone", "-q", origin.toString(), person.toString());
+        run(person, "config", "user.name", "A Person");
+        run(person, "config", "user.email", "person@example.com");
+        return person;
+    }
+
+    /** The build pushes a new commit of a person to main. With a marker file, only the first build does it. */
+    private Merger createMergerWithABuildThatMovesTheBase(Path person, boolean onlyOnce) {
+        Path marker = temporaryDirectory.resolve("moved");
+        String movesTheBase = "cd " + person + " && git pull -q --ff-only origin main"
+                + " && git commit -q --allow-empty -m Person && git push -q origin main";
+        String command = "echo ran >> " + buildLog + "; "
+                + (onlyOnce ? "if [ ! -e " + marker + " ]; then touch " + marker + "; " + movesTheBase + "; fi"
+                        : movesTheBase);
+        TargetRepository moving = new TargetRepository("owner", "name", clone, command,
+                Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
+        return new Merger(git, gitHub, new BuildRunner(), moving, "main", Duration.ZERO);
+    }
+
+    private static void waitUntilBlockedOrEnded(Thread thread) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (thread.getState() != Thread.State.BLOCKED && thread.getState() != Thread.State.TERMINATED) {
+            assertThat(System.nanoTime()).isLessThan(deadline);
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     private void moveTheBase(String fileName, String content) {
@@ -334,6 +377,77 @@ class MergerTest {
 
         assertThat(result).isEqualTo(new MergeResult.Failed("The worktree has changes that are not committed."));
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void theSecondOfTwoMergesAtTheSameTimeRebasesOnTheFirstAndBuildsAgain() throws Exception {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord firstRecord = reviewedRecord();
+        Path secondWorktree = temporaryDirectory.resolve("worktree-8");
+        git.addWorktree(clone, secondWorktree, "factory/issue-8", "origin/main");
+        commitFile(secondWorktree, "d.txt", "other feature\n", "Other feature");
+        PullRequest secondPullRequest = gitHub.createPullRequest("factory/issue-8", "main", "Title", "Body");
+        IssueRecord secondRecord = reviewedRecord(8, secondWorktree, secondPullRequest);
+        AtomicReference<MergeResult> secondResult = new AtomicReference<>();
+        Thread secondMerge = new Thread(() -> secondResult.set(merger.merge(secondWorktree, secondRecord)));
+        gitHub.whenSquashMerging(() -> {
+            secondMerge.start();
+            waitUntilBlockedOrEnded(secondMerge);
+        });
+
+        MergeResult firstResult = merger.merge(worktree, firstRecord);
+        String firstSquashCommit = run(origin, "rev-parse", "main");
+        secondMerge.join(Duration.ofSeconds(30));
+
+        assertThat(firstResult).isInstanceOf(MergeResult.Merged.class);
+        assertThat(secondResult.get()).isEqualTo(new MergeResult.Merged(git.treeHash(secondWorktree)));
+        assertThat(run(secondWorktree, "rev-parse", "HEAD^")).isEqualTo(firstSquashCommit);
+        assertThat(buildCount()).isEqualTo(1);
+        assertThat(gitHub.squashMergeShas()).containsExactly(run(worktree, "rev-parse", "HEAD"),
+                run(secondWorktree, "rev-parse", "HEAD"));
+    }
+
+    @Test
+    void runsTheMergeAgainFromTheRebaseWhenTheBaseMovesBeforeTheSquash() throws IOException {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+        Merger movingMerger = createMergerWithABuildThatMovesTheBase(createPersonClone(), true);
+
+        MergeResult result = movingMerger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Merged(git.treeHash(worktree)));
+        assertThat(buildCount()).isEqualTo(2);
+        assertThat(run(worktree, "rev-parse", "HEAD^")).isEqualTo(run(origin, "rev-parse", "main^"));
+        assertThat(run(worktree, "log", "-1", "--format=%s", "HEAD^")).isEqualTo("Person");
+        assertThat(gitHub.squashMergeShas()).containsExactly(run(worktree, "rev-parse", "HEAD"));
+    }
+
+    @Test
+    void postponesTheMergeWhenTheBaseMovesThreeTimes() throws IOException {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+        Merger movingMerger = createMergerWithABuildThatMovesTheBase(createPersonClone(), false);
+
+        MergeResult result = movingMerger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Postponed(
+                "The branch main moved 3 times before the merge. The next poll tries again."));
+        assertThat(buildCount()).isEqualTo(3);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void notesAMergedTreeThatDiffersFromTheBuiltTree() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        gitHub.whenSquashMerging(() -> moveTheBase("p.txt", "a push of a person\n"));
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Merged(record.builtTreeHash().orElseThrow(),
+                Optional.of("The tree on main after the merge differs from the built tree.")));
     }
 
     @Test

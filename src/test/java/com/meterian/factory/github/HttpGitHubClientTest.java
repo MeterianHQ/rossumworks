@@ -262,6 +262,25 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void readsTheTreeOfTheMergeCommit() {
+        responder = request -> request.target().equals("/repos/o/r/pulls/5")
+                ? new Answer(200, "{\"number\":5,\"merged\":true,\"merge_commit_sha\":\"c0ffee\"}")
+                : new Answer(200, "{\"sha\":\"c0ffee\",\"tree\":{\"sha\":\"7ree\"}}");
+
+        assertThat(client.mergeCommitTree(5)).contains("7ree");
+        assertThat(requests).extracting(RecordedRequest::target)
+                .containsExactly("/repos/o/r/pulls/5", "/repos/o/r/git/commits/c0ffee");
+    }
+
+    @Test
+    void readsNoMergeTreeWhenThePullRequestHasNoMergeCommit() {
+        responder = request -> new Answer(200, "{\"number\":5,\"merged\":false,\"merge_commit_sha\":null}");
+
+        assertThat(client.mergeCommitTree(5)).isEmpty();
+        assertThat(requests).hasSize(1);
+    }
+
+    @Test
     void reportsAChangedHeadOnA409() {
         responder = request -> new Answer(409, "{\"message\":\"Head branch was modified\"}");
 

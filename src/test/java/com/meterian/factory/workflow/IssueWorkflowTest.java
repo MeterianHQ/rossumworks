@@ -63,12 +63,13 @@ class IssueWorkflowTest {
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeAgentRunner agent = new FakeAgentRunner();
     private final UsageTracker usage = new UsageTracker(0.90, Clock.systemUTC());
+    private Path origin;
     private Path clone;
     private Path githubRepository;
 
     @BeforeEach
     void createRepositoriesAndIssue() {
-        Path origin = createBare(temporaryDirectory.resolve("origin.git"));
+        origin = createBare(temporaryDirectory.resolve("origin.git"));
         clone = createClone(origin, temporaryDirectory.resolve("clone"));
         githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
@@ -414,6 +415,41 @@ class IssueWorkflowTest {
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
         assertThat(record.builtTreeHash()).contains(mergedTree).isNotEqualTo(beforeMerge.builtTreeHash());
         assertThat(worktree()).doesNotExist();
+    }
+
+    @Test
+    void notesAMergedTreeThatDiffersFromTheBuiltTree() throws ApiKeyDetectedException {
+        gitHub.squashMergeInto(clone);
+        gitHub.whenSquashMerging(() -> moveTheBase("p.txt", "a push of a person\n"));
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.notes()).containsExactly("The tree on main after the merge differs from the built tree.");
+    }
+
+    @Test
+    void keepsTheRecordWhenTheBaseMovesAtEachMergeAttempt() throws ApiKeyDetectedException, IOException {
+        Path armed = temporaryDirectory.resolve("armed");
+        Path person = temporaryDirectory.resolve("person");
+        String build = "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; if [ -e " + armed + " ]; then cd "
+                + person + " && git pull -q --ff-only origin main && git commit -q --allow-empty -m Person"
+                + " && git push -q origin main; fi";
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow(build);
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        run(temporaryDirectory, "clone", "-q", origin.toString(), person.toString());
+        run(person, "config", "user.name", "A Person");
+        run(person, "config", "user.email", "person@example.com");
+        Files.createFile(armed);
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record).isEqualTo(beforeMerge);
+        assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.IN_REVIEW);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
     @Test

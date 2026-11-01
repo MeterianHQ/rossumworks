@@ -145,6 +145,14 @@ class ProcessGitTest {
     }
 
     @Test
+    void commitOfResolvesAReferenceToItsCommit() {
+        String head = run(clone, "rev-parse", "HEAD");
+
+        assertThat(git.commitOf(clone, "origin/main")).isEqualTo(head);
+        assertThatThrownBy(() -> git.commitOf(clone, "origin/missing")).isInstanceOf(GitException.class);
+    }
+
+    @Test
     void headCommitReturnsTheHashOfHead() {
         assertThat(git.headCommit(clone)).isEqualTo(run(clone, "rev-parse", "HEAD"));
     }

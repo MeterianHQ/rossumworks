@@ -16,12 +16,16 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-/** Rebases the branch, builds again when the base moved, pushes through the gatekeeper, and squash merges. */
+/**
+ * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, and squash merges. Only
+ * one issue of a target merges at a time, and the base must not move between the rebase and the squash merge.
+ */
 public final class Merger {
 
     private static final String ORIGIN = "origin";
     private static final String GATEKEEPER = "gatekeeper";
     private static final int MERGE_ATTEMPTS = 3;
+    private static final int BASE_MOVE_LIMIT = 3;
 
     private final Git git;
     private final GitHubClient gitHub;
@@ -44,34 +48,50 @@ public final class Merger {
         if (record.pullRequestNumber().isEmpty()) {
             return new MergeResult.Failed("The issue has no pull request.");
         }
-        try {
-            return rebaseAndMerge(worktree, record, record.pullRequestNumber().get());
-        } catch (StepFailedException exception) {
-            return new MergeResult.Failed(exception.getMessage());
+        int pullRequestNumber = record.pullRequestNumber().get();
+        return MergeLock.run(target.cloneDirectory(), () -> mergeOnAStableBase(worktree, record, pullRequestNumber));
+    }
+
+    /** A base that moves before the squash merge starts the merge again from the rebase. */
+    private MergeResult mergeOnAStableBase(Path worktree, IssueRecord record, int pullRequestNumber) {
+        for (int attempt = 1; attempt <= BASE_MOVE_LIMIT; attempt++) {
+            try {
+                return rebaseAndMerge(worktree, record, pullRequestNumber);
+            } catch (StepFailedException exception) {
+                return new MergeResult.Failed(exception.getMessage());
+            } catch (BaseMovedException moved) {
+                // The next attempt fetches the new base and rebases on it.
+            }
         }
+        return new MergeResult.Postponed("The branch " + mergeTargetBranch + " moved " + BASE_MOVE_LIMIT
+                + " times before the merge. The next poll tries again.");
     }
 
     private MergeResult rebaseAndMerge(Path worktree, IssueRecord record, int pullRequestNumber) {
-        // The fetch writes refs/remotes/origin of the clone, which all worktrees share.
-        perform("The fetch of " + mergeTargetBranch, () -> CloneLock.run(target.cloneDirectory(), () -> {
-            git.fetch(worktree, ORIGIN, mergeTargetBranch);
-            return null;
-        }));
-        String upstream = ORIGIN + "/" + mergeTargetBranch;
-        RebaseOutcome outcome = perform("The rebase", () -> git.rebase(worktree, upstream));
+        String upstreamCommit = fetchUpstreamCommit(worktree);
+        RebaseOutcome outcome = perform("The rebase", () -> git.rebase(worktree, upstreamCommit));
         return switch (outcome) {
             case CONFLICT -> new MergeResult.NeedsFix("The branch has a conflict with " + mergeTargetBranch
                     + ". Rebase it and solve the conflict.");
-            case REBASED -> buildAfterRebase(worktree, record, pullRequestNumber, upstream);
+            case REBASED -> buildAfterRebase(worktree, record, pullRequestNumber, upstreamCommit);
             case UP_TO_DATE -> record.builtTreeHash()
-                    .map(builtTreeHash -> mergeUnchangedBranch(worktree, record, pullRequestNumber, builtTreeHash))
+                    .map(builtTreeHash -> mergeUnchangedBranch(worktree, record, pullRequestNumber, builtTreeHash,
+                            upstreamCommit))
                     .orElseGet(() -> new MergeResult.Failed("The record has no built tree hash."));
         };
     }
 
+    /** The fetch writes refs/remotes/origin of the clone, which all worktrees share. */
+    private String fetchUpstreamCommit(Path worktree) {
+        return perform("The fetch of " + mergeTargetBranch, () -> CloneLock.run(target.cloneDirectory(), () -> {
+            git.fetch(worktree, ORIGIN, mergeTargetBranch);
+            return git.commitOf(worktree, ORIGIN + "/" + mergeTargetBranch);
+        }));
+    }
+
     private MergeResult buildAfterRebase(Path worktree, IssueRecord record, int pullRequestNumber,
-                                         String upstream) {
-        if (!patchIdIsUnchanged(worktree, record, upstream)) {
+                                         String upstreamCommit) {
+        if (!isPatchIdUnchanged(worktree, record, upstreamCommit)) {
             return new MergeResult.NeedsNewReviews();
         }
         Optional<MergeResult> dirtyBeforeBuild = refuseUncommittedChanges(worktree);
@@ -91,11 +111,11 @@ public final class Merger {
         if (!perform("The read of the head commit", () -> git.headCommit(worktree)).equals(headCommit)) {
             return new MergeResult.Failed("The build changed the files.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, treeHash);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, treeHash, upstreamCommit);
     }
 
     private MergeResult mergeUnchangedBranch(Path worktree, IssueRecord record, int pullRequestNumber,
-                                             String builtTreeHash) {
+                                             String builtTreeHash, String upstreamCommit) {
         Optional<MergeResult> dirty = refuseUncommittedChanges(worktree);
         if (dirty.isPresent()) {
             return dirty.get();
@@ -106,7 +126,7 @@ public final class Merger {
         if (!treeHash.equals(builtTreeHash) || !isReviewed) {
             return new MergeResult.Failed("The files differ from the built and reviewed tree.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, builtTreeHash);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, builtTreeHash, upstreamCommit);
     }
 
     private Optional<MergeResult> refuseUncommittedChanges(Path worktree) {
@@ -116,22 +136,23 @@ public final class Merger {
         return Optional.empty();
     }
 
-    private boolean patchIdIsUnchanged(Path worktree, IssueRecord record, String upstream) {
-        String patchId = perform("The read of the patch id", () -> git.patchId(worktree, upstream));
+    private boolean isPatchIdUnchanged(Path worktree, IssueRecord record, String upstreamCommit) {
+        String patchId = perform("The read of the patch id", () -> git.patchId(worktree, upstreamCommit));
         return !patchId.isEmpty() && record.reviewedPatchId().equals(Optional.of(patchId));
     }
 
     private MergeResult pushAndSquashMerge(Path worktree, IssueRecord record, int pullRequestNumber,
-                                           String headCommit, String builtTreeHash) {
+                                           String headCommit, String builtTreeHash, String upstreamCommit) {
         String branch = "factory/issue-" + record.issueNumber();
         perform("The push to the gatekeeper", () -> {
             git.pushCommit(worktree, GATEKEEPER, headCommit, branch);
             return null;
         });
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
+            verifyBaseDidNotMove(worktree, upstreamCommit);
             MergeOutcome outcome = perform("The squash merge", () -> gitHub.squashMerge(pullRequestNumber, headCommit));
             if (outcome == MergeOutcome.MERGED) {
-                return new MergeResult.Merged(builtTreeHash);
+                return new MergeResult.Merged(builtTreeHash, describeMergedTree(pullRequestNumber, builtTreeHash));
             }
             if (outcome == MergeOutcome.HEAD_CHANGED) {
                 return new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequestNumber + ".");
@@ -141,6 +162,20 @@ public final class Merger {
             }
         }
         return new MergeResult.Failed("GitHub refuses the merge of the pull request #" + pullRequestNumber);
+    }
+
+    private void verifyBaseDidNotMove(Path worktree, String upstreamCommit) {
+        if (!fetchUpstreamCommit(worktree).equals(upstreamCommit)) {
+            throw new BaseMovedException();
+        }
+    }
+
+    /** The merge is done, so a failure here must not become a failed merge: a GitHubException leaves. */
+    private Optional<String> describeMergedTree(int pullRequestNumber, String builtTreeHash) {
+        return gitHub.mergeCommitTree(pullRequestNumber)
+                .filter(mergedTreeHash -> !mergedTreeHash.equals(builtTreeHash))
+                .map(mergedTreeHash -> "The tree on " + mergeTargetBranch
+                        + " after the merge differs from the built tree.");
     }
 
     private boolean waitForRetry() {
@@ -165,6 +200,13 @@ public final class Merger {
     private static final class StepFailedException extends RuntimeException {
         StepFailedException(String message) {
             super(message);
+        }
+    }
+
+    /** The merge target moved after the rebase. The merge must start again from the rebase. */
+    private static final class BaseMovedException extends RuntimeException {
+        BaseMovedException() {
+            super(null, null, false, false);
         }
     }
 }
