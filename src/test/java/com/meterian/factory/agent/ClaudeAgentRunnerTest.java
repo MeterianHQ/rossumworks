@@ -11,10 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -65,7 +67,7 @@ class ClaudeAgentRunnerTest {
 
         runner.stopPhase(7);
 
-        assertThat(run.get(5, java.util.concurrent.TimeUnit.SECONDS).success()).isFalse();
+        assertThat(run.get(5, TimeUnit.SECONDS).success()).isFalse();
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LIMIT.plusSeconds(1));
     }
 
@@ -145,6 +147,34 @@ class ClaudeAgentRunnerTest {
                 .doesNotContain("ANTHROPIC_", "CLAUDE_CODE_USE_", "GH_TOKEN", "GITHUB_TOKEN");
     }
 
+    @Test
+    void endsTheGroupWhenTheParentExitsByItself() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("success.jsonl", Map.of("FAKE_CLAUDE_BACKGROUND_CHILD", "1"),
+                System.getenv());
+
+        CompletableFuture<SessionReport> run = startInBackground(runner, 7);
+
+        assertThat(run.get(5, TimeUnit.SECONDS).success()).isTrue();
+        assertThat(waitUntilDead(readChildPid())).isTrue();
+    }
+
+    @Test
+    void endsAChildThatStartsAfterTheLastOutputLine() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("success.jsonl", Map.of("FAKE_CLAUDE_LATE_CHILD", "1"),
+                System.getenv());
+        CompletableFuture<SessionReport> run = startInBackground(runner, 7);
+        Thread.sleep(1500);
+
+        runner.stopPhase(7);
+
+        run.get(5, TimeUnit.SECONDS);
+        assertThat(waitUntilDead(readChildPid())).isTrue();
+    }
+
+    private long readChildPid() throws IOException {
+        return Long.parseLong(Files.readString(directory.resolve("child.pid")).trim());
+    }
+
     private boolean waitUntilDead(long pid) throws InterruptedException {
         for (int attempt = 0; attempt < 20; attempt++) {
             if (ProcessHandle.of(pid).filter(ProcessHandle::isAlive).isEmpty()) {
@@ -171,7 +201,7 @@ class ClaudeAgentRunnerTest {
 
     private ClaudeAgentRunner runnerFor(String stream, String sleepSeconds, String exitCode)
             throws IOException, URISyntaxException {
-        Map<String, String> options = new java.util.HashMap<>();
+        Map<String, String> options = new HashMap<>();
         options.put("FAKE_CLAUDE_EXIT", exitCode);
         if (!sleepSeconds.isEmpty()) {
             options.put("FAKE_CLAUDE_SLEEP", sleepSeconds);
@@ -190,7 +220,7 @@ class ClaudeAgentRunnerTest {
         Path streamFile = Path.of(getClass().getResource("/stream/" + stream).toURI());
         Path wrapper = directory.resolve("claude-" + UUID.randomUUID() + ".sh");
         StringBuilder script = new StringBuilder("#!/bin/bash\n");
-        Map<String, String> variables = new java.util.TreeMap<>(options);
+        Map<String, String> variables = new TreeMap<>(options);
         variables.put("FAKE_CLAUDE_STREAM", streamFile.toString());
         variables.put("FAKE_CLAUDE_ARGUMENTS", directory.resolve("arguments.txt").toString());
         variables.put("FAKE_CLAUDE_ENVIRONMENT", directory.resolve("environment.txt").toString());

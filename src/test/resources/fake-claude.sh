@@ -14,4 +14,9 @@ while IFS= read -r line; do
   fi
   first_line=false
 done < "$FAKE_CLAUDE_STREAM"
+if [ "$FAKE_CLAUDE_LATE_CHILD" = 1 ]; then
+  sleep 30 &
+  echo $! > "$FAKE_CLAUDE_CHILD_PID_FILE"
+  wait
+fi
 exit "${FAKE_CLAUDE_EXIT:-0}"

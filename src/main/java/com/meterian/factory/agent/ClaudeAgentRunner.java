@@ -7,16 +7,20 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntConsumer;
 
 public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
+    private static final Duration GROUP_GRACE = Duration.ofSeconds(2);
+    private static final long POLL_MILLISECONDS = 50;
     private static final String STOPPED_TEXT = "The phase was stopped.";
     private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
@@ -64,7 +68,9 @@ public final class ClaudeAgentRunner implements AgentRunner {
     }
 
     private Process startProcess(PhaseRequest request) throws AgentException {
-        ProcessBuilder builder = new ProcessBuilder(ClaudeCommand.arguments(settings, request));
+        List<String> command = new ArrayList<>(List.of("setsid", "--wait"));
+        command.addAll(ClaudeCommand.arguments(settings, request));
+        ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(request.workingDirectory().toFile());
         builder.environment().clear();
         builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
@@ -86,7 +92,6 @@ public final class ClaudeAgentRunner implements AgentRunner {
             String line;
             while ((line = reader.readLine()) != null) {
                 parser.accept(line);
-                run.rememberDescendants();
                 verifyNoApiKey(parser, run);
             }
             return buildReport(run, parser);
@@ -136,12 +141,13 @@ public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final class Run {
 
-        private final Set<ProcessHandle> knownDescendants = ConcurrentHashMap.newKeySet();
+        private final AtomicBoolean ended = new AtomicBoolean();
         private volatile Process process;
         private volatile boolean stopRequested;
 
         synchronized void attach(Process startedProcess) {
             process = startedProcess;
+            startedProcess.onExit().thenRun(this::end);
             if (stopRequested) {
                 end();
             }
@@ -162,18 +168,48 @@ public final class ClaudeAgentRunner implements AgentRunner {
             return stopRequested;
         }
 
-        void rememberDescendants() {
-            process.descendants().forEach(knownDescendants::add);
-        }
-
         void end() {
-            Process endedProcess = process;
-            if (endedProcess == null) {
+            if (process == null || !ended.compareAndSet(false, true)) {
                 return;
             }
-            endedProcess.descendants().forEach(knownDescendants::add);
-            knownDescendants.forEach(ProcessHandle::destroyForcibly);
-            endedProcess.destroyForcibly();
+            long groupId = process.pid();
+            signalGroup("-TERM", groupId);
+            waitUntilGroupIsEmpty(groupId);
+            if (isGroupAlive(groupId)) {
+                signalGroup("-KILL", groupId);
+            }
+        }
+
+        private void waitUntilGroupIsEmpty(long groupId) {
+            long deadline = System.nanoTime() + GROUP_GRACE.toNanos();
+            while (isGroupAlive(groupId) && System.nanoTime() < deadline) {
+                try {
+                    Thread.sleep(POLL_MILLISECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+
+        private boolean isGroupAlive(long groupId) {
+            return signalGroup("-0", groupId);
+        }
+
+        private boolean signalGroup(String signal, long groupId) {
+            try {
+                Process signaller = new ProcessBuilder("kill", signal, "--", "-" + groupId)
+                        .redirectErrorStream(true)
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                        .start();
+                return signaller.waitFor() == 0;
+            } catch (IOException exception) {
+                LOGGER.log(System.Logger.Level.WARNING, "The signal to the process group failed.", exception);
+                return false;
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
     }
 }
