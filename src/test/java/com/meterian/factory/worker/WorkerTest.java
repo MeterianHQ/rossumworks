@@ -28,6 +28,7 @@ import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -192,6 +193,7 @@ class WorkerTest {
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(readRecord(ISSUE).orElseThrow().issueTextHash()).contains(IssueText.hashOf(gitHub.issue(ISSUE)));
     }
 
     @Test
@@ -581,6 +583,24 @@ class WorkerTest {
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void continuesAnIssueAfterTheOwnerAcceptsAChangedText() throws InterruptedException {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(agent.requests().getFirst().prompt()).contains("Change the greeting to hello.");
     }
 
     @Test

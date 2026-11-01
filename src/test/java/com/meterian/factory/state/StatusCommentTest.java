@@ -23,13 +23,23 @@ class StatusCommentTest {
             .withReviewedTree("abc", "def")
             .withPullRequest(12)
             .withStatusComment(99L)
-            .withNote("A note -- with dashes");
+            .withNote("A note -- with dashes")
+            .withIssueTextHash("0a1b2c");
 
     @Test
     void renderedRecordReadsBackEqual() {
         IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(record, LIMIT));
 
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(record);
+    }
+
+    @Test
+    void readsARecordWithoutAnIssueTextHashAsARecordWithoutTheHash() {
+        String body = StatusComment.render(IssueRecord.queued(7), LIMIT).replace(",\"issueTextHash\":null", "");
+        IssueComment comment = new IssueComment(1, WORKER, body);
+
+        assertThat(body).doesNotContain("issueTextHash");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().issueTextHash()).isEmpty();
     }
 
     @Test

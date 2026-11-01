@@ -87,4 +87,15 @@ class IssueRecordTest {
         assertThat(withConflict.conflictedPaths()).containsExactly("a.txt", "café.txt");
         assertThat(withConflict.withoutConflictedPaths().conflictedPaths()).isEmpty();
     }
+
+    @Test
+    void keepsTheIssueTextHashThroughTheOtherChanges() {
+        IssueRecord hashed = queued.withIssueTextHash("0a1b2c");
+
+        IssueRecord changed = hashed.withPhase(Phase.REVIEW).withoutReviews().withoutRisk().withoutBuiltTree()
+                .withSessionId(UUID.randomUUID()).withNote("n").withFixLoop().withStatus(IssueStatus.IN_REVIEW);
+
+        assertThat(queued.issueTextHash()).isEmpty();
+        assertThat(changed.issueTextHash()).contains("0a1b2c");
+    }
 }

@@ -55,6 +55,8 @@ public final class IssueWorkflow {
     private final ConflictResolution conflictResolution;
     private final IssueWorkspace workspace;
     private final PullRequestPublisher pullRequestPublisher;
+    private final IssueTextCheck issueTextCheck;
+    private final ApprovalCheck approvalCheck;
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
@@ -69,6 +71,8 @@ public final class IssueWorkflow {
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
         this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch());
+        this.issueTextCheck = new IssueTextCheck(ownerApproval);
+        this.approvalCheck = new ApprovalCheck(ownerApproval, issueTextCheck);
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
@@ -89,7 +93,7 @@ public final class IssueWorkflow {
     private IssueRecord runStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
         try {
             boolean checksApproval = isWaiting(record) && record.phase() != Phase.DONE;
-            return checksApproval ? checkApproval(issue, record) : runPhase(issue, record);
+            return checksApproval ? approvalCheck.continueAfterApproval(issue, record) : runPhase(issue, record);
         } catch (PhaseRefusedException refused) {
             return record;
         } catch (GitException | UncheckedIOException exception) {
@@ -108,6 +112,9 @@ public final class IssueWorkflow {
     }
 
     private IssueRecord runPhase(Issue issue, IssueRecord record) throws AgentException, ApiKeyDetectedException {
+        if (issueTextCheck.hasChanged(issue, record)) {
+            return issueTextCheck.waitForTheOwner(record);
+        }
         Path worktree = layout.worktree(record.issueNumber());
         return switch (record.phase()) {
             case PREPARE -> prepare(record, worktree);
@@ -118,18 +125,6 @@ public final class IssueWorkflow {
             case MERGE -> merge(issue, record, worktree);
             case DONE -> finish(issue, record, worktree);
         };
-    }
-
-    private IssueRecord checkApproval(Issue issue, IssueRecord record) {
-        boolean waitsForApproval = record.status() == IssueStatus.WAITS_FOR_YOU
-                && record.waitReason().equals(Optional.of(WaitReason.MERGE_NEEDS_APPROVAL));
-        if (!waitsForApproval) {
-            return record;
-        }
-        if (!ownerApproval.isGiven(issue)) {
-            return ownerApproval.noteIgnoredLabel(issue, record);
-        }
-        return record.withoutWaitReason().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
     }
 
     private IssueRecord prepare(IssueRecord record, Path worktree) {

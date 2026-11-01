@@ -12,6 +12,8 @@ import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.workflow.ApprovalCheck;
+import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
 import com.meterian.factory.workflow.RequestReader;
@@ -202,9 +204,7 @@ public final class Worker {
 
     /** The workflow checks who gave the label, and notes a label from another account. */
     private static boolean waitsForAGivenApprovalLabel(Issue issue, IssueRecord record) {
-        return record.status() == IssueStatus.WAITS_FOR_YOU
-                && record.waitReason().equals(Optional.of(WaitReason.MERGE_NEEDS_APPROVAL))
-                && issue.labels().contains(APPROVE_LABEL);
+        return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
 
     private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments) {
@@ -212,7 +212,8 @@ public final class Worker {
             noteIgnoredLabel(issue.number(), FACTORY_LABEL, comments);
             return Optional.empty();
         }
-        return Optional.of(publishFirstRecord(issue, IssueRecord.queued(issue.number())));
+        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.hashOf(issue));
+        return Optional.of(publishFirstRecord(issue, queued));
     }
 
     /** Writes the note once: a comment of the worker with the same text means the note is there. */

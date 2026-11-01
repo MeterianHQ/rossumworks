@@ -68,6 +68,11 @@ public final class FakeGitHubClient implements GitHubClient {
         commentsByIssue.put(number, new ArrayList<>());
     }
 
+    /** A person edits the title and the body of the issue. */
+    public synchronized void editIssue(int number, String title, String body) {
+        issues.put(number, new Issue(number, issues.get(number).nodeId(), title, body, Set.of()));
+    }
+
     public synchronized void addLabelBy(int issueNumber, String label, String actor) {
         if (labels.get(issueNumber).add(label)) {
             labelEvents.add(new LabelEvent(issueNumber, label, actor));
