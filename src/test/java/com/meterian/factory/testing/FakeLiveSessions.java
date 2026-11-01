@@ -22,6 +22,7 @@ public final class FakeLiveSessions implements LiveSessions {
     private final Set<Integer> continueRequests = ConcurrentHashMap.newKeySet();
     private volatile boolean failsTheNextOpen;
     private volatile boolean failsTheNextClose;
+    private volatile Runnable openingAction = () -> { };
 
     @Override
     public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
@@ -32,6 +33,7 @@ public final class FakeLiveSessions implements LiveSessions {
             openIssues.remove(issueNumber);
             throw new LiveSessionException("The live session did not show a Remote Control link in 90 seconds.");
         }
+        runTheOpeningAction();
         openIssues.add(issueNumber);
         return "https://claude.ai/code/session_test" + issueNumber;
     }
@@ -77,6 +79,17 @@ public final class FakeLiveSessions implements LiveSessions {
     /** Acts as the owner who ends the live session without /factory:continue. */
     public void endSession(int issueNumber) {
         openIssues.remove(issueNumber);
+    }
+
+    /** The next open runs the action before the session exists, as a slow start of tmux and claude does. */
+    public void whenOpening(Runnable action) {
+        openingAction = action;
+    }
+
+    private void runTheOpeningAction() {
+        Runnable action = openingAction;
+        openingAction = () -> { };
+        action.run();
     }
 
     public void failTheNextOpen() {

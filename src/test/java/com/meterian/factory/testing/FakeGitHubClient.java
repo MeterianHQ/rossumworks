@@ -185,6 +185,11 @@ public final class FakeGitHubClient implements GitHubClient {
         return List.copyOf(removedLabels);
     }
 
+    /** The next removeLabel throws a GitHubException. */
+    public synchronized void failTheNextRemoveLabel() {
+        nextRemoveLabelFailure = new GitHubException("GitHub answered 502 for DELETE /labels");
+    }
+
     /** The first removeLabel after a successful squash merge throws a GitHubException. */
     public synchronized void failTheRemoveLabelAfterTheMerge() {
         removeLabelFailureAfterTheMerge = new GitHubException("GitHub answered 502 for DELETE /labels");

@@ -59,6 +59,8 @@ public final class Worker {
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
+    /** The issues in work with a request of factory:enter. The loop enters after its current step. */
+    private final Set<Integer> enterRequestedIssues = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -185,7 +187,9 @@ public final class Worker {
             ignoredLabelNote.write(issueNumber, BLOCK_LABEL, gitHub.comments(issueNumber));
         }
         if (isInWork(issueNumber)) {
-            rememberEnterRequest(issue);
+            if (enterRequests.isRequested(issue)) {
+                rememberEnterRequest(issueNumber);
+            }
             return Optional.empty();
         }
         List<IssueComment> comments = gitHub.comments(issueNumber);
@@ -202,9 +206,10 @@ public final class Worker {
         return Optional.of(current).filter(found -> isStartable(issue, found));
     }
 
-    private void rememberEnterRequest(Issue issue) {
-        if (enterRequests.isRequested(issue)) {
-            enterRequests.remember(issue.number());
+    /** A loop that ended already gets no request: the label stays, and the next poll enters at once. */
+    private synchronized void rememberEnterRequest(int issueNumber) {
+        if (issuesInWork.contains(issueNumber)) {
+            enterRequestedIssues.add(issueNumber);
         }
     }
 
@@ -291,7 +296,7 @@ public final class Worker {
         IssueRecord kept = start;
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
-            while (mayContinue(issueNumber) && !enterRequests.isPending(issueNumber)) {
+            while (mayContinue(issueNumber) && !isEnterRequested(issueNumber)) {
                 IssueRecord next = workflow.advance(kept);
                 if (!mayContinue(issueNumber) && next.phase() != Phase.DONE) {
                     interruptedResult = Optional.of(next);
@@ -306,8 +311,8 @@ public final class Worker {
                     break;
                 }
             }
-            if (mayContinue(issueNumber)) {
-                kept = enterRequests.enterIfPending(kept);
+            if (mayContinue(issueNumber) && isEnterRequested(issueNumber)) {
+                kept = enterRequests.enter(kept);
             }
         } catch (ApiKeyDetectedException exception) {
             stopOnApiKey(issueNumber, exception);
@@ -325,6 +330,10 @@ public final class Worker {
 
     private synchronized boolean mayContinue(int issueNumber) {
         return !isStopped() && !blockedIssues.contains(issueNumber);
+    }
+
+    private synchronized boolean isEnterRequested(int issueNumber) {
+        return enterRequestedIssues.contains(issueNumber);
     }
 
     /**
@@ -361,9 +370,12 @@ public final class Worker {
         boolean isBlocked;
         synchronized (this) {
             issuesInWork.remove(kept.issueNumber());
+            enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
         }
         if (isBlocked) {
+            // A block during the enter of the loop came before the session was open.
+            phaseStopper.closeLiveSession(kept.issueNumber());
             finishBlock(kept.issueNumber(), Optional.of(kept), interruptedResult);
         } else if (interruptedResult.isPresent()) {
             restoreKeptRecord(kept, interruptedResult.get());
@@ -372,7 +384,7 @@ public final class Worker {
 
     /**
      * Writes BLOCKED over the record. The record of a loop is the last record that the loop kept; without a
-     * loop, the record on GitHub is the last result.
+     * loop, the record on GitHub is the last result. The block closed the live session, so the record drops it.
      */
     private void finishBlock(int issueNumber, Optional<IssueRecord> keptByLoop,
                              Optional<IssueRecord> interruptedResult) {
@@ -389,7 +401,8 @@ public final class Worker {
                 noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
                 return;
             }
-            IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER);
+            IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
+                    .withoutLive();
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
             gitHub.removeLabel(issueNumber, BLOCK_LABEL);
         } catch (GitHubException exception) {

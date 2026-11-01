@@ -42,7 +42,7 @@ public final class PhaseStopper {
     }
 
     /** A failure of tmux never stops the block: the issue still becomes BLOCKED. */
-    private void closeLiveSession(int issueNumber) {
+    public void closeLiveSession(int issueNumber) {
         try {
             liveSessions.close(issueNumber);
         } catch (RuntimeException exception) {
