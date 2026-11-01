@@ -16,15 +16,25 @@ final class TmuxCommand {
     private record CompletedCommand(int exitCode, String output, String error) {
     }
 
+    private static final String TMUX_PROGRAM = "tmux";
+
+    private final String program;
     private final List<String> serverOptions;
 
     /** Uses the default tmux server of the user. */
     TmuxCommand() {
+        this.program = TMUX_PROGRAM;
         this.serverOptions = List.of();
     }
 
     /** Uses the private tmux server with this socket name. */
     TmuxCommand(String socketName) {
+        this(TMUX_PROGRAM, socketName);
+    }
+
+    /** Uses another tmux program, for the tests, on the private tmux server with this socket name. */
+    TmuxCommand(String program, String socketName) {
+        this.program = program;
         this.serverOptions = List.of("-L", socketName);
     }
 
@@ -63,7 +73,7 @@ final class TmuxCommand {
     /** The output goes to files, not to pipes: a tmux server that starts can keep a pipe open. */
     private Process start(String[] arguments, Path outputFile, Path errorFile) throws IOException {
         List<String> command = new ArrayList<>();
-        command.add("tmux");
+        command.add(program);
         command.addAll(serverOptions);
         command.addAll(List.of(arguments));
         return new ProcessBuilder(command)

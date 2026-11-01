@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -120,6 +121,15 @@ class LiveFilesTest {
 
         assertThat(exitCode).isEqualTo(2);
         assertThat(spacedLiveFiles.isContinueRequested(ISSUE_NUMBER)).isTrue();
+    }
+
+    @Test
+    void theLaunchScriptOfTheIssueIsPrivateToTheOwner() throws IOException {
+        Path script = liveFiles.writeLaunchScript(ISSUE_NUMBER, "#!/bin/bash\nexit 0\n");
+
+        assertThat(script).isEqualTo(temporaryDirectory.resolve("live/issue-7.launch.sh"));
+        assertThat(script).hasContent("#!/bin/bash\nexit 0");
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(script))).isEqualTo("rwx------");
     }
 
     @Test

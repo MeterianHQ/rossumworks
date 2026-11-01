@@ -21,7 +21,7 @@ class ShellQuotingTest {
 
     @Test
     void theShellReadsTheQuotedValuesBackUnchanged() throws Exception {
-        List<String> values = List.of("it's a 'test'", "$HOME", "a b", "`date`", "\"x\"", "!", "", "a\\b", "*");
+        List<String> values = List.of("it's a 'test'", "$HOME", "a b", "`date`", "\"x\"", "!", "", "a\\b", "*", "first line\nsecond line");
 
         String output = runInShell("printf '%s\\n' " + ShellQuoting.join(values));
 

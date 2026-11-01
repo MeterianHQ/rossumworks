@@ -7,6 +7,7 @@ import com.meterian.factory.file.AtomicFileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -17,6 +18,7 @@ public final class LiveFiles {
     private static final String HOOK_FILE_NAME = "continue-hook.sh";
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
+    private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
 
     private final Path liveDirectory;
 
@@ -38,6 +40,13 @@ public final class LiveFiles {
     public Path settingsFile(int issueNumber) {
         Path file = liveDirectory.resolve("issue-" + issueNumber + ".settings.json");
         write(file, createSettings(issueNumber), FILE_PERMISSIONS);
+        return file;
+    }
+
+    /** Writes the launch script of the issue and returns its path. Only the owner can read it: it holds the environment. */
+    public Path writeLaunchScript(int issueNumber, String content) {
+        Path file = liveDirectory.resolve("issue-" + issueNumber + ".launch.sh");
+        write(file, content.getBytes(StandardCharsets.UTF_8), PRIVATE_EXECUTABLE_PERMISSIONS);
         return file;
     }
 
