@@ -34,15 +34,19 @@ public final class Merger {
     private final TargetRepository target;
     private final String mergeTargetBranch;
     private final Duration retryDelay;
+    private final PushedCommitCheck pushedCommitCheck;
+    private final ReviewedCommit reviewedCommit;
 
     public Merger(Git git, GitHubClient gitHub, BuildRunner buildRunner, TargetRepository target,
-                  String mergeTargetBranch, Duration retryDelay) {
+                  String mergeTargetBranch, Path gatekeeperDirectory, Duration retryDelay) {
         this.git = git;
         this.gitHub = gitHub;
         this.buildRunner = buildRunner;
         this.target = target;
         this.mergeTargetBranch = mergeTargetBranch;
         this.retryDelay = retryDelay;
+        this.pushedCommitCheck = new PushedCommitCheck(git, gitHub, gatekeeperDirectory);
+        this.reviewedCommit = new ReviewedCommit(git, target.cloneDirectory(), mergeTargetBranch);
     }
 
     public MergeResult merge(Path worktree, IssueRecord record) {
@@ -50,7 +54,22 @@ public final class Merger {
             return new MergeResult.Failed("The issue has no pull request.");
         }
         int pullRequestNumber = record.pullRequestNumber().get();
-        return MergeLock.run(target.cloneDirectory(), () -> mergeOnAStableBase(worktree, record, pullRequestNumber));
+        return MergeLock.run(target.cloneDirectory(), () -> mergeOrRestore(worktree, record, pullRequestNumber));
+    }
+
+    /** A result that is not final, or a transient failure, leaves the worktree on the reviewed commit. */
+    private MergeResult mergeOrRestore(Path worktree, IssueRecord record, int pullRequestNumber) {
+        String commitBeforeTheMerge = git.headCommit(worktree);
+        try {
+            MergeResult result = mergeOnAStableBase(worktree, record, pullRequestNumber);
+            if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded) {
+                reviewedCommit.restore(worktree, record, commitBeforeTheMerge);
+            }
+            return result;
+        } catch (GitHubException exception) {
+            reviewedCommit.restore(worktree, record, commitBeforeTheMerge);
+            throw exception;
+        }
     }
 
     /** A base that moves before the squash merge starts the merge again from the rebase. */
@@ -152,7 +171,9 @@ public final class Merger {
             git.pushCommit(worktree, GATEKEEPER, headCommit, branch);
             return null;
         });
-        PushedCommitCheck.verifyGitHubHas(gitHub, pullRequestNumber, headCommit);
+        if (!pushedCommitCheck.isOnGitHub(pullRequestNumber, headCommit, branch)) {
+            return new MergeResult.NotForwarded(headCommit);
+        }
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);
             MergeOutcome outcome = gitHub.squashMerge(pullRequestNumber, headCommit);

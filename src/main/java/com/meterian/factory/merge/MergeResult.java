@@ -28,6 +28,10 @@ public sealed interface MergeResult {
     record Postponed(String reason) implements MergeResult {
     }
 
+    /** GitHub does not show the pushed commit, also after a new forward from the gatekeeper. */
+    record NotForwarded(String pushedCommit) implements MergeResult {
+    }
+
     /** A step failed. The change does not merge. */
     record Failed(String reason) implements MergeResult {
     }

@@ -13,11 +13,11 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
-import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.merge.MergeDecision;
 import com.meterian.factory.merge.MergeGate;
 import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.merge.ReviewedCommit;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.RiskResult;
@@ -57,6 +57,9 @@ public final class IssueWorkflow {
     private final PullRequestPublisher pullRequestPublisher;
     private final IssueTextCheck issueTextCheck;
     private final ApprovalCheck approvalCheck;
+    private final ForwardCheckFailure forwardCheckFailure;
+    private final ReviewedCommit reviewedCommit;
+    private final FixLoop fixLoop;
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
@@ -70,13 +73,18 @@ public final class IssueWorkflow {
         this.ownerApproval = new OwnerApproval(gitHub, requests);
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
-        this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch());
+        this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch(),
+                configuration.gatekeeperDirectory().toAbsolutePath());
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
+        this.forwardCheckFailure = new ForwardCheckFailure(statusPublisher);
+        this.fixLoop = new FixLoop(prompts, ownerApproval, conflictResolution, configuration.limits().fixLoops());
+        this.reviewedCommit = new ReviewedCommit(git, configuration.target().cloneDirectory(),
+                configuration.mergeTargetBranch());
         this.issueTextCheck = new IssueTextCheck(ownerApproval);
         this.approvalCheck = new ApprovalCheck(ownerApproval, issueTextCheck);
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
     }
 
     public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
@@ -178,7 +186,7 @@ public final class IssueWorkflow {
         Optional<Finding> remainingMarkers =
                 conflictResolution.findRemainingMarkers(worktree, record.conflictedPaths());
         if (remainingMarkers.isPresent()) {
-            return startFixLoop(record, worktree, List.of(remainingMarkers.get()));
+            return fixLoop.start(record, worktree, List.of(remainingMarkers.get()));
         }
         conflictResolution.commitAsOneCommit(worktree, ChangeTitle.describe(issue));
         return record.withoutConflictedPaths().withPhase(Phase.BUILD);
@@ -189,22 +197,32 @@ public final class IssueWorkflow {
             return block(record, "The worktree has changes that are not committed.");
         }
         String headCommit = git.headCommit(worktree);
-        BuildOutcome outcome = buildRunner.run(worktree, configuration.target());
-        if (outcome.stopped()) {
-            return record;
-        }
-        if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
-            return block(record, "The build changed the files.");
-        }
-        if (!outcome.passed()) {
-            return startFixLoop(record, worktree, List.of(new Finding("The build failed", outcome.outputTail())));
+        String treeHash = git.treeHashOf(worktree, headCommit);
+        if (!isBuiltWithALostForward(record, headCommit, treeHash)) {
+            BuildOutcome outcome = buildRunner.run(worktree, configuration.target());
+            if (outcome.stopped()) {
+                return record;
+            }
+            if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
+                return block(record, "The build changed the files.");
+            }
+            if (!outcome.passed()) {
+                return fixLoop.start(record, worktree, List.of(new Finding("The build failed", outcome.outputTail())));
+            }
         }
         ownerApproval.withdraw(record.issueNumber());
-        PullRequest pullRequest = pullRequestPublisher.publish(issue, worktree, headCommit);
-        return record.withBuiltTree(git.treeHashOf(worktree, headCommit))
-                .withPullRequest(pullRequest.number())
-                .withStatus(IssueStatus.IN_REVIEW)
-                .withPhase(Phase.REVIEW);
+        PullRequestPublisher.PublishedBranch published = pullRequestPublisher.publish(issue, worktree, headCommit);
+        IssueRecord built = record.withBuiltTree(treeHash).withPullRequest(published.pullRequest().number());
+        if (!published.isOnGitHub()) {
+            return forwardCheckFailure.count(issue, record, built, headCommit);
+        }
+        return built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.REVIEW);
+    }
+
+    /** The build passed for this commit and only the forward failed, so the build does not run again. */
+    private static boolean isBuiltWithALostForward(IssueRecord record, String headCommit, String treeHash) {
+        return record.failedForwardCommit().equals(Optional.of(headCommit))
+                && record.builtTreeHash().equals(Optional.of(treeHash));
     }
 
     private IssueRecord review(Issue issue, IssueRecord record, Path worktree)
@@ -223,10 +241,10 @@ public final class IssueWorkflow {
         }
         IssueRecord reviewed = outcome.record().withoutFailedReviewRounds();
         if (!outcome.allApprove()) {
-            return startFixLoop(reviewed, worktree, outcome.findings());
+            return fixLoop.start(reviewed, worktree, outcome.findings());
         }
         String patchId = git.patchId(worktree, mergeTargetReference());
-        return reviewed.withReviewedTree(treeHash, patchId).withPhase(Phase.RISK);
+        return reviewed.withReviewedTree(treeHash, patchId).withReviewedHeadCommit(headCommit).withPhase(Phase.RISK);
     }
 
     private IssueRecord assessRisk(Issue issue, IssueRecord record, Path worktree)
@@ -251,6 +269,7 @@ public final class IssueWorkflow {
         if (isMergedOnGitHub(record)) {
             return record.withBuiltTree(git.treeHash(worktree)).withPhase(Phase.DONE);
         }
+        reviewedCommit.restoreRebasedHead(worktree, record);
         boolean isApproved = ownerApproval.isGiven(issue);
         IssueRecord noted = isApproved ? record : ownerApproval.noteIgnoredLabel(issue, record);
         boolean questionOpen = new FactoryFolder(worktree).hasQuestion();
@@ -259,20 +278,22 @@ public final class IssueWorkflow {
             case MergeDecision.NeedsOwner needsOwner ->
                     noted.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
             case MergeDecision.Refused refused -> block(noted, "The merge gate refuses: " + refused.reason() + ".");
-            case MergeDecision.Automatic automatic -> mergePullRequest(noted, worktree);
-            case MergeDecision.Approved approved -> mergePullRequest(noted, worktree);
+            case MergeDecision.Automatic automatic -> mergePullRequest(issue, noted, worktree);
+            case MergeDecision.Approved approved -> mergePullRequest(issue, noted, worktree);
         };
     }
 
-    private IssueRecord mergePullRequest(IssueRecord record, Path worktree) {
+    private IssueRecord mergePullRequest(Issue issue, IssueRecord record, Path worktree) {
         MergeResult result = merger.merge(worktree, record);
         return switch (result) {
             case MergeResult.Merged merged -> merged.note().map(record::withNote).orElse(record)
-                    .withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
+                    .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
             case MergeResult.NeedsNewReviews needsNewReviews -> record.withoutReviews().withPhase(Phase.BUILD);
-            case MergeResult.NeedsFix needsFix -> startMergeFix(record, worktree, needsFix);
+            case MergeResult.NeedsFix needsFix -> fixLoop.startForTheMerge(record, worktree, needsFix);
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> record;
+            case MergeResult.NotForwarded notForwarded ->
+                    forwardCheckFailure.count(issue, record, record, notForwarded.pushedCommit());
         };
     }
 
@@ -286,22 +307,6 @@ public final class IssueWorkflow {
         ownerApproval.withdraw(record.issueNumber());
         gitHub.removeLabel(record.issueNumber(), FACTORY_LABEL);
         return done;
-    }
-
-    private IssueRecord startFixLoop(IssueRecord record, Path worktree, List<Finding> findings) {
-        IssueRecord counted = record.withFixLoop();
-        if (counted.fixLoops() > configuration.limits().fixLoops()) {
-            return counted.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.FIX_LOOP_LIMIT);
-        }
-        new FactoryFolder(worktree).writeFixPrompt(prompts.fix(findings));
-        ownerApproval.withdraw(counted.issueNumber());
-        return counted.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
-    }
-
-    private IssueRecord startMergeFix(IssueRecord record, Path worktree, MergeResult.NeedsFix needsFix) {
-        ConflictResolution.OpenedMerge openedMerge = conflictResolution.openMerge(worktree, needsFix);
-        IssueRecord withConflict = record.withConflictedPaths(openedMerge.conflictedPaths());
-        return startFixLoop(withConflict, worktree, List.of(openedMerge.finding()));
     }
 
     /** A failed review session is not a defect of the code, so the round runs again and no fix loop starts. */

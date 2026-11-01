@@ -64,7 +64,7 @@ class MergerTest {
         buildLog = temporaryDirectory.resolve("builds.txt");
         TargetRepository target = new TargetRepository("owner", "name", clone, "echo ran >> " + buildLog,
                 Map.of());
-        merger = new Merger(git, gitHub, new BuildRunner(), target, "main", Duration.ZERO);
+        merger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper, Duration.ZERO);
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
         gitHub.squashMergeInto(clone);
         gitHub.readPullRequestHeadsFrom(github);
@@ -78,6 +78,7 @@ class MergerTest {
         IssueRecord record = IssueRecord.queued(issueNumber).withPullRequest(issuePullRequest.number())
                 .withRisk(RiskLevel.LOW, true)
                 .withReviewedTree(git.treeHash(issueWorktree), git.patchId(issueWorktree, "origin/main"))
+                .withReviewedHeadCommit(git.headCommit(issueWorktree))
                 .withBuiltTree(git.treeHash(issueWorktree));
         for (ReviewKind kind : ReviewKind.values()) {
             record = record.withReview(kind, Verdict.APPROVE);
@@ -104,7 +105,7 @@ class MergerTest {
                         : movesTheBase);
         TargetRepository moving = new TargetRepository("owner", "name", clone, command,
                 Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
-        return new Merger(git, gitHub, new BuildRunner(), moving, "main", Duration.ZERO);
+        return new Merger(git, gitHub, new BuildRunner(), moving, "main", gatekeeper, Duration.ZERO);
     }
 
     private static void waitUntilBlockedOrEnded(Thread thread) {
@@ -188,7 +189,7 @@ class MergerTest {
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
         TargetRepository failing = new TargetRepository("owner", "name", clone, "echo broken; exit 1", Map.of());
-        Merger failingMerger = new Merger(git, gitHub, new BuildRunner(), failing, "main", Duration.ZERO);
+        Merger failingMerger = new Merger(git, gitHub, new BuildRunner(), failing, "main", gatekeeper, Duration.ZERO);
 
         MergeResult result = failingMerger.merge(worktree, record);
 
@@ -349,31 +350,49 @@ class MergerTest {
     }
 
     @Test
-    void doesNotMergeWhenTheForwardDidNotReachGitHub() {
+    void reportsACommitThatTheForwardDidNotBringToGitHub() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
         git.setRemote(gatekeeper, "github", temporaryDirectory.resolve("missing.git").toString());
 
-        assertThatThrownBy(() -> merger.merge(worktree, record))
-                .isInstanceOf(GitHubException.class)
-                .hasMessage("GitHub does not have the pushed commit yet.");
-        assertThat(gitHub.squashMergeCalls()).isEmpty();
-        assertThatThrownBy(() -> merger.merge(worktree, record)).isInstanceOf(GitHubException.class);
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.NotForwarded(git.headCommit(worktree)));
         assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
     @Test
-    void mergesAtTheNextAttemptWhenGitHubShowsTheOldHeadForAWhile() {
+    void forwardsTheCommitAgainFromTheGatekeeperWhenGitHubLacksIt() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
+        git.setRemote(gatekeeper, "github", temporaryDirectory.resolve("missing.git").toString());
+        assertThat(merger.merge(worktree, record)).isInstanceOf(MergeResult.NotForwarded.class);
+        git.setRemote(gatekeeper, "github", github.toString());
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isInstanceOf(MergeResult.Merged.class);
+        assertThat(run(github, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(git.headCommit(worktree));
+    }
+
+    @Test
+    void mergesWhenGitHubShowsTheOldHeadForAWhile() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
         gitHub.answerAnOldPullRequestHeadOnce();
 
-        assertThatThrownBy(() -> merger.merge(worktree, record))
-                .isInstanceOf(GitHubException.class)
-                .hasMessage("GitHub does not have the pushed commit yet.");
-        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(merger.merge(worktree, reviewedRecord())).isInstanceOf(MergeResult.Merged.class);
+    }
 
-        assertThat(merger.merge(worktree, record)).isInstanceOf(MergeResult.Merged.class);
+    @Test
+    void returnsToTheReviewedCommitWhenAnotherHeadFollowsARebase() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+        gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
+
+        assertThatThrownBy(() -> merger.merge(worktree, record)).isInstanceOf(GitHubException.class);
+
+        assertThat(git.headCommit(worktree)).isEqualTo(record.reviewedHeadCommit().orElseThrow());
     }
 
     @Test
@@ -410,7 +429,7 @@ class MergerTest {
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
         TargetRepository dirtying = new TargetRepository("owner", "name", clone, "echo x > junk.txt", Map.of());
-        Merger dirtyingMerger = new Merger(git, gitHub, new BuildRunner(), dirtying, "main", Duration.ZERO);
+        Merger dirtyingMerger = new Merger(git, gitHub, new BuildRunner(), dirtying, "main", gatekeeper, Duration.ZERO);
 
         MergeResult result = dirtyingMerger.merge(worktree, record);
 
@@ -475,6 +494,7 @@ class MergerTest {
                 "The branch main moved 3 times before the merge. The next poll tries again."));
         assertThat(buildCount()).isEqualTo(3);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(git.headCommit(worktree)).isEqualTo(record.reviewedHeadCommit().orElseThrow());
     }
 
     @Test

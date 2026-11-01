@@ -242,7 +242,7 @@ public final class Main {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
-                MERGE_RETRY_DELAY);
+                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
         UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());

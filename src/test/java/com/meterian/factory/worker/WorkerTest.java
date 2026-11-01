@@ -142,7 +142,8 @@ class WorkerTest {
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration) {
         BuildRunner buildRunner = new BuildRunner();
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main", Duration.ZERO);
+        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
+                configuration.gatekeeperDirectory(), Duration.ZERO);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,

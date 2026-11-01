@@ -177,6 +177,11 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public void resetHard(Path worktree, String commit) {
+        run(worktree, "reset", "-q", "--hard", commit);
+    }
+
+    @Override
     public void push(Path worktree, String remote, String branch) {
         pushCommit(worktree, remote, "HEAD", branch);
     }

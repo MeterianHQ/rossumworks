@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,7 @@ class IssueWorkflowTest {
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeAgentRunner agent = new FakeAgentRunner();
     private final UsageTracker usage = new UsageTracker(0.90, Clock.systemUTC());
+    private final BuildRunner buildRunner = new BuildRunner();
     private Path origin;
     private Path clone;
     private Path githubRepository;
@@ -105,8 +107,8 @@ class IssueWorkflowTest {
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty());
-        BuildRunner buildRunner = new BuildRunner();
-        Merger merger = new Merger(git, gitHub, buildRunner, target, "main", Duration.ZERO);
+        Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
+                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
                 buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN);
@@ -144,6 +146,38 @@ class IssueWorkflowTest {
 
     private static FakeAgentRunner.Action writeFile(String fileName, String content) {
         return request -> Files.writeString(request.workingDirectory().resolve(fileName), content);
+    }
+
+    /** The post-receive hook of the gatekeeper forwards to a repository that does not exist. */
+    private void breakTheForward() {
+        Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
+        String targetUrl = createTarget("true").sshUrl();
+        run(gatekeeper, "config", "--unset", "url." + githubRepository + ".insteadOf");
+        run(gatekeeper, "config", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf", targetUrl);
+    }
+
+    private void repairTheForward() {
+        Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
+        String targetUrl = createTarget("true").sshUrl();
+        run(gatekeeper, "config", "--unset", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf");
+        run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
+    }
+
+    private String countTheBuilds() {
+        return "echo ran >> " + temporaryDirectory.resolve("builds.txt");
+    }
+
+    private long buildCount() throws IOException {
+        Path buildLog = temporaryDirectory.resolve("builds.txt");
+        return Files.exists(buildLog) ? Files.readAllLines(buildLog).size() : 0;
+    }
+
+    private Path createPersonClone() {
+        Path person = temporaryDirectory.resolve("person");
+        run(temporaryDirectory, "clone", "-q", origin.toString(), person.toString());
+        run(person, "config", "user.name", "A Person");
+        run(person, "config", "user.email", "person@example.com");
+        return person;
     }
 
     private Path worktree() {
@@ -443,7 +477,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void keepsTheRecordWhenTheBaseMovesAtEachMergeAttempt() throws ApiKeyDetectedException, IOException {
+    void mergesAtTheNextPollAfterTheBaseMovedAtEachMergeAttempt() throws ApiKeyDetectedException, IOException {
         Path armed = temporaryDirectory.resolve("armed");
         Path person = temporaryDirectory.resolve("person");
         String build = "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; if [ -e " + armed + " ]; then cd "
@@ -453,16 +487,89 @@ class IssueWorkflowTest {
         IssueWorkflow workflow = createWorkflow(build);
         IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
         moveTheBase("c.txt", "base\n");
-        run(temporaryDirectory, "clone", "-q", origin.toString(), person.toString());
-        run(person, "config", "user.name", "A Person");
-        run(person, "config", "user.email", "person@example.com");
+        createPersonClone();
         Files.createFile(armed);
+        IssueRecord postponed = workflow.advance(beforeMerge);
+        assertThat(postponed).isEqualTo(beforeMerge);
+        assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(beforeMerge.reviewedHeadCommit().orElseThrow());
+        Files.delete(armed);
 
-        IssueRecord record = workflow.advance(beforeMerge);
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
 
-        assertThat(record).isEqualTo(beforeMerge);
-        assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.IN_REVIEW);
-        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void mergesAtTheNextPollAfterAnotherHeadAndAMovedBase() throws ApiKeyDetectedException {
+        gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
+        assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(beforeMerge.reviewedHeadCommit().orElseThrow());
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(2);
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
+    void mergesAtTheNextPollAfterAStoppedMergeBuild() throws Exception {
+        Path armed = temporaryDirectory.resolve("armed");
+        Path started = temporaryDirectory.resolve("started");
+        String build = "if [ -e " + armed + " ]; then touch " + started + "; sleep 60; fi";
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow(build);
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        Files.createFile(armed);
+        AtomicBoolean stepEnded = new AtomicBoolean();
+        Thread stopper = Thread.ofVirtual().start(() -> stopTheBuildWhenItStarts(started, stepEnded));
+        IssueRecord stopped = workflow.advance(beforeMerge);
+        stepEnded.set(true);
+        stopper.join();
+        assertThat(stopped).isEqualTo(beforeMerge);
+        assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(beforeMerge.reviewedHeadCommit().orElseThrow());
+        Files.delete(armed);
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    /** Stops the build again and again until the merge step ends, so that no stop comes too early. */
+    private void stopTheBuildWhenItStarts(Path started, AtomicBoolean stepEnded) {
+        while (!stepEnded.get()) {
+            if (Files.exists(started)) {
+                buildRunner.stopBuild(worktree());
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException exception) {
+                return;
+            }
+        }
+    }
+
+    @Test
+    void returnsToTheReviewedCommitWhenTheMergeStartsOnARebasedHead() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        // A crash in an earlier merge step left the worktree rebased.
+        git.fetch(worktree(), "origin", "main");
+        git.rebase(worktree(), "origin/main");
+
+        IssueRecord record = advanceUntilWaiting(workflow, beforeMerge);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 
     @Test
@@ -497,37 +604,75 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void repeatsTheBuildWhenTheForwardDidNotReachGitHub() throws ApiKeyDetectedException {
-        Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget("true").sshUrl();
-        run(gatekeeper, "config", "--unset", "url." + githubRepository + ".insteadOf");
-        run(gatekeeper, "config", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf", targetUrl);
-        agent.thenChangeFile();
-        IssueWorkflow workflow = createWorkflow("true");
+    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheBuild() throws ApiKeyDetectedException, IOException {
+        breakTheForward();
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
         IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
         assertThatThrownBy(() -> workflow.advance(beforeBuild))
                 .isInstanceOf(GitHubException.class)
                 .hasMessage("GitHub does not have the pushed commit yet.");
-        assertThat(readRecordFromGitHub()).isEqualTo(beforeBuild);
+        assertThat(readRecordFromGitHub().failedForwardChecks()).isEqualTo(1);
+        repairTheForward();
 
-        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
 
-        assertThat(readRecordFromGitHub()).isEqualTo(beforeBuild);
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.failedForwardChecks()).isZero();
+        assertThat(buildCount()).isEqualTo(1);
         assertThat(gitHub.pullRequests()).hasSize(1);
     }
 
     @Test
-    void reviewsAfterTheRepeatedBuildWhenGitHubShowsTheOldHeadForAWhile() throws ApiKeyDetectedException {
-        gitHub.answerAnOldPullRequestHeadOnce();
+    void blocksAfterThreeFailedForwardChecks() throws ApiKeyDetectedException, IOException {
+        breakTheForward();
         agent.thenChangeFile();
-        IssueWorkflow workflow = createWorkflow("true");
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
         IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        String head = run(worktree(), "rev-parse", "HEAD");
         assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
 
         IssueRecord record = workflow.advance(readRecordFromGitHub());
 
-        assertThat(record.phase()).isEqualTo(Phase.REVIEW);
-        assertThat(record.pullRequestNumber()).isPresent();
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.notes()).contains("GitHub does not show the pushed commit " + head
+                + " on factory/issue-7 after 3 tries.");
+        assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(buildCount()).isEqualTo(1);
+    }
+
+    @Test
+    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheMerge() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        moveTheBase("c.txt", "base\n");
+        breakTheForward();
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
+        assertThat(readRecordFromGitHub().failedForwardChecks()).isEqualTo(1);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        repairTheForward();
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void reviewsAndMergesWhenGitHubShowsTheOldHeadForAWhile() throws ApiKeyDetectedException {
+        gitHub.answerAnOldPullRequestHeadOnce();
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        IssueRecord reviewed = workflow.advance(beforeBuild);
+        assertThat(reviewed.phase()).isEqualTo(Phase.REVIEW);
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.pullRequests()).hasSize(1);
     }
 

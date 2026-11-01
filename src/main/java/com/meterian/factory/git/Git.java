@@ -55,6 +55,9 @@ public interface Git {
     /** Moves HEAD to the commit and keeps the index and the files. */
     void resetSoft(Path worktree, String commit);
 
+    /** Moves HEAD, the index, and the tracked files to the commit. */
+    void resetHard(Path worktree, String commit);
+
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);
 

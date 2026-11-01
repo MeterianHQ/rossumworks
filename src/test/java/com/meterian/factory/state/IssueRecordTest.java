@@ -98,4 +98,24 @@ class IssueRecordTest {
         assertThat(queued.issueTextHash()).isEmpty();
         assertThat(changed.issueTextHash()).contains("0a1b2c");
     }
+
+    @Test
+    void countsTheFailedForwardChecksOfOneCommit() {
+        IssueRecord twice = queued.withFailedForwardCheck("aaa").withFailedForwardCheck("aaa");
+        IssueRecord otherCommit = twice.withFailedForwardCheck("bbb");
+
+        assertThat(twice.failedForwardChecks()).isEqualTo(2);
+        assertThat(otherCommit.failedForwardChecks()).isEqualTo(1);
+        assertThat(otherCommit.failedForwardCommit()).contains("bbb");
+        assertThat(otherCommit.withoutFailedForwardChecks().failedForwardChecks()).isZero();
+        assertThat(otherCommit.withoutFailedForwardChecks().failedForwardCommit()).isEmpty();
+    }
+
+    @Test
+    void forgetsTheReviewedHeadCommitWithTheReviews() {
+        IssueRecord reviewed = queued.withReviewedHeadCommit("ccc");
+
+        assertThat(reviewed.reviewedHeadCommit()).contains("ccc");
+        assertThat(reviewed.withoutReviews().reviewedHeadCommit()).isEmpty();
+    }
 }
