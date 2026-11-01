@@ -1,0 +1,159 @@
+package com.meterian.factory.git;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+public final class ProcessGit implements Git {
+
+    private static final String FACTORY_FOLDER_PATTERN = ".factory/";
+
+    private record Result(int exitCode, String output, String errorOutput) {
+    }
+
+    @Override
+    public void fetch(Path repository, String remote, String branch) {
+        run(repository, "fetch", remote, branch);
+    }
+
+    @Override
+    public void addWorktree(Path clone, Path worktree, String branch, String startPoint) {
+        run(clone, "worktree", "add", "-b", branch, worktree.toString(), startPoint);
+    }
+
+    @Override
+    public void removeWorktree(Path clone, Path worktree) {
+        run(clone, "worktree", "remove", "--force", worktree.toString());
+    }
+
+    @Override
+    public String treeHash(Path worktree) {
+        return run(worktree, "rev-parse", "HEAD^{tree}").trim();
+    }
+
+    @Override
+    public String patchId(Path worktree, String base) {
+        String mergeBase = run(worktree, "merge-base", base, "HEAD").trim();
+        String difference = run(worktree, "diff", mergeBase + "..HEAD");
+        String patchIdLine = runWithInput(worktree, difference, "patch-id", "--stable").trim();
+        return patchIdLine.isEmpty() ? "" : patchIdLine.split("\\s+")[0];
+    }
+
+    @Override
+    public boolean hasUncommittedChanges(Path worktree) {
+        return !run(worktree, "status", "--porcelain").isBlank();
+    }
+
+    @Override
+    public void commitAll(Path worktree, String message) {
+        run(worktree, "add", "-A");
+        run(worktree, "commit", "-q", "-m", message);
+    }
+
+    @Override
+    public RebaseOutcome rebase(Path worktree, String upstream) {
+        String headBefore = run(worktree, "rev-parse", "HEAD").trim();
+        Result result = execute(worktree, null, "rebase", upstream);
+        if (result.exitCode() == 0) {
+            String headAfter = run(worktree, "rev-parse", "HEAD").trim();
+            return headBefore.equals(headAfter) ? RebaseOutcome.UP_TO_DATE : RebaseOutcome.REBASED;
+        }
+        if (isRebaseInProgress(worktree)) {
+            run(worktree, "rebase", "--abort");
+            return RebaseOutcome.CONFLICT;
+        }
+        throw failure(List.of("rebase", upstream), result);
+    }
+
+    @Override
+    public void push(Path worktree, String remote, String branch) {
+        run(worktree, "push", "--force", remote, "HEAD:refs/heads/" + branch);
+    }
+
+    @Override
+    public void excludeFactoryFolder(Path worktree) {
+        Path excludeFile = worktree.resolve(run(worktree, "rev-parse", "--git-path", "info/exclude").trim());
+        try {
+            Files.createDirectories(excludeFile.getParent());
+            String content = Files.exists(excludeFile) ? Files.readString(excludeFile) : "";
+            if (!content.lines().anyMatch(FACTORY_FOLDER_PATTERN::equals)) {
+                Files.writeString(excludeFile, content + FACTORY_FOLDER_PATTERN + "\n");
+            }
+        } catch (IOException exception) {
+            throw new GitException("Cannot write the exclude file " + excludeFile, exception);
+        }
+    }
+
+    @Override
+    public void setRemote(Path repository, String name, String url) {
+        boolean exists = execute(repository, null, "remote", "get-url", name).exitCode() == 0;
+        run(repository, "remote", exists ? "set-url" : "add", name, url);
+    }
+
+    static String run(Path directory, String... arguments) {
+        return runWithInput(directory, null, arguments);
+    }
+
+    private static String runWithInput(Path directory, String input, String... arguments) {
+        Result result = execute(directory, input, arguments);
+        if (result.exitCode() != 0) {
+            throw failure(List.of(arguments), result);
+        }
+        return result.output();
+    }
+
+    private static boolean isRebaseInProgress(Path worktree) {
+        return isGitPathPresent(worktree, "rebase-merge") || isGitPathPresent(worktree, "rebase-apply");
+    }
+
+    private static boolean isGitPathPresent(Path worktree, String name) {
+        return Files.exists(worktree.resolve(run(worktree, "rev-parse", "--git-path", name).trim()));
+    }
+
+    private static GitException failure(List<String> arguments, Result result) {
+        return new GitException("git " + String.join(" ", arguments) + " failed with exit code "
+                + result.exitCode() + ": " + result.errorOutput().trim());
+    }
+
+    private static Result execute(Path directory, String input, String... arguments) {
+        List<String> command = new ArrayList<>(List.of("git"));
+        command.addAll(List.of(arguments));
+        Path errorFile = null;
+        try {
+            errorFile = Files.createTempFile("factory-git", ".err");
+            ProcessBuilder builder = new ProcessBuilder(command)
+                    .directory(directory.toFile())
+                    .redirectError(errorFile.toFile());
+            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
+            Process process = builder.start();
+            try (var stdin = process.getOutputStream()) {
+                if (input != null) {
+                    stdin.write(input.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exitCode = process.waitFor();
+            return new Result(exitCode, output, Files.readString(errorFile));
+        } catch (IOException exception) {
+            throw new GitException("git " + String.join(" ", arguments) + " cannot run", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new GitException("git " + String.join(" ", arguments) + " was interrupted", exception);
+        } finally {
+            deleteQuietly(errorFile);
+        }
+    }
+
+    private static void deleteQuietly(Path file) {
+        try {
+            if (file != null) {
+                Files.deleteIfExists(file);
+            }
+        } catch (IOException ignored) {
+            // The file is in the temporary folder.
+        }
+    }
+}

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Forward each accepted factory branch to GitHub. A forward failure
+# surfaces later: the pull request step fails without the branch.
+while read -r old_sha new_sha reference; do
+    git push --force github "$new_sha:$reference"
+done
