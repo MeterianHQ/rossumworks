@@ -121,7 +121,7 @@ public final class Worker {
 
     /**
      * Stops the worker, ends the phases in work, and waits for the loops. A loop that ends because of the stop
-     * writes back the record from before the stopped step.
+     * writes back the record from before the stopped step, except when the result of the step is final.
      *
      * @return true when all loops ended in the timeout
      */
@@ -288,7 +288,7 @@ public final class Worker {
     }
 
     /**
-     * Keeps the result of a step only when no block and no stop came during the step, or when it merged. A request
+     * Keeps the result of a step only when no block and no stop came during the step, or when it is final. A request
      * of factory:enter ends the loop after the current step, and the loop enters on the record that it kept.
      */
     private void runIssue(IssueRecord start) {
@@ -298,7 +298,7 @@ public final class Worker {
         try {
             while (mayContinue(issueNumber) && !isEnterRequested(issueNumber)) {
                 IssueRecord next = workflow.advance(kept);
-                if (!mayContinue(issueNumber) && next.phase() != Phase.DONE) {
+                if (!mayContinue(issueNumber) && !FinalStepResult.isFinal(kept, next)) {
                     interruptedResult = Optional.of(next);
                     break;
                 }

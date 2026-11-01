@@ -23,6 +23,7 @@ public final class FakeLiveSessions implements LiveSessions {
     private volatile boolean failsTheNextOpen;
     private volatile boolean failsTheNextClose;
     private volatile Runnable openingAction = () -> { };
+    private volatile Runnable closingAction = () -> { };
 
     @Override
     public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
@@ -45,6 +46,7 @@ public final class FakeLiveSessions implements LiveSessions {
 
     @Override
     public void close(int issueNumber) {
+        runTheClosingAction();
         closeCalls.add(issueNumber);
         if (failsTheNextClose) {
             failsTheNextClose = false;
@@ -89,6 +91,17 @@ public final class FakeLiveSessions implements LiveSessions {
     private void runTheOpeningAction() {
         Runnable action = openingAction;
         openingAction = () -> { };
+        action.run();
+    }
+
+    /** The next close runs the action first, in the thread of the close. */
+    public void whenClosing(Runnable action) {
+        closingAction = action;
+    }
+
+    private void runTheClosingAction() {
+        Runnable action = closingAction;
+        closingAction = () -> { };
         action.run();
     }
 

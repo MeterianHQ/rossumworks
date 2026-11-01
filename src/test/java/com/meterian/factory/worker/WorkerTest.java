@@ -1072,4 +1072,46 @@ class WorkerTest {
         assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
     }
+
+    /** Another thread stops the worker, as the shutdown hook does. The step goes on after the stop. */
+    private static void stopTheWorkerDuringTheStep(Worker worker) {
+        new Thread(() -> worker.shutDown(TIME_BOUND), "test-shutdown").start();
+        try {
+            waitUntil(worker::isStopped);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("The wait was interrupted", exception);
+        }
+    }
+
+    @Test
+    void aStopDuringTheOpenAfterAQuestionKeepsTheLiveRecord() throws InterruptedException {
+        Worker worker = createWorker(new FakeAgentRunner().thenAskQuestion("Which greeting do you want?"), 2);
+        liveSessions.whenOpening(() -> stopTheWorkerDuringTheStep(worker));
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(worker.isStopped()).isTrue();
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
+        assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+    }
+
+    @Test
+    void aStopDuringTheContinueKeepsTheRecordAfterTheContinue() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        liveSessions.requestContinue(ISSUE);
+        liveSessions.whenClosing(() -> stopTheWorkerDuringTheStep(worker));
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(worker.isStopped()).isTrue();
+        assertThat(liveSessions.isOpen(ISSUE)).isFalse();
+        assertThat(record.live()).isEmpty();
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
 }
