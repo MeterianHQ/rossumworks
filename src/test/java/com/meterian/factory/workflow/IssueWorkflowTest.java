@@ -312,6 +312,21 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void keepsThePullRequestBodyWhenAFixLoopLeavesNoDescription() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The first description."))
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .then(request -> {
+                    Files.writeString(request.workingDirectory().resolve("work.txt"), "fixed\n");
+                    Files.delete(request.workingDirectory().resolve(".factory/description.md"));
+                }).thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.editedPullRequestBodies()).isEmpty();
+        assertThat(gitHub.pullRequests().getFirst().body()).contains("The first description.");
+    }
+
+    @Test
     void editsNoPullRequestBodyWhenTheDescriptionStaysTheSame() throws ApiKeyDetectedException {
         agent.then(changeFileAndDescribe("The same description."))
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()

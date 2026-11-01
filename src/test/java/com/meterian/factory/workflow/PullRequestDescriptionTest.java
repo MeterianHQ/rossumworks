@@ -81,4 +81,46 @@ class PullRequestDescriptionTest {
         assertThat(body).contains("a".repeat(20_000) + "\n\nThe description is too long; the factory cut it.")
                 .doesNotContain("a".repeat(20_001));
     }
+
+    private String describedAs(String description) throws IOException {
+        writeDescription(description);
+        return PullRequestDescription.bodyFor(7, worktree);
+    }
+
+    @Test
+    void neutralizesTheClosingKeywordWithAGitHubIssueNumber() throws IOException {
+        assertThat(describedAs("It fixes GH-12.")).contains("It fixes issue 12.");
+    }
+
+    @Test
+    void neutralizesTheClosingKeywordWithARepositoryReference() throws IOException {
+        assertThat(describedAs("It fixes o/r#12.")).contains("It fixes issue 12.");
+    }
+
+    @Test
+    void neutralizesTheClosingKeywordWithAnIssueUrl() throws IOException {
+        assertThat(describedAs("It fixes https://github.com/o/r/issues/12 now."))
+                .contains("It fixes issue 12 now.");
+    }
+
+    @Test
+    void neutralizesAClosingKeywordWithAColonAtTheStart() throws IOException {
+        assertThat(describedAs("Fix: #12")).contains("\n\nFix issue 12\n\n");
+    }
+
+    @Test
+    void neutralizesAClosingKeywordWithANoBreakSpace() throws IOException {
+        assertThat(describedAs("It fixes\u00A0#12.")).contains("It fixes issue 12.");
+    }
+
+    @Test
+    void keepsAUrlToAPullRequest() throws IOException {
+        assertThat(describedAs("It fixes https://github.com/o/r/pull/12 now."))
+                .contains("It fixes https://github.com/o/r/pull/12 now.");
+    }
+
+    @Test
+    void reportsNoDescriptionForAMissingFile() {
+        assertThat(PullRequestDescription.bodyIfDescribed(7, worktree)).isEmpty();
+    }
 }

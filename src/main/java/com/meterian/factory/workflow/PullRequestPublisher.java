@@ -29,18 +29,20 @@ final class PullRequestPublisher {
     PublishedBranch publish(Issue issue, Path worktree, String headCommit) {
         String branch = WorkspaceLayout.branch(issue.number());
         git.pushCommit(worktree, IssueWorkspace.GATEKEEPER_REMOTE, headCommit, branch);
-        String body = PullRequestDescription.bodyFor(issue.number(), worktree);
         PullRequest pullRequest = gitHub.openPullRequest(branch)
-                .map(existing -> updateBody(existing, body))
-                .orElseGet(() -> createPullRequest(issue, branch, body));
+                .map(existing -> updateBody(existing, issue, worktree))
+                .orElseGet(() -> createPullRequest(issue, branch, worktree));
         return new PublishedBranch(pullRequest, pushedCommitCheck.isOnGitHub(pullRequest.number(), headCommit, branch));
     }
 
-    private PullRequest createPullRequest(Issue issue, String branch, String body) {
+    private PullRequest createPullRequest(Issue issue, String branch, Path worktree) {
+        String body = PullRequestDescription.bodyFor(issue.number(), worktree);
         return gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
     }
 
-    private PullRequest updateBody(PullRequest pullRequest, String body) {
+    /** A missing or empty description keeps the last description in the body. */
+    private PullRequest updateBody(PullRequest pullRequest, Issue issue, Path worktree) {
+        String body = PullRequestDescription.bodyIfDescribed(issue.number(), worktree).orElse(pullRequest.body());
         if (pullRequest.body().equals(body)) {
             return pullRequest;
         }
