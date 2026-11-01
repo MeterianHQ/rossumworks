@@ -1409,4 +1409,51 @@ class IssueWorkflowTest {
                 .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement()
                         .isInstanceOf(IllegalStateException.class));
     }
+
+    private static final String UNKNOWN_SESSION_NOTE =
+            "The factory closed a live session that the record did not know.";
+
+    @Test
+    void aStepClosesALiveSessionThatTheRecordDoesNotKnow() throws Exception {
+        AtomicBoolean sessionOpenInThePhase = new AtomicBoolean(true);
+        agent.then(request -> {
+            sessionOpenInThePhase.set(liveSessions.isOpen(ISSUE));
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change\n");
+        });
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord prepared = workflow.advance(queuedRecord());
+        liveSessions.open(ISSUE, prepared.sessionId(), worktree());
+
+        IssueRecord implemented = workflow.advance(prepared);
+        IssueRecord built = workflow.advance(implemented);
+
+        assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
+        assertThat(liveSessions.isOpen(ISSUE)).isFalse();
+        assertThat(sessionOpenInThePhase).isFalse();
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
+        assertThat(built.notes()).filteredOn(UNKNOWN_SESSION_NOTE::equals).hasSize(1);
+        assertThat(readRecordFromGitHub().notes()).filteredOn(UNKNOWN_SESSION_NOTE::equals).hasSize(1);
+    }
+
+    @Test
+    void aFailedCloseOfAnUnknownSessionStartsNoPhase() throws Exception {
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord prepared = workflow.advance(queuedRecord());
+        liveSessions.open(ISSUE, prepared.sessionId(), worktree());
+        liveSessions.failTheNextClose();
+
+        IssueRecord refused = workflow.advance(prepared);
+
+        assertThat(refused).isEqualTo(prepared);
+        assertThat(agent.requests()).isEmpty();
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
+
+        IssueRecord implemented = workflow.advance(refused);
+
+        assertThat(liveSessions.isOpen(ISSUE)).isFalse();
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
+    }
 }

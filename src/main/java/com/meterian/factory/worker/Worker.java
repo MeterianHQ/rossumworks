@@ -121,7 +121,8 @@ public final class Worker {
 
     /**
      * Stops the worker, ends the phases in work, and waits for the loops. A loop that ends because of the stop
-     * writes back the record from before the stopped step, except when the result of the step is final.
+     * writes back the record from before the stopped step, except when the result of the step is final. After
+     * the timeout, the loops get an interrupt: an open of a live session in progress then closes its session.
      *
      * @return true when all loops ended in the timeout
      */
@@ -135,6 +136,8 @@ public final class Worker {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return false;
+        } finally {
+            executor.shutdownNow();
         }
     }
 

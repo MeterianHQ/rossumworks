@@ -35,6 +35,9 @@ public final class FakeLiveSessions implements LiveSessions {
             throw new LiveSessionException("The live session did not show a Remote Control link in 90 seconds.");
         }
         runTheOpeningAction();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new LiveSessionException("The open of the live session was interrupted.");
+        }
         openIssues.add(issueNumber);
         return "https://claude.ai/code/session_test" + issueNumber;
     }
@@ -83,7 +86,10 @@ public final class FakeLiveSessions implements LiveSessions {
         openIssues.remove(issueNumber);
     }
 
-    /** The next open runs the action before the session exists, as a slow start of tmux and claude does. */
+    /**
+     * The next open runs the action before the session exists, as a slow start of tmux and claude does. An
+     * interrupt during the action makes the open fail without a session, as tmux does.
+     */
     public void whenOpening(Runnable action) {
         openingAction = action;
     }

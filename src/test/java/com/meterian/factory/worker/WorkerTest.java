@@ -48,6 +48,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -1113,5 +1114,31 @@ class WorkerTest {
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
         assertThat(record.live()).isEmpty();
         assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void aShutDownAfterItsTimeoutInterruptsTheOpenOfASession() throws InterruptedException {
+        CountDownLatch openStarted = new CountDownLatch(1);
+        AtomicBoolean openInterrupted = new AtomicBoolean();
+        Worker worker = createWorker(new FakeAgentRunner().thenAskQuestion("Which greeting do you want?"), 2);
+        liveSessions.whenOpening(() -> {
+            openStarted.countDown();
+            try {
+                Thread.sleep(TIME_BOUND.toMillis());
+            } catch (InterruptedException exception) {
+                openInterrupted.set(true);
+                Thread.currentThread().interrupt();
+            }
+        });
+        worker.pollOnce();
+        awaitQuietly(openStarted);
+
+        boolean loopsEnded = worker.shutDown(Duration.ofMillis(200));
+        waitForTheLoops();
+
+        assertThat(loopsEnded).isFalse();
+        assertThat(openInterrupted).isTrue();
+        assertThat(liveSessions.isOpen(ISSUE)).isFalse();
+        assertThat(readRecord(ISSUE).orElseThrow().live()).isEmpty();
     }
 }

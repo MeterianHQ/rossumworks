@@ -63,6 +63,7 @@ public final class IssueWorkflow {
     private final FixLoop fixLoop;
     private final LiveMode liveMode;
     private final LiveRecordPublisher livePublisher;
+    private final UnknownSessionCloser unknownSessionCloser;
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
@@ -91,6 +92,7 @@ public final class IssueWorkflow {
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
         this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts());
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
+        this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
     }
 
     public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
@@ -113,11 +115,17 @@ public final class IssueWorkflow {
         return WAITING_STATUSES.contains(record.status());
     }
 
+    /** Fail closed: while a session that the record does not know can run, no phase starts. */
+    private IssueRecord runStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+        Optional<IssueRecord> withoutUnknownSession = unknownSessionCloser.closeUnknownSession(record);
+        return withoutUnknownSession.isPresent() ? runKnownStep(issue, withoutUnknownSession.get()) : record;
+    }
+
     /**
      * A record in phase DONE always runs the finish step: its cleanup can be left from an earlier run.
      * While the live conversation is open, no phase runs.
      */
-    private IssueRecord runStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+    private IssueRecord runKnownStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
         try {
             if (isLive(record)) {
                 return liveMode.isContinueRequested(record)

@@ -427,6 +427,11 @@ My decisions on the next phase after `/factory:continue` or "Continue":
 The shutdown of the worker keeps a live session: tmux keeps it, and the next
 worker finds it again. A block closes it.
 
+A shutdown, a crash, or a kill during an open can leave a tmux session that
+no record knows. Before each phase of a record without a live state, the
+worker closes such a session and writes a note in the status comment. When
+the close fails, no phase starts, and the next poll tries again.
+
 ### 8.3 Known limits of Remote Control
 
 From the research of 2026-11-01:

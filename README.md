@@ -89,6 +89,8 @@ credential variable.
 
 - A stop of the worker keeps the live session. The next worker finds it again.
 - A block closes the live session.
+- A stop or a crash during an open can leave a session that no record knows. The worker closes it before
+  the next phase of the issue and writes a note in the status comment.
 - A Remote Control session reconnects only in about 4 hours. It exits after about 10 minutes without
   network.
 - When the session ends without `/factory:continue`, the issue keeps the status "Waits for you". The worker
