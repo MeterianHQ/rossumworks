@@ -1,0 +1,61 @@
+package com.meterian.factory.github;
+
+import com.meterian.factory.state.IssueStatus;
+import java.util.List;
+import java.util.Optional;
+
+public interface GitHubClient {
+
+    String authenticatedLogin();
+
+    List<Issue> openIssuesWithLabel(String label);
+
+    Issue issue(int number);
+
+    List<IssueComment> comments(int issueNumber);
+
+    long createComment(int issueNumber, String body);
+
+    void editComment(long commentId, String body);
+
+    /** Returns the actor of the newest "labeled" event for this label. */
+    Optional<String> lastLabelActor(int issueNumber, String label);
+
+    /** Creates the label when it does not exist. Does nothing when it exists. */
+    void ensureLabel(String label, String color, String description);
+
+    default void ensureLabel(String label, String color) {
+        ensureLabel(label, color, "");
+    }
+
+    /** Creates the six status labels when they do not exist. */
+    default void ensureStatusLabels() {
+        for (IssueStatus status : IssueStatus.values()) {
+            ensureLabel(status.labelName(), status.labelColor(), status.labelDescription());
+        }
+    }
+
+    void addLabel(int issueNumber, String label);
+
+    /** Does nothing when the label is not on the issue. */
+    void removeLabel(int issueNumber, String label);
+
+    /** Makes the status label of the status the only status label on the issue. */
+    void setStatus(Issue issue, IssueStatus status);
+
+    Optional<PullRequest> openPullRequest(String headBranch);
+
+    PullRequest createPullRequest(String headBranch, String baseBranch, String title, String body);
+
+    /** Tells if GitHub merged the pull request. */
+    boolean isMerged(int pullRequestNumber);
+
+    /** Returns the commit hash of the head of the pull request on GitHub. */
+    String pullRequestHead(int pullRequestNumber);
+
+    /** Returns the tree hash of the merge commit of a merged pull request. Empty when GitHub has no merge commit. */
+    Optional<String> mergeCommitTree(int pullRequestNumber);
+
+    /** Merges only if the head of the pull request is the expected commit. */
+    MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
+}

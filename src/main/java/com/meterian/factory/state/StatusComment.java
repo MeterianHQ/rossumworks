@@ -1,0 +1,115 @@
+package com.meterian.factory.state;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.meterian.factory.github.IssueComment;
+import java.io.IOException;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public final class StatusComment {
+
+    private static final String HEADLINE_START = "**Factory status:**";
+    private static final String RECORD_START = "<!-- factory-record";
+    private static final String RECORD_END = "-->";
+    private static final String NOT_SET = "—";
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());
+
+    private StatusComment() {
+    }
+
+    public static String render(IssueRecord record, int fixLoopLimit) {
+        StringBuilder body = new StringBuilder();
+        body.append(renderHeadline(record)).append('\n');
+        body.append(renderReviews(record)).append('\n');
+        body.append(renderCounters(record, fixLoopLimit)).append('\n');
+        record.notes().forEach(note -> body.append(sanitizeNote(note)).append('\n'));
+        body.append('\n').append(RECORD_START).append('\n');
+        body.append(writeJson(record)).append('\n');
+        body.append(RECORD_END);
+        return body.toString();
+    }
+
+    /** Reads the record of the newest status comment of the worker. Other comments of the worker do not count. */
+    public static Optional<IssueRecord> findRecord(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin).flatMap(comment -> readRecord(comment.body()));
+    }
+
+    /** True when the newest status comment of the worker has a record that does not parse. */
+    public static boolean hasBrokenRecord(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin)
+                .filter(comment -> readRecord(comment.body()).isEmpty())
+                .isPresent();
+    }
+
+    /** Changes the HTML comment markers, so that a text cannot open or close a hidden block. */
+    public static String neutralizeCommentMarkers(String text) {
+        return text.replace("<!--", "<! --").replace("-->", "-- >");
+    }
+
+    private static Optional<IssueComment> findNewestStatusComment(List<IssueComment> comments, String workerLogin) {
+        return comments.stream()
+                .filter(comment -> workerLogin.equals(comment.authorLogin()))
+                .filter(comment -> comment.body().startsWith(HEADLINE_START))
+                .filter(comment -> comment.body().contains(RECORD_START))
+                .max(Comparator.comparingLong(IssueComment::id));
+    }
+
+    private static String sanitizeNote(String note) {
+        return neutralizeCommentMarkers(note.replaceAll("\\R", " "));
+    }
+
+    private static String renderHeadline(IssueRecord record) {
+        String headline = HEADLINE_START + " " + record.status().displayName() + " — phase " + record.phase();
+        return record.waitReason()
+                .map(reason -> headline + "\n" + reason.sentence())
+                .orElse(headline);
+    }
+
+    private static String renderReviews(IssueRecord record) {
+        String reviews = Stream.of(ReviewKind.values())
+                .map(kind -> kind.name().toLowerCase() + " " + describeVerdict(record, kind))
+                .collect(Collectors.joining(", "));
+        return "Reviews: " + reviews;
+    }
+
+    private static String describeVerdict(IssueRecord record, ReviewKind kind) {
+        Verdict verdict = record.reviews().get(kind);
+        return verdict == null ? NOT_SET : verdict.name().toLowerCase();
+    }
+
+    private static String renderCounters(IssueRecord record, int fixLoopLimit) {
+        String risk = record.risk().map(level -> level.name().toLowerCase()).orElse(NOT_SET);
+        String pullRequest = record.pullRequestNumber().map(number -> "#" + number).orElse(NOT_SET);
+        return "Fix loops: " + record.fixLoops() + " of " + fixLoopLimit + " · Risk: " + risk + " · Pull request: " + pullRequest;
+    }
+
+    private static String writeJson(IssueRecord record) {
+        try {
+            return MAPPER.writeValueAsString(record).replace("--", "\\u002d\\u002d");
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot write the issue record.", exception);
+        }
+    }
+
+    private static Optional<IssueRecord> readRecord(String body) {
+        String trimmed = body.stripTrailing();
+        if (!trimmed.endsWith(RECORD_END)) {
+            return Optional.empty();
+        }
+        String marker = "\n" + RECORD_START + "\n";
+        int start = trimmed.lastIndexOf(marker);
+        if (start < 0) {
+            return Optional.empty();
+        }
+        String json = trimmed.substring(start + marker.length(), trimmed.length() - RECORD_END.length());
+        try {
+            return Optional.of(MAPPER.readValue(json, IssueRecord.class));
+        } catch (IOException | RuntimeException exception) {
+            return Optional.empty();
+        }
+    }
+}
