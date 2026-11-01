@@ -27,6 +27,16 @@ class MainTest {
     private final ByteArrayOutputStream errorBytes = new ByteArrayOutputStream();
     private final PrintStream errors = new PrintStream(errorBytes, true, StandardCharsets.UTF_8);
 
+    private int runMain(String[] arguments, Map<String, String> environment) {
+        return Main.run(arguments, environment, errors,
+                () -> {
+                    throw new AssertionError("The test reached the token");
+                },
+                (configuration, token, errorStream) -> {
+                    throw new AssertionError("The test reached the worker");
+                });
+    }
+
     private String errorText() {
         return errorBytes.toString(StandardCharsets.UTF_8);
     }
@@ -70,8 +80,8 @@ class MainTest {
 
     @Test
     void refusesToStartWithAnApiKey() {
-        int exitCode = Main.run(new String[] {"run", "--config", "missing.yaml"},
-                Map.of("ANTHROPIC_API_KEY", "secret", "PATH", "/usr/bin:/bin"), errors);
+        int exitCode = runMain(new String[] {"run", "--config", "missing.yaml"},
+                Map.of("ANTHROPIC_API_KEY", "secret", "PATH", "/usr/bin:/bin"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription.")
@@ -80,7 +90,7 @@ class MainTest {
 
     @Test
     void refusesToStartWithoutAUsableArgument() {
-        int exitCode = Main.run(new String[] {}, Map.of(), errors);
+        int exitCode = runMain(new String[] {}, Map.of());
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains(USAGE);
@@ -90,8 +100,8 @@ class MainTest {
     void refusesToStartWhenACommandIsMissing() throws IOException {
         Path configuration = writeConfiguration("no-such-claude-for-the-factory");
 
-        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
-                Map.of("PATH", System.getenv("PATH")), errors);
+        int exitCode = runMain(new String[] {"run", "--config", configuration.toString()},
+                Map.of("PATH", System.getenv("PATH")));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText())
@@ -108,11 +118,12 @@ class MainTest {
         }
         Path configuration = writeConfiguration("claude");
 
-        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
-                Map.of("PATH", binDirectory.toString()), errors);
+        int exitCode = runMain(new String[] {"run", "--config", configuration.toString()},
+                Map.of("PATH", binDirectory.toString()));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("The factory needs these commands on the PATH: tmux, jq");
+        assertThat(temporaryDirectory.resolve("gatekeeper.git")).doesNotExist();
     }
 
     @Test

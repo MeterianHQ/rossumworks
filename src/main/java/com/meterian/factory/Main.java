@@ -76,16 +76,28 @@ public final class Main {
         System.exit(run(arguments, System.getenv(), System.err));
     }
 
-    /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
+    /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
+    @FunctionalInterface
+    interface WorkerStarter {
+        int start(FactoryConfiguration configuration, String token, PrintStream errors)
+                throws InterruptedException, StartupException;
+    }
+
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors) {
+        return run(arguments, environment, errors, Main::readTokenFromGh, Main::runWorker);
+    }
+
+    /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
+    static int run(String[] arguments, Map<String, String> environment, PrintStream errors, TokenSource ghToken,
+                   WorkerStarter workerStarter) {
         try {
             Path configurationFile = readConfigurationPath(arguments);
             verifyNoApiKey(environment);
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
             Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.target().sshUrl());
-            String token = readToken(environment, Main::readTokenFromGh);
-            return runWorker(configuration, token, errors);
+            String token = readToken(environment, ghToken);
+            return workerStarter.start(configuration, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -245,10 +257,18 @@ public final class Main {
         LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
         try {
             liveFiles.install();
-        } catch (IllegalStateException | UncheckedIOException exception) {
-            throw new StartupException(exception.getMessage());
+        } catch (IllegalStateException | UncheckedIOException | UnsupportedOperationException exception) {
+            throw new StartupException(describeLiveFilesFailure(exception));
         }
         return liveFiles;
+    }
+
+    private static String describeLiveFilesFailure(RuntimeException exception) {
+        if (exception instanceof UnsupportedOperationException) {
+            return "The factory needs a file system with POSIX permissions for the live folder.";
+        }
+        Throwable cause = exception.getCause();
+        return cause == null ? exception.getMessage() : exception.getMessage() + ": " + cause.getMessage();
     }
 
     /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */

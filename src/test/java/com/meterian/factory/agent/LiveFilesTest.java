@@ -79,6 +79,49 @@ class LiveFilesTest {
     }
 
     @Test
+    void installRefusesASymbolicLinkAsTheLiveDirectory() throws IOException {
+        Path target = Files.createDirectories(temporaryDirectory.resolve("target"));
+        Path link = Files.createSymbolicLink(temporaryDirectory.resolve("link"), target);
+
+        assertThatThrownBy(() -> new LiveFiles(link).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("The live folder " + link + " is a symbolic link. Use a real folder.");
+    }
+
+    @Test
+    void installRefusesAParentThatEveryoneCanWrite() throws IOException {
+        Path parent = Files.createDirectories(temporaryDirectory.resolve("public-parent"));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwxrwx"));
+
+        assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(parent.toString())
+                .hasMessageContaining("live-directory in a private folder");
+    }
+
+    @Test
+    void installRefusesAnExistingLiveDirectoryInAParentThatTheGroupCanWrite() throws IOException {
+        Path parent = Files.createDirectories(temporaryDirectory.resolve("group-parent"));
+        Files.createDirectory(parent.resolve("live"), PosixFilePermissions.asFileAttribute(
+                PosixFilePermissions.fromString("rwx------")));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwx---"));
+
+        assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(parent.toString());
+    }
+
+    @Test
+    void installAcceptsAnExistingLiveDirectoryOfTheCurrentUser() throws IOException {
+        Path directory = Files.createDirectory(temporaryDirectory.resolve("mine"), PosixFilePermissions
+                .asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+
+        new LiveFiles(directory).install();
+
+        assertThat(directory.resolve("continue-hook.sh")).isExecutable();
+    }
+
+    @Test
     void installTwiceKeepsTheFiles() {
         liveFiles.install();
 

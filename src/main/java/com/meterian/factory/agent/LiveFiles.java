@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -39,7 +40,12 @@ public final class LiveFiles {
 
     private void prepareLiveDirectory() {
         try {
-            if (Files.exists(liveDirectory)) {
+            if (Files.isSymbolicLink(liveDirectory)) {
+                throw new IllegalStateException(
+                        "The live folder " + liveDirectory + " is a symbolic link. Use a real folder.");
+            }
+            verifyNearestParentIsPrivate();
+            if (Files.exists(liveDirectory, LinkOption.NOFOLLOW_LINKS)) {
                 verifyLiveDirectoryIsPrivate();
             } else {
                 createPrivateDirectories(liveDirectory);
@@ -49,15 +55,39 @@ public final class LiveFiles {
         }
     }
 
+    /** The folder that holds the live folder, or the nearest one that exists: another user could rename the live folder in it. */
+    private void verifyNearestParentIsPrivate() throws IOException {
+        Path parent = liveDirectory.getParent();
+        while (parent != null && !Files.exists(parent)) {
+            parent = parent.getParent();
+        }
+        if (parent != null && isWritableByGroupOrOthers(parent)) {
+            throw new IllegalStateException("The folder " + parent + " can be written by the group or by others."
+                    + " Choose a live-directory in a private folder.");
+        }
+    }
+
     private void verifyLiveDirectoryIsPrivate() throws IOException {
-        boolean isWritableByOthers = Files.getPosixFilePermissions(liveDirectory).stream()
-                .anyMatch(permission -> permission == PosixFilePermission.GROUP_WRITE
-                        || permission == PosixFilePermission.OTHERS_WRITE);
-        boolean isOwnedByAnotherUser = !Files.getOwner(liveDirectory).getName()
-                .equals(System.getProperty("user.name"));
-        if (isWritableByOthers || isOwnedByAnotherUser) {
+        if (isWritableByGroupOrOthers(liveDirectory) || !isOwnedByCurrentUser(liveDirectory)) {
             throw new IllegalStateException("The live folder " + liveDirectory + " must belong to the current user"
                     + " and must not be writable by the group or by others. Run: chmod 700 " + liveDirectory);
+        }
+    }
+
+    private static boolean isWritableByGroupOrOthers(Path directory) throws IOException {
+        return Files.getPosixFilePermissions(directory, LinkOption.NOFOLLOW_LINKS).stream()
+                .anyMatch(permission -> permission == PosixFilePermission.GROUP_WRITE
+                        || permission == PosixFilePermission.OTHERS_WRITE);
+    }
+
+    /** The user id of the folder is compared with the user id of a file that this process creates now. */
+    private static boolean isOwnedByCurrentUser(Path directory) throws IOException {
+        Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
+        try {
+            return Files.getAttribute(directory, "unix:uid", LinkOption.NOFOLLOW_LINKS)
+                    .equals(Files.getAttribute(probe, "unix:uid", LinkOption.NOFOLLOW_LINKS));
+        } finally {
+            Files.deleteIfExists(probe);
         }
     }
 
