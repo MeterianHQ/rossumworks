@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.MergeOutcome;
@@ -38,6 +39,7 @@ class MergerTest {
     private Path clone;
     private Path worktree;
     private Path gatekeeper;
+    private Path github;
     private Path buildLog;
     private PullRequest pullRequest;
     private Merger merger;
@@ -48,7 +50,9 @@ class MergerTest {
         clone = createClone(origin, temporaryDirectory.resolve("clone"));
         commitFile(clone, "m.txt", "1\n2\n3\n4\n5\n6\n7\n8\n", "Add m");
         run(clone, "push", "-q", "origin", "main");
-        gatekeeper = createBare(temporaryDirectory.resolve("gatekeeper.git"));
+        github = createBare(temporaryDirectory.resolve("github.git"));
+        gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
+        Gatekeeper.ensure(gatekeeper, github.toString());
         git.setRemote(clone, "gatekeeper", gatekeeper.toString());
         worktree = temporaryDirectory.resolve("worktree");
         git.addWorktree(clone, worktree, BRANCH, "origin/main");
@@ -156,6 +160,7 @@ class MergerTest {
 
         assertThat(result).isInstanceOf(MergeResult.Merged.class);
         assertThat(gitHub.squashMergeCalls()).hasSize(2);
+        assertThat(gitHub.squashMergeShas().get(0)).isEqualTo(gitHub.squashMergeShas().get(1));
     }
 
     @Test
@@ -260,6 +265,7 @@ class MergerTest {
 
         String head = run(worktree, "rev-parse", "HEAD");
         assertThat(run(gatekeeper, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(head);
+        assertThat(run(github, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(head);
         assertThat(gitHub.squashMergeShas()).containsExactly(head);
     }
 
@@ -286,5 +292,59 @@ class MergerTest {
         assertThat(result).isEqualTo(
                 new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequest.number() + "."));
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void asksForNewReviewsWhenOnlyABinaryFileChangesAfterTheReviews() throws IOException {
+        Files.write(worktree.resolve("image.bin"), new byte[] {0, 1, 2, 3});
+        run(worktree, "add", "image.bin");
+        run(worktree, "commit", "-q", "-m", "Binary");
+        IssueRecord record = reviewedRecord();
+        Files.write(worktree.resolve("image.bin"), new byte[] {0, 1, 2, 4});
+        run(worktree, "commit", "-q", "-a", "-m", "Binary changed");
+        moveTheBase("c.txt", "base\n");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isInstanceOf(MergeResult.NeedsNewReviews.class);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void failsWhenTheWorktreeHasAnUntrackedFile() throws IOException {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        Files.writeString(worktree.resolve("stray.txt"), "stray\n");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The worktree has changes that are not committed."));
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void failsWhenTheBuildLeavesAFileInTheWorktree() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+        TargetRepository dirtying = new TargetRepository("owner", "name", clone, "echo x > junk.txt", Map.of());
+        Merger dirtyingMerger = new Merger(git, gitHub, new BuildRunner(), dirtying, "main", Duration.ZERO);
+
+        MergeResult result = dirtyingMerger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The worktree has changes that are not committed."));
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void asksForNewReviewsWhenNoChangeIsLeftAfterTheRebase() {
+        commitFile(worktree, "b.txt", "same\n", "Feature");
+        IssueRecord record = reviewedRecord().withReviewedTree(git.treeHash(worktree), "");
+        moveTheBase("b.txt", "same\n");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isInstanceOf(MergeResult.NeedsNewReviews.class);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 }

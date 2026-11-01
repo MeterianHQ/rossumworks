@@ -156,4 +156,47 @@ class ProcessGitTest {
 
         assertThat(git.patchId(clone, "main")).isNotEqualTo(twoSpaces);
     }
+
+    @Test
+    void patchIdDiffersWhenOnlyTheContentOfABinaryFileDiffers() throws IOException {
+        run(clone, "checkout", "-q", "-b", "feature");
+        Files.write(clone.resolve("image.bin"), new byte[] {0, 1, 2, 3});
+        run(clone, "add", "image.bin");
+        run(clone, "commit", "-q", "-m", "First binary");
+        String first = git.patchId(clone, "main");
+        run(clone, "reset", "-q", "--hard", "main");
+        Files.write(clone.resolve("image.bin"), new byte[] {0, 1, 2, 4});
+        run(clone, "add", "image.bin");
+        run(clone, "commit", "-q", "-m", "Second binary");
+
+        assertThat(git.patchId(clone, "main")).isNotEqualTo(first);
+    }
+
+    @Test
+    void pushCommitPushesTheGivenCommitAndNotHead() {
+        Path remote = createBare(temporaryDirectory.resolve("remote.git"));
+        git.setRemote(clone, "remote", remote.toString());
+        String first = git.headCommit(clone);
+        commitFile(clone, "b.txt", "second\n", "Second");
+
+        git.pushCommit(clone, "remote", first, "factory/issue-7");
+
+        assertThat(run(remote, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(first);
+    }
+
+    @Test
+    void pushCommitRefusesABranchOutsideFactory() {
+        assertThatThrownBy(() -> git.pushCommit(clone, "origin", git.headCommit(clone), "main"))
+                .isInstanceOf(GitException.class)
+                .hasMessageContaining("factory/");
+    }
+
+    @Test
+    void treeHashOfReadsTheTreeOfACommit() {
+        String first = git.headCommit(clone);
+        String firstTree = git.treeHash(clone);
+        commitFile(clone, "b.txt", "second\n", "Second");
+
+        assertThat(git.treeHashOf(clone, first)).isEqualTo(firstTree);
+    }
 }

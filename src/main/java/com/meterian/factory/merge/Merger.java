@@ -72,41 +72,60 @@ public final class Merger {
         if (!patchIdIsUnchanged(worktree, record, upstream)) {
             return new MergeResult.NeedsNewReviews();
         }
-        String treeHashBeforeBuild = perform("The read of the tree hash", () -> git.treeHash(worktree));
+        Optional<MergeResult> dirtyBeforeBuild = refuseUncommittedChanges(worktree);
+        if (dirtyBeforeBuild.isPresent()) {
+            return dirtyBeforeBuild.get();
+        }
+        String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
+        String treeHash = perform("The read of the tree hash", () -> git.treeHashOf(worktree, headCommit));
         BuildOutcome build = buildRunner.run(worktree, target);
         if (!build.passed()) {
             return new MergeResult.NeedsFix(build.outputTail());
         }
-        String builtTreeHash = perform("The read of the tree hash", () -> git.treeHash(worktree));
-        if (!builtTreeHash.equals(treeHashBeforeBuild)) {
+        Optional<MergeResult> dirtyAfterBuild = refuseUncommittedChanges(worktree);
+        if (dirtyAfterBuild.isPresent()) {
+            return dirtyAfterBuild.get();
+        }
+        if (!perform("The read of the head commit", () -> git.headCommit(worktree)).equals(headCommit)) {
             return new MergeResult.Failed("The build changed the files.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, builtTreeHash);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, treeHash);
     }
 
     private MergeResult mergeUnchangedBranch(Path worktree, IssueRecord record, int pullRequestNumber,
                                              String builtTreeHash) {
-        String currentTreeHash = perform("The read of the tree hash", () -> git.treeHash(worktree));
-        boolean isReviewed = record.reviewedTreeHash().filter(currentTreeHash::equals).isPresent();
-        if (!currentTreeHash.equals(builtTreeHash) || !isReviewed) {
+        Optional<MergeResult> dirty = refuseUncommittedChanges(worktree);
+        if (dirty.isPresent()) {
+            return dirty.get();
+        }
+        String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
+        String treeHash = perform("The read of the tree hash", () -> git.treeHashOf(worktree, headCommit));
+        boolean isReviewed = record.reviewedTreeHash().filter(treeHash::equals).isPresent();
+        if (!treeHash.equals(builtTreeHash) || !isReviewed) {
             return new MergeResult.Failed("The files differ from the built and reviewed tree.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, builtTreeHash);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, builtTreeHash);
+    }
+
+    private Optional<MergeResult> refuseUncommittedChanges(Path worktree) {
+        if (perform("The check of the worktree", () -> git.hasUncommittedChanges(worktree))) {
+            return Optional.of(new MergeResult.Failed("The worktree has changes that are not committed."));
+        }
+        return Optional.empty();
     }
 
     private boolean patchIdIsUnchanged(Path worktree, IssueRecord record, String upstream) {
         String patchId = perform("The read of the patch id", () -> git.patchId(worktree, upstream));
-        return record.reviewedPatchId().equals(Optional.of(patchId));
+        return !patchId.isEmpty() && record.reviewedPatchId().equals(Optional.of(patchId));
     }
 
     private MergeResult pushAndSquashMerge(Path worktree, IssueRecord record, int pullRequestNumber,
-                                           String builtTreeHash) {
+                                           String headCommit, String builtTreeHash) {
         String branch = "factory/issue-" + record.issueNumber();
         perform("The push to the gatekeeper", () -> {
-            git.push(worktree, GATEKEEPER, branch);
+            git.pushCommit(worktree, GATEKEEPER, headCommit, branch);
             return null;
         });
-        String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             MergeOutcome outcome = perform("The squash merge", () -> gitHub.squashMerge(pullRequestNumber, headCommit));
             if (outcome == MergeOutcome.MERGED) {

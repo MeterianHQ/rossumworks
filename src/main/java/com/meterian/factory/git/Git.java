@@ -16,6 +16,9 @@ public interface Git {
     /** Returns a stable identifier of the changes since the merge base with the base. It keeps whitespace. */
     String patchId(Path worktree, String base);
 
+    /** Returns the hash of the tree of the commit. */
+    String treeHashOf(Path worktree, String commit);
+
     /** Returns the hash of the commit of HEAD. */
     String headCommit(Path worktree);
 
@@ -29,6 +32,9 @@ public interface Git {
 
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);
+
+    /** Force-pushes the commit to the branch of the remote. */
+    void pushCommit(Path worktree, String remote, String commit, String branch);
 
     void excludeFactoryFolder(Path worktree);
 

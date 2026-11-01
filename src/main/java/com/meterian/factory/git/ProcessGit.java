@@ -61,7 +61,8 @@ public final class ProcessGit implements Git {
     @Override
     public String patchId(Path worktree, String base) {
         String mergeBase = run(worktree, "merge-base", base, "HEAD").trim();
-        String difference = run(worktree, "diff", "--no-color", "--no-ext-diff", mergeBase + "..HEAD");
+        String difference = run(worktree, "diff", "--binary", "--full-index", "--no-textconv",
+                "--no-ext-diff", "--no-color", mergeBase + "..HEAD");
         return difference.isEmpty() ? "" : hashWithoutPositions(difference);
     }
 
@@ -81,6 +82,11 @@ public final class ProcessGit implements Git {
         } catch (NoSuchAlgorithmException exception) {
             throw new GitException("The SHA-256 algorithm is missing", exception);
         }
+    }
+
+    @Override
+    public String treeHashOf(Path worktree, String commit) {
+        return run(worktree, "rev-parse", commit + "^{tree}").trim();
     }
 
     @Override
@@ -116,11 +122,16 @@ public final class ProcessGit implements Git {
 
     @Override
     public void push(Path worktree, String remote, String branch) {
+        pushCommit(worktree, remote, "HEAD", branch);
+    }
+
+    @Override
+    public void pushCommit(Path worktree, String remote, String commit, String branch) {
         if (!branch.startsWith(FACTORY_BRANCH_PREFIX)) {
             throw new GitException("git push refused: the branch " + branch + " does not start with "
                     + FACTORY_BRANCH_PREFIX);
         }
-        run(worktree, "push", "--force", remote, "HEAD:refs/heads/" + branch);
+        run(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
     }
 
     @Override
