@@ -8,5 +8,7 @@ Write only the file .factory/review-quality.json with this shape:
 
 - The value of verdict is approve or reject.
 - Copy the tree hash {{tree}} into the field tree. Do not change it.
+- When you cannot decide, write reject.
 - Reject on a real problem. Give one finding for each problem.
 - Write no other file. Do not change the code.
+- Do not commit, do not push, and do not merge. Run no command that changes the repository or that uses the network.

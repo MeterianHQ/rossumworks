@@ -15,11 +15,11 @@ public final class RiskResultReader {
 
     public static RiskResult read(Path worktree) {
         return ResultFileReader.readObject(worktree.resolve(".factory").resolve("risk.json"))
-                .flatMap(RiskResultReader::parse)
-                .orElseGet(RiskResultReader::highRisk);
+                .flatMap(RiskResultReader::parseRiskResult)
+                .orElseGet(RiskResultReader::createHighRiskResult);
     }
 
-    private static Optional<RiskResult> parse(JsonNode node) {
+    private static Optional<RiskResult> parseRiskResult(JsonNode node) {
         Optional<RiskLevel> risk = parseRisk(node.path("risk").asText(""));
         if (risk.isEmpty() || !node.path("small").isBoolean()) {
             return Optional.empty();
@@ -38,7 +38,7 @@ public final class RiskResultReader {
         };
     }
 
-    private static RiskResult highRisk() {
+    private static RiskResult createHighRiskResult() {
         return new RiskResult(RiskLevel.HIGH, false, List.of("The risk agent wrote no valid result"));
     }
 }

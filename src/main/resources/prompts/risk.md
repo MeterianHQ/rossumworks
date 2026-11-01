@@ -10,3 +10,4 @@ Write only the file .factory/risk.json with this shape:
 - The value of small is true only for a change of a few lines that touches one concern.
 - When in doubt, write high. A low risk and a small change merge without a human.
 - Write no other file. Do not change the code.
+- Do not commit, do not push, and do not merge. Run no command that changes the repository or that uses the network.

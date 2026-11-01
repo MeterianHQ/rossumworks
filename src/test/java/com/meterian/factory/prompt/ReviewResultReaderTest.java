@@ -69,4 +69,24 @@ class ReviewResultReaderTest {
 
         assertThat(ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS).verdict()).isEqualTo(Verdict.REJECT);
     }
+
+    @Test
+    void anApprovalWithFindingsIsAReject() throws IOException {
+        writeReview("{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": [{\"title\": \"T\", \"detail\": \"D\"}]}");
+
+        ReviewResult result = ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.REJECT);
+        assertThat(result.findings()).containsExactly(new Finding("T", "D"));
+    }
+
+    @Test
+    void aSymbolicLinkIsAReject() throws IOException {
+        Path real = worktree.resolve("real.json");
+        Files.writeString(real, "{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": []}");
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.createSymbolicLink(worktree.resolve(".factory").resolve(ReviewKind.CORRECTNESS.fileName()), real);
+
+        assertThat(ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS).verdict()).isEqualTo(Verdict.REJECT);
+    }
 }

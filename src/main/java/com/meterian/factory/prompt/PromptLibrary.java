@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /** Renders the prompts. A file in the override directory replaces the built-in file of the same name. */
 public final class PromptLibrary {
@@ -34,10 +33,7 @@ public final class PromptLibrary {
     }
 
     public String fix(List<Finding> findings) {
-        String list = findings.stream()
-                .map(finding -> "- " + finding.title() + ": " + finding.detail())
-                .collect(Collectors.joining("\n"));
-        return render("fix.md", Map.of("findings", list));
+        return render("fix.md", Map.of("findings", FindingsFence.fence(findings)));
     }
 
     public String review(ReviewKind kind, Issue issue, String treeHash) {

@@ -19,11 +19,11 @@ public final class ReviewResultReader {
     public static ReviewResult read(Path worktree, ReviewKind kind) {
         Path file = worktree.resolve(".factory").resolve(kind.fileName());
         return ResultFileReader.readObject(file)
-                .flatMap(ReviewResultReader::parse)
-                .orElseGet(ReviewResultReader::rejectInvalid);
+                .flatMap(ReviewResultReader::parseReviewResult)
+                .orElseGet(ReviewResultReader::createRejectResult);
     }
 
-    private static Optional<ReviewResult> parse(JsonNode node) {
+    private static Optional<ReviewResult> parseReviewResult(JsonNode node) {
         Optional<Verdict> verdict = parseVerdict(node.path("verdict").asText(""));
         if (verdict.isEmpty() || !node.path("findings").isArray()) {
             return Optional.empty();
@@ -32,7 +32,8 @@ public final class ReviewResultReader {
         for (JsonNode findingNode : node.get("findings")) {
             findings.add(new Finding(findingNode.path("title").asText(""), findingNode.path("detail").asText("")));
         }
-        return Optional.of(new ReviewResult(verdict.get(), node.path("tree").asText(""), findings));
+        Verdict effectiveVerdict = findings.isEmpty() ? verdict.get() : Verdict.REJECT;
+        return Optional.of(new ReviewResult(effectiveVerdict, node.path("tree").asText(""), findings));
     }
 
     private static Optional<Verdict> parseVerdict(String text) {
@@ -43,7 +44,7 @@ public final class ReviewResultReader {
         };
     }
 
-    private static ReviewResult rejectInvalid() {
+    private static ReviewResult createRejectResult() {
         return new ReviewResult(Verdict.REJECT, "",
                 List.of(new Finding(INVALID_TITLE, "The file is missing, too large, or not valid.")));
     }

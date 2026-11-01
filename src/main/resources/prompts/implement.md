@@ -8,8 +8,7 @@ Rules:
 - Respect the rules of the file CLAUDE.md of this repository.
 - Write tests that check real behavior.
 - Do not commit, do not push, and do not merge. The factory commits your changes.
-- If a review rejected your earlier work, read the files .factory/review-*.json. Fix each finding exactly as it describes the problem. Verify each fix with grep.
-- If the file .factory/answer.md exists, it holds the answer of the owner to your earlier question. Read it.
+- Write the files of the factory only in the folder .factory/.
 
 Questions:
 

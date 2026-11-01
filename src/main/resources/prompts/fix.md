@@ -8,6 +8,7 @@ Rules:
 - Verify each fix with grep.
 - Respect the rules of the file CLAUDE.md of this repository.
 - Do not commit, do not push, and do not merge. The factory commits your changes.
+- Write the files of the factory only in the folder .factory/.
 
 Questions:
 

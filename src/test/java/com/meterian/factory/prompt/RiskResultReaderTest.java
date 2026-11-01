@@ -34,4 +34,14 @@ class RiskResultReaderTest {
         assertThat(result.small()).isTrue();
         assertThat(result.reasons()).containsExactly("One line");
     }
+
+    @Test
+    void aSymbolicLinkIsHighRisk() throws IOException {
+        Path real = worktree.resolve("real.json");
+        Files.writeString(real, "{\"risk\": \"low\", \"small\": true, \"reasons\": []}");
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.createSymbolicLink(worktree.resolve(".factory/risk.json"), real);
+
+        assertThat(RiskResultReader.read(worktree).risk()).isEqualTo(RiskLevel.HIGH);
+    }
 }
