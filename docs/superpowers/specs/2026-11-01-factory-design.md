@@ -326,27 +326,50 @@ until it ends. Then the worker:
    took the request.
 2. Sets "Waits for you" with the reason "live conversation".
 3. Starts in a tmux session: `claude --resume <uuid> --remote-control
-   "Fix #N"`, in the worktree of the target.
+   "Fix #N" --settings <hook file> --plugin-dir <factory plugin>`, in the
+   worktree of the target.
 4. Writes the Remote Control link in a comment and on the card.
+
+Spike results (section 13):
+
+- At the first interactive start in a folder, `claude` asks "Is this a
+  project you created or one you trust?". The worker must answer this
+  prompt, or mark the worktree as trusted before the start. Otherwise the
+  session waits for ever.
+- The worker reads the link from the tmux screen (`tmux capture-pane`).
+  The screen has the line `/remote-control is active · Continue here, on
+  your phone, or at https://claude.ai/code/session_<id>`.
 
 Only one of the worker and the owner talks to a session at a time. While
 the tmux session runs, the worker starts no phase for this issue.
 
 ### 8.2 Continue
 
-The owner types `/continue` in the conversation. The owner never changes
-the "Status" by hand.
+The owner types `/factory:continue` in the conversation, or clicks
+"Continue" on the page. The owner never changes the "Status" by hand.
 
-My decision on the mechanism: the worker starts the live session with
-`--settings <file>`. This file adds a `UserPromptSubmit` hook. The hook
-sees `/continue`, writes the marker file `.factory/continue`, and blocks
-the prompt. The worker sees the marker, ends the tmux session, and
+The command is not `/continue`. The spike showed that `/continue` is a
+built-in command of Claude Code (the same as `/resume`). Over Remote
+Control it gives "/resume isn't available over Remote Control", and it
+never reaches a hook. A command that does not exist also stops before the
+hook ("Unknown command").
+
+The mechanism, verified in the spike from the phone:
+
+- The worker has a small Claude Code plugin with the name `factory`. It
+  has one command, `commands/continue.md`. The worker loads it with
+  `--plugin-dir`. So the command is `/factory:continue`.
+- The worker also starts the live session with `--settings <file>`. This
+  file adds a `UserPromptSubmit` hook. The hook sees a prompt that starts
+  with `/factory:continue` (the phone can add a space at the end), writes
+  the marker file `.factory/continue`, and blocks the prompt with exit
+  code 2. The owner sees the message of the hook. The worker sees the marker, ends the tmux session, and
 continues in auto mode with the same session UUID. The conversation has
 the full discussion, so the agent continues with what the owner agreed.
 
-My decisions on the next phase after `/continue`:
+My decisions on the next phase after `/factory:continue` or "Continue":
 
-- `/continue` is never a merge approval. Only `factory:approve` approves
+- `/factory:continue` or "Continue" is never a merge approval. Only `factory:approve` approves
   a merge.
 - If the files changed in live mode, the build, the four reviews, and the
   risk check run again. A live conversation cannot take a change past the
@@ -362,7 +385,7 @@ From the research of 2026-11-01:
 - A Remote Control session reconnects only in about 4 hours.
 - The session exits after about 10 minutes without network.
 
-When the tmux session exits without `/continue`, the worker keeps "Waits
+When the tmux session exits without `/factory:continue`, the worker keeps "Waits
 for you" and writes this in the status comment. A new `factory:enter`
 opens a new live session.
 
@@ -418,7 +441,7 @@ the same way.
 
 | Button | Label | Effect |
 |---|---|---|
-| Continue | (none; also `/continue` in the conversation) | Ends live mode and continues in auto mode (section 8.2). |
+| Continue | (none; also `/factory:continue` in the conversation) | Ends live mode and continues in auto mode (section 8.2). |
 | Enter | `factory:enter` | Opens live mode (section 8.1). |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and sets "Blocked". |
@@ -518,3 +541,15 @@ points:
 3. The `UserPromptSubmit` hook of section 8.2 sees `/continue`.
 
 If a point fails, the design comes back to the owner before the build.
+
+Result of the spike on 2026-11-01 (`claude` 2.1.316):
+
+1. Passed. The session from a script showed in the phone app. The link
+   is on the tmux screen. A trust prompt needs an answer (section 8.1).
+2. Passed. A code word from `-p` was known in live mode. A second code
+   word from the phone was known in `-p` after live mode.
+3. Passed, with a change. `/continue` is a built-in command, so the
+   command is `/factory:continue` from a plugin (section 8.2).
+
+Not tested: a long idle time of a Remote Control session. Section 8.3
+handles an exit.
