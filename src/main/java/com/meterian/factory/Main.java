@@ -1,6 +1,8 @@
 package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
+import com.meterian.factory.agent.LiveFiles;
+import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
@@ -246,7 +248,9 @@ public final class Main {
         UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
+        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(),
+                new LiveFiles(configuration.liveDirectory()), System.getenv(), TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger, usage,
-                requests, layout, workerLogin);
+                requests, layout, workerLogin, liveSessions);
     }
 }

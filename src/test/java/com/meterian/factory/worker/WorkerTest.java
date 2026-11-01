@@ -27,6 +27,7 @@ import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
+import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
@@ -148,7 +149,7 @@ class WorkerTest {
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
-                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN);
+                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, new FakeLiveSessions());
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,

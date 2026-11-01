@@ -59,7 +59,8 @@ public final class StatusComment {
                 .max(Comparator.comparingLong(IssueComment::id));
     }
 
-    private static String sanitizeLine(String text) {
+    /** Makes one line of a text that cannot open or close a hidden block. */
+    public static String sanitizeLine(String text) {
         return neutralizeCommentMarkers(text.replaceAll("\\R", " "));
     }
 

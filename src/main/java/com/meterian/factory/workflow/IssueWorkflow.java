@@ -3,6 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
@@ -60,10 +61,13 @@ public final class IssueWorkflow {
     private final ForwardCheckFailure forwardCheckFailure;
     private final ReviewedCommit reviewedCommit;
     private final FixLoop fixLoop;
+    private final LiveMode liveMode;
+    private final LiveRecordPublisher livePublisher;
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
-                         RequestReader requests, WorkspaceLayout layout, String workerLogin) {
+                         RequestReader requests, WorkspaceLayout layout, String workerLogin,
+                         LiveSessions liveSessions) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.git = git;
@@ -85,21 +89,40 @@ public final class IssueWorkflow {
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
+        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts());
+        this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
     }
 
     public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
         Issue issue = gitHub.issue(record.issueNumber());
         IssueRecord next = runStep(issue, record);
-        return statusPublisher.publish(issue, record, next);
+        return livePublisher.publish(issue, record, next);
+    }
+
+    public IssueRecord enterLiveMode(IssueRecord record) {
+        Issue issue = gitHub.issue(record.issueNumber());
+        IssueRecord next = liveMode.enter(issue, record, layout.worktree(record.issueNumber()));
+        return livePublisher.publish(issue, record, next);
+    }
+
+    public static boolean isLive(IssueRecord record) {
+        return record.live().isPresent();
     }
 
     public boolean isWaiting(IssueRecord record) {
         return WAITING_STATUSES.contains(record.status());
     }
 
-    /** A record in phase DONE always runs the finish step: its cleanup can be left from an earlier run. */
+    /**
+     * A record in phase DONE always runs the finish step: its cleanup can be left from an earlier run.
+     * While the live conversation is open, no phase runs.
+     */
     private IssueRecord runStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
         try {
+            if (isLive(record)) {
+                return liveMode.isContinueRequested(record)
+                        ? liveMode.continueWork(issue, record, layout.worktree(record.issueNumber())) : record;
+            }
             boolean checksApproval = isWaiting(record) && record.phase() != Phase.DONE;
             return checksApproval ? approvalCheck.continueAfterApproval(issue, record) : runPhase(issue, record);
         } catch (PhaseRefusedException refused) {
@@ -150,11 +173,7 @@ public final class IssueWorkflow {
             return record;
         }
         FactoryFolder factoryFolder = new FactoryFolder(worktree);
-        // A new session (also after a restart without the worktree) gets the full task, not the findings.
-        boolean isFirstImplement = record.fixLoops() == 0 || !record.agentSessionStarted();
-        Optional<String> prompt = isFirstImplement
-                ? Optional.of(prompts.implement(issue))
-                : factoryFolder.readFixPrompt();
+        Optional<String> prompt = ImplementPrompt.choose(prompts, issue, record, factoryFolder);
         if (prompt.isEmpty()) {
             return block(record, "The findings of the fix loop are missing.");
         }
@@ -166,20 +185,21 @@ public final class IssueWorkflow {
         } catch (PhaseRefusedException refused) {
             return undoSessionStart(issue, started, record);
         }
+        IssueRecord ran = started.withoutAfterConversation();
         if (factoryFolder.hasQuestion()) {
-            return askOwner(started, factoryFolder.readQuestion());
+            return askOwner(issue, ran, factoryFolder.readQuestion(), worktree);
         }
         if (!report.success()) {
-            return block(started, "The agent session failed: " + report.resultText());
+            return block(ran, "The agent session failed: " + report.resultText());
         }
         if (git.hasOpenMerge(worktree)) {
-            return commitSolvedConflict(issue, started, worktree);
+            return commitSolvedConflict(issue, ran, worktree);
         }
         if (!git.hasUncommittedChanges(worktree)) {
-            return block(started, "The agent made no change.");
+            return block(ran, "The agent made no change.");
         }
         git.commitAll(worktree, ChangeTitle.describe(issue));
-        return started.withPhase(Phase.BUILD);
+        return ran.withPhase(Phase.BUILD);
     }
 
     private IssueRecord commitSolvedConflict(Issue issue, IssueRecord record, Path worktree) {
@@ -319,9 +339,11 @@ public final class IssueWorkflow {
         return counted.withNote("A review session failed; the factory runs the reviews again.");
     }
 
-    private IssueRecord askOwner(IssueRecord record, String question) {
+    /** The owner answers in the live conversation. When it does not open, the question waits with a note. */
+    private IssueRecord askOwner(Issue issue, IssueRecord record, String question, Path worktree) {
         gitHub.createComment(record.issueNumber(), QuestionComment.render(question, configuration.allowedAccounts()));
-        return record.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.QUESTION);
+        IssueRecord waiting = record.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.QUESTION);
+        return liveMode.enter(issue, waiting, worktree);
     }
 
     private IssueRecord block(IssueRecord record, String reason) {

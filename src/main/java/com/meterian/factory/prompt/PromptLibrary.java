@@ -32,6 +32,11 @@ public final class PromptLibrary {
         return render("implement.md", Map.of("issue", IssueFence.fence(issue)));
     }
 
+    /** The prompt of the agent in charge after a live conversation. The conversation has the details. */
+    public String continueAfterConversation() {
+        return render("continue.md", Map.of());
+    }
+
     public String fix(List<Finding> findings) {
         return render("fix.md", Map.of("findings", FindingsFence.fence(findings)));
     }

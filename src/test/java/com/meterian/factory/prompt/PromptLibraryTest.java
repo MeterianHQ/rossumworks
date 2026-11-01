@@ -116,4 +116,19 @@ class PromptLibraryTest {
         assertThat(library.review(ReviewKind.QUALITY, ISSUE, "abc123"))
                 .contains("Reject a change of text or code that the issue does not need");
     }
+
+    @Test
+    void continuePromptHasTheRulesOfTheImplementPrompt() {
+        PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
+
+        assertThat(library.continueAfterConversation())
+                .startsWith("The owner discussed the issue with you in a live conversation."
+                        + " Continue the work of the issue with what you agreed with the owner.")
+                .contains("Change only what the issue needs.")
+                .contains(".factory/description.md")
+                .contains("Do not commit, do not push, and do not merge.")
+                .contains("Write the files of the factory only in the folder .factory/.")
+                .contains("write the question to .factory/question.md and stop")
+                .doesNotContain("{{");
+    }
 }

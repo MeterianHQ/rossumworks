@@ -30,6 +30,11 @@ final class FactoryFolder {
         return read(folder.resolve(QUESTION_FILE));
     }
 
+    /** The live conversation answers the question, so the merge gate does not see an open question. */
+    void deleteQuestion() {
+        delete(folder.resolve(QUESTION_FILE));
+    }
+
     /** Keeps the fix prompt for the next implement step, also after a restart of the worker. */
     void writeFixPrompt(String prompt) {
         try {
@@ -65,7 +70,7 @@ final class FactoryFolder {
         try {
             Files.deleteIfExists(file);
         } catch (IOException exception) {
-            throw new UncheckedIOException("Cannot delete the old result file " + file, exception);
+            throw new UncheckedIOException("Cannot delete the old file " + file, exception);
         }
     }
 }
