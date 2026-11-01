@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
@@ -110,7 +111,7 @@ class HttpGitHubClientTest {
         List<Issue> issues = client.openIssuesWithLabel("factory");
 
         assertThat(requests.get(0).target()).startsWith("/repos/o/r/issues?labels=factory&state=open");
-        assertThat(issues).containsExactly(new Issue(1, "N1", "One", "text", java.util.Set.of("factory")));
+        assertThat(issues).containsExactly(new Issue(1, "N1", "One", "text", Set.of("factory")));
     }
 
     @Test
@@ -143,7 +144,7 @@ class HttpGitHubClientTest {
             return new Answer(200, "{\"data\":{\"addProjectV2ItemById\":{\"item\":{\"id\":\"item-9\"}}}}");
         };
 
-        client.setStatus(new Issue(4, "NODE4", "Title", "", java.util.Set.of()), IssueStatus.IN_REVIEW);
+        client.setStatus(new Issue(4, "NODE4", "Title", "", Set.of()), IssueStatus.IN_REVIEW);
 
         String allBodies = String.join("\n", requests.stream().map(RecordedRequest::body).toList());
         assertThat(allBodies).contains("addProjectV2ItemById").contains("NODE4")
@@ -155,7 +156,7 @@ class HttpGitHubClientTest {
     void namesTheMissingStatusOption() {
         responder = request -> new Answer(200, statusFieldJson("Queued"));
 
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", java.util.Set.of()), IssueStatus.BLOCKED))
+        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.BLOCKED))
                 .isInstanceOf(GitHubException.class)
                 .hasMessageContaining("the Project field Status has no option Blocked");
     }
@@ -224,9 +225,13 @@ class HttpGitHubClientTest {
 
     @Test
     void refusesANextLinkToAnotherHost() {
-        responder = request -> new Answer(200, "[]", "<http://other.invalid/next?page=2>; rel=\"next\"");
+        String otherHostLink = "http://localhost:" + server.getAddress().getPort() + "/repos/o/r/issues?page=2";
+        responder = request -> new Answer(200, "[]", requests.size() == 1 ? "<" + otherHostLink + ">; rel=\"next\"" : null);
 
-        assertThatThrownBy(() -> client.openIssuesWithLabel("factory")).isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> client.openIssuesWithLabel("factory"))
+                .isInstanceOf(GitHubException.class)
+                .hasMessageContaining(otherHostLink)
+                .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
         assertThat(requests).hasSize(1);
     }
 
@@ -234,8 +239,9 @@ class HttpGitHubClientTest {
     void failsOnGraphQlErrorsInASuccessfulAnswer() {
         responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"Could not resolve\"}]}");
 
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", java.util.Set.of()), IssueStatus.QUEUED))
-                .isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.QUEUED))
+                .isInstanceOf(GitHubException.class)
+                .hasMessageContaining("Could not resolve");
     }
 
     @Test
@@ -264,7 +270,7 @@ class HttpGitHubClientTest {
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
 
         responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"bad\"}]}");
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", java.util.Set.of()), IssueStatus.QUEUED))
+        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.QUEUED))
                 .isInstanceOf(GitHubException.class)
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
     }

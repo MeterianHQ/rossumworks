@@ -213,7 +213,7 @@ public final class HttpGitHubClient implements GitHubClient {
         boolean sameServer = next.getScheme().equals(apiBase.getScheme()) && next.getHost().equals(apiBase.getHost())
                 && next.getPort() == apiBase.getPort();
         if (!sameServer) {
-            throw new GitHubException("GitHub sent a next page link to another server");
+            throw new GitHubException("GitHub sent a next page link to another server: " + next);
         }
         return next;
     }

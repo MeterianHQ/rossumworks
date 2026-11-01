@@ -10,6 +10,7 @@ import com.meterian.factory.state.IssueStatus;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +30,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, IssueStatus> statuses = new TreeMap<>();
     private final List<LabelEvent> labelEvents = new ArrayList<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
-    private final Set<Integer> mergedPullRequests = new java.util.HashSet<>();
+    private final Set<Integer> mergedPullRequests = new HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
     private final List<Integer> squashMergeCalls = new ArrayList<>();
     private String authenticatedLogin = "factory-bot";
