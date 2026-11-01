@@ -112,6 +112,31 @@ class LiveFilesTest {
     }
 
     @Test
+    void installRefusesAGrandparentThatEveryoneCanWriteWithoutTheStickyBit() throws IOException {
+        Path grandparent = Files.createDirectories(temporaryDirectory.resolve("open-grandparent"));
+        Path parent = Files.createDirectories(grandparent.resolve("parent"));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwx------"));
+        Files.setPosixFilePermissions(grandparent, PosixFilePermissions.fromString("rwxrwxrwx"));
+
+        assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(grandparent.toString())
+                .hasMessageContaining("live-directory in a private folder");
+    }
+
+    @Test
+    void installAcceptsAStickyGrandparentOfTheCurrentUser() throws IOException {
+        Path grandparent = Files.createDirectories(temporaryDirectory.resolve("sticky-grandparent"));
+        Path parent = Files.createDirectories(grandparent.resolve("parent"));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwx------"));
+        Files.setAttribute(grandparent, "unix:mode", 01777);
+
+        new LiveFiles(parent.resolve("live")).install();
+
+        assertThat(parent.resolve("live/continue-hook.sh")).isExecutable();
+    }
+
+    @Test
     void installAcceptsAnExistingLiveDirectoryOfTheCurrentUser() throws IOException {
         Path directory = Files.createDirectory(temporaryDirectory.resolve("mine"), PosixFilePermissions
                 .asFileAttribute(PosixFilePermissions.fromString("rwx------")));

@@ -358,6 +358,8 @@ The live folder is `<live-directory>`. The default is
 `<work-directory>/live`. The worker creates it with the mode 0700. The worker
 fails closed when the folder exists and the group or others can write to it,
 or when another user owns it: another user could replace a launch script.
+The same check applies to every folder above it, except a sticky folder (for
+example `/tmp`) of root or of the current user. A symbolic link is refused.
 Then the worker stops with exit code 1 and the message names the fix
 (`chmod 700`). The worker checks this before the first poll.
 

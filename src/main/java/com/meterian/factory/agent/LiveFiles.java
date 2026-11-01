@@ -21,6 +21,8 @@ public final class LiveFiles {
     private static final String HOOK_FILE_NAME = "continue-hook.sh";
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
+    private static final int STICKY_BIT = 01000;
+    private static final int ROOT_USER_ID = 0;
     private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
     private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
 
@@ -44,7 +46,7 @@ public final class LiveFiles {
                 throw new IllegalStateException(
                         "The live folder " + liveDirectory + " is a symbolic link. Use a real folder.");
             }
-            verifyNearestParentIsPrivate();
+            verifyParentsArePrivate();
             if (Files.exists(liveDirectory, LinkOption.NOFOLLOW_LINKS)) {
                 verifyLiveDirectoryIsPrivate();
             } else {
@@ -55,16 +57,24 @@ public final class LiveFiles {
         }
     }
 
-    /** The folder that holds the live folder, or the nearest one that exists: another user could rename the live folder in it. */
-    private void verifyNearestParentIsPrivate() throws IOException {
-        Path parent = liveDirectory.getParent();
-        while (parent != null && !Files.exists(parent)) {
-            parent = parent.getParent();
+    /** Another user must not rename or replace the live folder, or a folder above it. */
+    private void verifyParentsArePrivate() throws IOException {
+        for (Path parent = liveDirectory.getParent(); parent != null; parent = parent.getParent()) {
+            if (Files.exists(parent) && !isSafeParent(parent)) {
+                throw new IllegalStateException("The folder " + parent + " can be written by the group or by others."
+                        + " Choose a live-directory in a private folder.");
+            }
         }
-        if (parent != null && isWritableByGroupOrOthers(parent)) {
-            throw new IllegalStateException("The folder " + parent + " can be written by the group or by others."
-                    + " Choose a live-directory in a private folder.");
+    }
+
+    /** A sticky folder of root or of the current user stops other users from renaming the folders inside it. */
+    private static boolean isSafeParent(Path parent) throws IOException {
+        if (!isWritableByGroupOrOthers(parent)) {
+            return true;
         }
+        int mode = (Integer) Files.getAttribute(parent, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+        int ownerId = (Integer) Files.getAttribute(parent, "unix:uid", LinkOption.NOFOLLOW_LINKS);
+        return (mode & STICKY_BIT) != 0 && (ownerId == ROOT_USER_ID || ownerId == readCurrentUserId());
     }
 
     private void verifyLiveDirectoryIsPrivate() throws IOException {
@@ -80,12 +90,15 @@ public final class LiveFiles {
                         || permission == PosixFilePermission.OTHERS_WRITE);
     }
 
-    /** The user id of the folder is compared with the user id of a file that this process creates now. */
     private static boolean isOwnedByCurrentUser(Path directory) throws IOException {
+        return Files.getAttribute(directory, "unix:uid", LinkOption.NOFOLLOW_LINKS).equals(readCurrentUserId());
+    }
+
+    /** The user id of the process is the user id of a file that the process creates now. */
+    private static int readCurrentUserId() throws IOException {
         Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
         try {
-            return Files.getAttribute(directory, "unix:uid", LinkOption.NOFOLLOW_LINKS)
-                    .equals(Files.getAttribute(probe, "unix:uid", LinkOption.NOFOLLOW_LINKS));
+            return (Integer) Files.getAttribute(probe, "unix:uid", LinkOption.NOFOLLOW_LINKS);
         } finally {
             Files.deleteIfExists(probe);
         }
