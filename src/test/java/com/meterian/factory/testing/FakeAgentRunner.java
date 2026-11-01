@@ -14,6 +14,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,6 +41,9 @@ public final class FakeAgentRunner implements AgentRunner {
 
     private final Deque<ScriptedPhase> phases = new ArrayDeque<>();
     private final List<PhaseRequest> requests = new ArrayList<>();
+    private final List<Integer> stoppedIssues = new CopyOnWriteArrayList<>();
+    private final CountDownLatch stopSignal = new CountDownLatch(1);
+    private final AtomicInteger waitingPhases = new AtomicInteger();
     private int changeCount;
 
     public synchronized FakeAgentRunner then(Action action) {
@@ -115,6 +122,21 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    /** The phase waits until a call of stopPhase, as a long claude session does. Add thatFails for a stopped run. */
+    public synchronized FakeAgentRunner thenWaitForStop() {
+        then(request -> waitForStop());
+        return this;
+    }
+
+    /** The number of phases that wait for a stop now or waited before. It does not need the lock of the runner. */
+    public int waitingPhaseCount() {
+        return waitingPhases.get();
+    }
+
+    public List<Integer> stoppedIssues() {
+        return List.copyOf(stoppedIssues);
+    }
+
     public synchronized List<PhaseRequest> requests() {
         return List.copyOf(requests);
     }
@@ -134,8 +156,23 @@ public final class FakeAgentRunner implements AgentRunner {
         return phase.report();
     }
 
+    /** Not synchronized: a waiting phase holds the lock of the runner. */
     @Override
     public void stopPhase(int issueNumber) {
+        stoppedIssues.add(issueNumber);
+        stopSignal.countDown();
+    }
+
+    private void waitForStop() {
+        waitingPhases.incrementAndGet();
+        try {
+            if (!stopSignal.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("The phase got no stop in 30 seconds");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("The wait for the stop was interrupted", exception);
+        }
     }
 
     private synchronized void changeWorkFile(PhaseRequest request) throws IOException {

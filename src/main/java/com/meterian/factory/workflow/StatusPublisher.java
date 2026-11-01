@@ -9,20 +9,20 @@ import java.util.List;
 import java.util.Optional;
 
 /** Writes the record to the one status comment of the worker and sets the status label. */
-final class StatusPublisher {
+public final class StatusPublisher {
 
     private final GitHubClient gitHub;
     private final String workerLogin;
     private final int fixLoopLimit;
 
-    StatusPublisher(GitHubClient gitHub, String workerLogin, int fixLoopLimit) {
+    public StatusPublisher(GitHubClient gitHub, String workerLogin, int fixLoopLimit) {
         this.gitHub = gitHub;
         this.workerLogin = workerLogin;
         this.fixLoopLimit = fixLoopLimit;
     }
 
     /** Writes nothing when the step did not change the record. Returns the record with the comment id. */
-    IssueRecord publish(Issue issue, IssueRecord before, IssueRecord after) {
+    public IssueRecord publish(Issue issue, IssueRecord before, IssueRecord after) {
         if (after.equals(before)) {
             return after;
         }

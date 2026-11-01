@@ -21,8 +21,11 @@ final class IssueWorkspace {
         this.git = git;
     }
 
-    /** Makes a new worktree on the branch of the issue from the merge target, and the remote of the gatekeeper. */
-    void create(int issueNumber, Path worktree) {
+    /**
+     * Makes a new worktree on the branch of the issue from the merge target, and the remote of the gatekeeper.
+     * Synchronized: two git commands in the same clone at the same time can fail on a lock file.
+     */
+    synchronized void create(int issueNumber, Path worktree) {
         Path clone = configuration.target().cloneDirectory();
         Path gatekeeperDirectory = configuration.gatekeeperDirectory().toAbsolutePath();
         git.pruneWorktrees(clone);
@@ -35,7 +38,7 @@ final class IssueWorkspace {
         git.excludeFactoryFolder(worktree);
     }
 
-    void remove(Path worktree) {
+    synchronized void remove(Path worktree) {
         Path clone = configuration.target().cloneDirectory();
         removeIfPresent(clone, worktree);
         git.pruneWorktrees(clone);
