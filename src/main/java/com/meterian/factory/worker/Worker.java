@@ -428,7 +428,10 @@ public final class Worker {
         return result;
     }
 
-    /** Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. */
+    /**
+     * Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. A record in phase
+     * DONE stays DONE and gets a note.
+     */
     private void blockOnFailure(IssueRecord kept, RuntimeException exception) {
         int issueNumber = kept.issueNumber();
         LOGGER.log(System.Logger.Level.ERROR, "The issue #" + issueNumber + " failed.", exception);
@@ -436,7 +439,12 @@ public final class Worker {
                 + ": " + exception.getMessage();
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
-            IssueRecord blocked = onGitHub.orElse(kept)
+            IssueRecord base = onGitHub.orElse(kept);
+            if (base.phase() == Phase.DONE) {
+                noteFailureAfterTheMerge(issueNumber, onGitHub, base, exception);
+                return;
+            }
+            IssueRecord blocked = base
                     .withStatus(IssueStatus.BLOCKED)
                     .withWaitReason(WaitReason.FAILURE)
                     .withNote(note);
@@ -444,6 +452,13 @@ public final class Worker {
         } catch (GitHubException publishException) {
             logGitHubFailure("The block of the issue #" + issueNumber, publishException);
         }
+    }
+
+    /** A DONE record is final. The next poll runs the finish step again, so its cleanup runs again too. */
+    private void noteFailureAfterTheMerge(int issueNumber, Optional<IssueRecord> onGitHub, IssueRecord done,
+                                          RuntimeException exception) {
+        String note = "A step after the merge failed: " + exception.getClass().getName() + ". The change is merged.";
+        statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), done.withNote(note));
     }
 
     /** Fail closed: the worker stops and ends the phases that run. */

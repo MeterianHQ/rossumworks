@@ -64,6 +64,8 @@ class WorkerTest {
     private static final String MALLORY_BLOCK_NOTE =
             "The label factory:block from mallory is ignored: the account is not in accounts.allowed.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
+    private static final String FINISH_FAILURE_NOTE =
+            "A step after the merge failed: java.lang.IllegalStateException. The change is merged.";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
@@ -330,6 +332,28 @@ class WorkerTest {
         assertThat(record.waitReason()).isEmpty();
         assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aDefectInTheFinishStepKeepsTheIssueDone() throws InterruptedException {
+        gitHub.failTheRemoveLabelAfterTheMergeWithADefect();
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        IssueRecord afterTheFailure = readRecord(ISSUE).orElseThrow();
+        assertThat(afterTheFailure.phase()).isEqualTo(Phase.DONE);
+        assertThat(afterTheFailure.status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(afterTheFailure.notes()).containsExactly(FINISH_FAILURE_NOTE);
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.notes()).containsExactly(FINISH_FAILURE_NOTE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
+        assertThat(worktree()).doesNotExist();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 

@@ -41,8 +41,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private boolean failsTheNextCommentEdit;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
-    private boolean failsTheRemoveLabelAfterTheMerge;
-    private boolean failsTheNextRemoveLabel;
+    private RuntimeException removeLabelFailureAfterTheMerge;
+    private RuntimeException nextRemoveLabelFailure;
     private boolean failsTheNextIssueList;
     private Runnable squashMergeAction = () -> { };
     private String commentEditTrigger;
@@ -131,7 +131,12 @@ public final class FakeGitHubClient implements GitHubClient {
 
     /** The first removeLabel after a successful squash merge throws a GitHubException. */
     public synchronized void failTheRemoveLabelAfterTheMerge() {
-        failsTheRemoveLabelAfterTheMerge = true;
+        removeLabelFailureAfterTheMerge = new GitHubException("GitHub answered 502 for DELETE /labels");
+    }
+
+    /** The first removeLabel after a successful squash merge throws an IllegalStateException, as a defect does. */
+    public synchronized void failTheRemoveLabelAfterTheMergeWithADefect() {
+        removeLabelFailureAfterTheMerge = new IllegalStateException("A defect in the removal of a label");
     }
 
     /** The next openIssuesWithLabel throws an IllegalStateException, as an unexpected defect does. */
@@ -215,9 +220,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void removeLabel(int issueNumber, String label) {
-        if (failsTheNextRemoveLabel) {
-            failsTheNextRemoveLabel = false;
-            throw new GitHubException("GitHub answered 502 for DELETE /issues/" + issueNumber + "/labels/" + label);
+        if (nextRemoveLabelFailure != null) {
+            RuntimeException failure = nextRemoveLabelFailure;
+            nextRemoveLabelFailure = null;
+            throw failure;
         }
         labels.get(issueNumber).remove(label);
     }
@@ -258,8 +264,10 @@ public final class FakeGitHubClient implements GitHubClient {
             mergedPullRequests.add(pullRequestNumber);
             failsTheNextCommentEdit = failsTheNextCommentEdit || failsTheCommentEditAfterTheMerge;
             failsTheCommentEditAfterTheMerge = false;
-            failsTheNextRemoveLabel = failsTheNextRemoveLabel || failsTheRemoveLabelAfterTheMerge;
-            failsTheRemoveLabelAfterTheMerge = false;
+            if (removeLabelFailureAfterTheMerge != null) {
+                nextRemoveLabelFailure = removeLabelFailureAfterTheMerge;
+                removeLabelFailureAfterTheMerge = null;
+            }
         }
         return outcome;
     }
