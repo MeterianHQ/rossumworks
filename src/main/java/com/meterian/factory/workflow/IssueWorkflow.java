@@ -3,6 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.build.BuildOutcome;
@@ -82,14 +83,26 @@ public final class IssueWorkflow {
         return WAITING_STATUSES.contains(record.status());
     }
 
+    /** A record in phase DONE always runs the finish step: its cleanup can be left from an earlier run. */
     private IssueRecord runStep(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
         try {
-            return isWaiting(record) ? checkApproval(issue, record) : runPhase(issue, record);
+            boolean checksApproval = isWaiting(record) && record.phase() != Phase.DONE;
+            return checksApproval ? checkApproval(issue, record) : runPhase(issue, record);
+        } catch (PhaseRefusedException refused) {
+            return record;
         } catch (GitException | UncheckedIOException exception) {
-            return block(record, "A step failed: " + exception.getMessage());
+            return failStep(record, "A step failed: " + exception.getMessage(), exception);
         } catch (AgentException exception) {
-            return block(record, "The agent session failed: " + exception.getMessage());
+            return failStep(record, "The agent session failed: " + exception.getMessage(), exception);
         }
+    }
+
+    /** A merged change is final, so a failure after the merge never blocks the issue. */
+    private IssueRecord failStep(IssueRecord record, String reason, Exception exception) {
+        if (record.phase() == Phase.DONE) {
+            return MergedIssue.noteFailureAfterTheMerge(record, exception);
+        }
+        return block(record, reason);
     }
 
     private IssueRecord runPhase(Issue issue, IssueRecord record) throws AgentException, ApiKeyDetectedException {
@@ -101,7 +114,7 @@ public final class IssueWorkflow {
             case REVIEW -> review(issue, record, worktree);
             case RISK -> assessRisk(issue, record, worktree);
             case MERGE -> merge(issue, record, worktree);
-            case DONE -> finish(record, worktree);
+            case DONE -> finish(issue, record, worktree);
         };
     }
 
@@ -141,8 +154,13 @@ public final class IssueWorkflow {
             return block(record, "The findings of the fix loop are missing.");
         }
         IssueRecord started = markSessionStarted(issue, record);
-        SessionReport report = phaseRunner.runPhase(new PhaseRequest(record.issueNumber(), started.sessionId(),
-                !record.agentSessionStarted(), worktree, prompt.get()));
+        SessionReport report;
+        try {
+            report = phaseRunner.runPhase(new PhaseRequest(record.issueNumber(), started.sessionId(),
+                    !record.agentSessionStarted(), worktree, prompt.get()));
+        } catch (PhaseRefusedException refused) {
+            return undoSessionStart(issue, started, record);
+        }
         if (factoryFolder.hasQuestion()) {
             return askOwner(started, factoryFolder.readQuestion());
         }
@@ -255,11 +273,16 @@ public final class IssueWorkflow {
         };
     }
 
-    private IssueRecord finish(IssueRecord record, Path worktree) {
-        gitHub.removeLabel(record.issueNumber(), FACTORY_LABEL);
-        ownerApproval.withdraw(record.issueNumber());
+    /**
+     * Publishes DONE first, then cleans up. The label factory goes away last: after a failure the issue keeps
+     * it, so the next poll runs this step again.
+     */
+    private IssueRecord finish(Issue issue, IssueRecord record, Path worktree) {
+        IssueRecord done = statusPublisher.publish(issue, record, record.withStatus(IssueStatus.DONE));
         workspace.remove(worktree);
-        return record.withStatus(IssueStatus.DONE);
+        ownerApproval.withdraw(record.issueNumber());
+        gitHub.removeLabel(record.issueNumber(), FACTORY_LABEL);
+        return done;
     }
 
     private IssueRecord startFixLoop(IssueRecord record, Path worktree, List<Finding> findings) {
@@ -294,6 +317,14 @@ public final class IssueWorkflow {
 
     private IssueRecord block(IssueRecord record, String reason) {
         return record.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.FAILURE).withNote(reason);
+    }
+
+    /** The refused session never started, so the record on GitHub must not say that it started. */
+    private IssueRecord undoSessionStart(Issue issue, IssueRecord started, IssueRecord record) {
+        if (!started.equals(record)) {
+            statusPublisher.publish(issue, started, record);
+        }
+        return record;
     }
 
     /** Publishes the start before the run, so that a retry resumes the session and does not start it again. */

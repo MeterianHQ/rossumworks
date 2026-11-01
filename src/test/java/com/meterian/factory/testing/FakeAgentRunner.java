@@ -3,6 +3,7 @@ package com.meterian.factory.testing;
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
 import java.io.IOException;
@@ -145,7 +146,7 @@ public final class FakeAgentRunner implements AgentRunner {
     @Override
     public synchronized SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
         if (refusesNewPhases) {
-            throw new AgentException("The factory is stopping.");
+            throw new PhaseRefusedException("The factory is stopping.");
         }
         requests.add(request);
         ScriptedPhase phase = phases.poll();

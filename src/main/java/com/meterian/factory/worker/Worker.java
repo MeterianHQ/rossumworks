@@ -13,6 +13,7 @@ import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.MergedIssue;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -193,8 +194,10 @@ public final class Worker {
         return record.filter(found -> isStartable(issue, found));
     }
 
+    /** A record in phase DONE that still has the label factory has a finish step that did not end. */
     private boolean isStartable(Issue issue, IssueRecord record) {
-        return !workflow.isWaiting(record) || waitsForAGivenApprovalLabel(issue, record);
+        return !workflow.isWaiting(record) || record.phase() == Phase.DONE
+                || waitsForAGivenApprovalLabel(issue, record);
     }
 
     /** The workflow checks who gave the label, and notes a label from another account. */
@@ -372,12 +375,16 @@ public final class Worker {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
             if (onGitHub.filter(record -> record.phase() == Phase.DONE).isPresent()) {
-                noteBlockWithoutEffect(onGitHub.get());
+                noteBlockWithoutEffect(onGitHub.get(), onGitHub);
                 return;
             }
             Optional<IssueRecord> laterRecord = interruptedResult.or(() -> onGitHub);
             IssueRecord base = keptByLoop.map(kept -> keepFacts(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
+            if (isMergedOnGitHub(base)) {
+                noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
+                return;
+            }
             IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER);
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
             gitHub.removeLabel(issueNumber, BLOCK_LABEL);
@@ -390,11 +397,19 @@ public final class Worker {
         }
     }
 
-    /** A DONE record is final. The block only gets a note, and its label goes away. */
-    private void noteBlockWithoutEffect(IssueRecord done) {
+    /**
+     * A DONE record is final. The block only gets a note, and its label goes away. A record in phase DONE
+     * that still has the label factory runs its finish step at the next poll.
+     */
+    private void noteBlockWithoutEffect(IssueRecord done, Optional<IssueRecord> onGitHub) {
         int issueNumber = done.issueNumber();
-        statusPublisher.publish(gitHub.issue(issueNumber), done, done.withNote(DONE_BLOCK_NOTE));
+        statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), done.withNote(DONE_BLOCK_NOTE));
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
+    }
+
+    /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
+    private boolean isMergedOnGitHub(IssueRecord record) {
+        return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
     }
 
     /** The stop came during a step, so the record from before the step goes back to GitHub. */
@@ -429,8 +444,8 @@ public final class Worker {
     }
 
     /**
-     * Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. A record in phase
-     * DONE stays DONE and gets a note.
+     * Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. A merged issue stays
+     * DONE and gets a note; the label factory stays on it, so the next poll runs the finish step again.
      */
     private void blockOnFailure(IssueRecord kept, RuntimeException exception) {
         int issueNumber = kept.issueNumber();
@@ -440,8 +455,9 @@ public final class Worker {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
             IssueRecord base = onGitHub.orElse(kept);
-            if (base.phase() == Phase.DONE) {
-                noteFailureAfterTheMerge(issueNumber, onGitHub, base, exception);
+            if (isMergedOnGitHub(base)) {
+                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, exception);
+                statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), noted);
                 return;
             }
             IssueRecord blocked = base
@@ -452,13 +468,6 @@ public final class Worker {
         } catch (GitHubException publishException) {
             logGitHubFailure("The block of the issue #" + issueNumber, publishException);
         }
-    }
-
-    /** A DONE record is final. The next poll runs the finish step again, so its cleanup runs again too. */
-    private void noteFailureAfterTheMerge(int issueNumber, Optional<IssueRecord> onGitHub, IssueRecord done,
-                                          RuntimeException exception) {
-        String note = "A step after the merge failed: " + exception.getClass().getName() + ". The change is merged.";
-        statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), done.withNote(note));
     }
 
     /** Fail closed: the worker stops and ends the phases that run. */

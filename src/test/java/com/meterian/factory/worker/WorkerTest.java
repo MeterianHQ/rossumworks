@@ -358,6 +358,49 @@ class WorkerTest {
     }
 
     @Test
+    void aFailedFinishStepLeavesTheLabelFactoryForTheNextPoll() throws InterruptedException {
+        gitHub.failTheRemoveLabelAfterTheMerge();
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).contains(FACTORY_LABEL);
+        assertThat(worktree()).doesNotExist();
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
+        assertThat(gitHub.removedLabels()).last().isEqualTo(FACTORY_LABEL);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aBlockDuringTheMergeWithALostPublishEndsDone() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        Worker worker = createWorker(agent, 2);
+        gitHub.failTheCommentEditAfterTheMerge();
+        gitHub.whenSquashMerging(() -> {
+            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            worker.pollOnce();
+        });
+        worker.pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL, FACTORY_LABEL);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
     void aBlockOnADoneIssueKeepsItDone() throws InterruptedException {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();

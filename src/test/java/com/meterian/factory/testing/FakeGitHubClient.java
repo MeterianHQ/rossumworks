@@ -41,6 +41,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private boolean failsTheNextCommentEdit;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
+    private final List<String> editedBodies = new ArrayList<>();
+    private final List<String> removedLabels = new ArrayList<>();
     private RuntimeException removeLabelFailureAfterTheMerge;
     private RuntimeException nextRemoveLabelFailure;
     private boolean failsTheNextIssueList;
@@ -129,6 +131,16 @@ public final class FakeGitHubClient implements GitHubClient {
         commentEditAction = action;
     }
 
+    /** Each body that editComment wrote, in order. */
+    public synchronized List<String> editedBodies() {
+        return List.copyOf(editedBodies);
+    }
+
+    /** Each label that removeLabel removed from an issue, in order. */
+    public synchronized List<String> removedLabels() {
+        return List.copyOf(removedLabels);
+    }
+
     /** The first removeLabel after a successful squash merge throws a GitHubException. */
     public synchronized void failTheRemoveLabelAfterTheMerge() {
         removeLabelFailureAfterTheMerge = new GitHubException("GitHub answered 502 for DELETE /labels");
@@ -195,6 +207,7 @@ public final class FakeGitHubClient implements GitHubClient {
             failsTheNextCommentEdit = false;
             throw new GitHubException("GitHub answered 502 for PATCH /issues/comments/" + commentId);
         }
+        editedBodies.add(body);
         for (List<IssueComment> comments : commentsByIssue.values()) {
             comments.replaceAll(comment -> comment.id() == commentId
                     ? new IssueComment(commentId, comment.authorLogin(), body) : comment);
@@ -225,7 +238,9 @@ public final class FakeGitHubClient implements GitHubClient {
             nextRemoveLabelFailure = null;
             throw failure;
         }
-        labels.get(issueNumber).remove(label);
+        if (labels.get(issueNumber).remove(label)) {
+            removedLabels.add(label);
+        }
     }
 
     @Override

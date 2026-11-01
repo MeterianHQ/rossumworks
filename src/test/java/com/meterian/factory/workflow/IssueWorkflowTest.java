@@ -523,6 +523,47 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void keepsADoneIssueDoneWhenTheWorktreeRemovalFails() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord merged = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.DONE);
+        run(clone, "worktree", "lock", worktree().toString());
+
+        IssueRecord record = workflow.advance(merged);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.waitReason()).isEmpty();
+        assertThat(record.notes()).containsExactly(
+                "A step after the merge failed: com.meterian.factory.git.GitException. The change is merged.");
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).contains("factory");
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+        run(clone, "worktree", "unlock", worktree().toString());
+
+        IssueRecord finished = workflow.advance(record);
+
+        assertThat(finished.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain("factory");
+        assertThat(worktree()).doesNotExist();
+    }
+
+    @Test
+    void aRefusedPhasePublishesNoBlockAndNoSessionStart() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord prepared = workflow.advance(IssueRecord.queued(ISSUE));
+        agent.refuseNewPhases();
+
+        IssueRecord record = workflow.advance(prepared);
+
+        assertThat(record).isEqualTo(prepared);
+        assertThat(record.agentSessionStarted()).isFalse();
+        assertThat(readRecordFromGitHub().agentSessionStarted()).isFalse();
+        assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
     void blocksWhenTheFixPromptIsMissing() throws ApiKeyDetectedException, IOException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("false");

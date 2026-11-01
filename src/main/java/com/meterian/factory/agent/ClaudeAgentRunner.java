@@ -52,7 +52,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
         try {
             // The check after the registration: a stopPhase after refuseNewPhases always sees this run.
             if (refusesNewPhases) {
-                throw new AgentException(STOPPING_TEXT);
+                throw new PhaseRefusedException(STOPPING_TEXT);
             }
             afterRegistration.accept(request.issueNumber());
             run.attach(startProcess(request));
