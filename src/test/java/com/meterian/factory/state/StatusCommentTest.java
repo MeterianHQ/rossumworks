@@ -143,4 +143,24 @@ class StatusCommentTest {
 
         assertThat(neutralized).doesNotContain("<!--").doesNotContain("-->").contains("\n");
     }
+
+    @Test
+    void showsTheLinkOfTheLiveConversation() {
+        IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x"));
+
+        assertThat(StatusComment.render(live, LIMIT)).contains("Live conversation: https://claude.ai/code/session_x");
+    }
+
+    @Test
+    void aLiveRecordReadsBackEqual() {
+        IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x"))
+                .withAfterConversation();
+        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(live, LIMIT));
+
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(live);
+    }
+
+    private static LiveSession liveSession(String link) {
+        return new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.QUESTION), Optional.of(link));
+    }
 }

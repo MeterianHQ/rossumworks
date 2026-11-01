@@ -118,4 +118,52 @@ class IssueRecordTest {
         assertThat(reviewed.reviewedHeadCommit()).contains("ccc");
         assertThat(reviewed.withoutReviews().reviewedHeadCommit()).isEmpty();
     }
+
+    private static final LiveSession SESSION =
+            new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.empty());
+
+    @Test
+    void anOldRecordWithoutTheLiveFieldsReadsAsNotLive() throws Exception {
+        String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+                .writeValueAsString(queued)
+                .replace(",\"live\":null", "")
+                .replace(",\"afterConversation\":false", "");
+
+        IssueRecord old = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+                .readValue(json, IssueRecord.class);
+
+        assertThat(json).doesNotContain("live").doesNotContain("afterConversation");
+        assertThat(old.live()).isEmpty();
+        assertThat(old.afterConversation()).isFalse();
+    }
+
+    @Test
+    void withLiveKeepsTheStateBeforeTheConversation() {
+        IssueRecord live = queued.withLive(SESSION);
+
+        assertThat(live.live().orElseThrow().statusBefore()).isEqualTo(IssueStatus.IN_REVIEW);
+        assertThat(live.live().orElseThrow().waitBefore()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void withLiveLinkSetsOnlyTheLink() {
+        IssueRecord linked = queued.withLive(SESSION).withLiveLink("https://claude.ai/code/session_x");
+
+        assertThat(linked.live().orElseThrow().link()).contains("https://claude.ai/code/session_x");
+        assertThat(linked.live().orElseThrow().startHeadCommit()).isEqualTo("abc");
+        assertThat(linked.withoutLiveLink().live().orElseThrow().link()).isEmpty();
+    }
+
+    @Test
+    void withoutLiveClearsTheLiveState() {
+        assertThat(queued.withLive(SESSION).withoutLive().live()).isEmpty();
+    }
+
+    @Test
+    void theAfterConversationFlagSetsAndClears() {
+        assertThat(queued.withAfterConversation().afterConversation()).isTrue();
+        assertThat(queued.withAfterConversation().withoutAfterConversation().afterConversation()).isFalse();
+    }
 }

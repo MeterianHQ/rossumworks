@@ -26,6 +26,7 @@ public final class StatusComment {
         body.append(renderHeadline(record)).append('\n');
         body.append(renderReviews(record)).append('\n');
         body.append(renderCounters(record, fixLoopLimit)).append('\n');
+        renderLiveLink(record).ifPresent(line -> body.append(line).append('\n'));
         record.notes().forEach(note -> body.append(sanitizeNote(note)).append('\n'));
         body.append('\n').append(RECORD_START).append('\n');
         body.append(writeJson(record)).append('\n');
@@ -85,6 +86,10 @@ public final class StatusComment {
         String risk = record.risk().map(level -> level.name().toLowerCase()).orElse(NOT_SET);
         String pullRequest = record.pullRequestNumber().map(number -> "#" + number).orElse(NOT_SET);
         return "Fix loops: " + record.fixLoops() + " of " + fixLoopLimit + " · Risk: " + risk + " · Pull request: " + pullRequest;
+    }
+
+    private static Optional<String> renderLiveLink(IssueRecord record) {
+        return record.live().flatMap(LiveSession::link).map(link -> "Live conversation: " + link);
     }
 
     private static String writeJson(IssueRecord record) {
