@@ -105,7 +105,14 @@ public final class Worker {
             logGitHubFailure("The poll", exception);
         } catch (RuntimeException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "The poll failed.", exception);
+        } finally {
+            logRequestCounts();
         }
+    }
+
+    /** The requests of the issue threads between two polls count in the line of the next poll. */
+    private void logRequestCounts() {
+        LOGGER.log(System.Logger.Level.INFO, PollRequestSummary.describe(gitHub.takeRequestCounts()));
     }
 
     /** Polls at the poll interval until the worker stops. */

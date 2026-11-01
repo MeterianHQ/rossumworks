@@ -74,6 +74,11 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public Map<String, Integer> takeRequestCounts() {
+        return requestCounter.take();
+    }
+
+    @Override
     public String authenticatedLogin() {
         return send("GET", "/user", null).path("login").asText();
     }

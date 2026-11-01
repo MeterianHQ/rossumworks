@@ -46,6 +46,7 @@ public final class FakeGitHubServer implements AutoCloseable {
     private static final Pattern PULL_REQUEST = Pattern.compile("/pulls/(\\d+)");
     private static final Pattern PULL_REQUEST_MERGE = Pattern.compile("/pulls/(\\d+)/merge");
     private static final Pattern MERGE_COMMIT = Pattern.compile("/git/commits/merge-of-(\\d+)");
+    private static final Pattern NUMBER_SEGMENT = Pattern.compile("/\\d+(?=/|$)");
 
     private record Answer(int status, JsonNode body) {
     }
@@ -55,6 +56,7 @@ public final class FakeGitHubServer implements AutoCloseable {
     private final HttpServer server;
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicInteger receivedRequests = new AtomicInteger();
+    private final Map<String, Integer> requestCounts = new TreeMap<>();
     private volatile Map<String, String> rateLimitHeaders = Map.of();
     private volatile boolean refusesWithTheRateLimit;
 
@@ -95,6 +97,21 @@ public final class FakeGitHubServer implements AutoCloseable {
         return receivedRequests.get();
     }
 
+    /** The requests that the server received, by method and path template. A 304 answer has its own key. */
+    public synchronized Map<String, Integer> requestCounts() {
+        return Map.copyOf(requestCounts);
+    }
+
+    public synchronized void resetRequestCounts() {
+        requestCounts.clear();
+    }
+
+    private synchronized void countRequest(String method, URI uri, int status) {
+        String template = NUMBER_SEGMENT.matcher(uri.getRawPath().replace(repositoryPath, "/repos/{o}/{r}"))
+                .replaceAll("/{n}");
+        requestCounts.merge(method + " " + template + (status == 304 ? " (304)" : ""), 1, Integer::sum);
+    }
+
     @Override
     public void close() {
         server.stop(0);
@@ -116,10 +133,12 @@ public final class FakeGitHubServer implements AutoCloseable {
                 String entityTag = "\"" + hash(body) + "\"";
                 exchange.getResponseHeaders().add("ETag", entityTag);
                 if (entityTag.equals(exchange.getRequestHeaders().getFirst("If-None-Match"))) {
+                    countRequest(method, uri, 304);
                     exchange.sendResponseHeaders(304, -1);
                     return;
                 }
             }
+            countRequest(method, uri, answer.status());
             exchange.sendResponseHeaders(answer.status(), body.length);
             exchange.getResponseBody().write(body);
         }

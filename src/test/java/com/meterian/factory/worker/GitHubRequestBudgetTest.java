@@ -178,9 +178,9 @@ class GitHubRequestBudgetTest {
     private List<Map<String, Integer>> measurePolls(int polls) {
         List<Map<String, Integer>> countsByPoll = new ArrayList<>();
         for (int poll = 0; poll < polls; poll++) {
-            gitHub.resetRequestCounts();
+            server.resetRequestCounts();
             worker.pollOnce();
-            countsByPoll.add(gitHub.requestCounts());
+            countsByPoll.add(server.requestCounts());
         }
         return countsByPoll;
     }
@@ -258,5 +258,44 @@ class GitHubRequestBudgetTest {
         assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
         assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));
+    }
+
+    @Test
+    void logsTheRequestCountsOfEachPollAndStartsThemAgainAtZero() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        workerLog.clear();
+        worker.pollOnce();
+        assertThat(pollLines()).as("the requests of the issue thread count in the next poll line")
+                .singleElement().asString().contains("POST /repos/{o}/{r}/pulls=1");
+        workerLog.clear();
+
+        server.resetRequestCounts();
+        worker.pollOnce();
+
+        Map<String, Integer> counts = server.requestCounts();
+        String expectedCounts = counts.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .reduce((first, second) -> first + ", " + second).orElseThrow();
+        assertThat(pollLines()).containsExactly(
+                "The poll sent " + sum(counts) + " GitHub requests: " + expectedCounts + ".");
+        assertThat(gitHub.requestCounts()).isEmpty();
+    }
+
+    @Test
+    void putsTheLargestCountFirstInTheLogLine() {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+
+        worker.pollOnce();
+
+        assertThat(pollLines()).hasSize(1).first().asString()
+                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=10, .*");
+    }
+
+    private List<String> pollLines() {
+        return workerLog.stream().filter(line -> line.startsWith("The poll sent")).toList();
     }
 }

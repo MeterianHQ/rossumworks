@@ -2,6 +2,7 @@ package com.meterian.factory.github;
 
 import com.meterian.factory.state.IssueStatus;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface GitHubClient {
@@ -60,4 +61,12 @@ public interface GitHubClient {
 
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
+
+    /**
+     * Returns the number of requests since the last call, by method and path template, and starts the counts
+     * again at zero. A client that does not count returns an empty map.
+     */
+    default Map<String, Integer> takeRequestCounts() {
+        return Map.of();
+    }
 }

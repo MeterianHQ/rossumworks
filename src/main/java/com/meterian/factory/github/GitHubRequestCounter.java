@@ -25,6 +25,13 @@ final class GitHubRequestCounter {
         return Map.copyOf(counts);
     }
 
+    /** Reads and resets in one step, so that a request of another thread is never lost between them. */
+    synchronized Map<String, Integer> take() {
+        Map<String, Integer> taken = Map.copyOf(counts);
+        counts.clear();
+        return taken;
+    }
+
     synchronized void reset() {
         counts.clear();
     }

@@ -121,6 +121,9 @@ GitHub (issues, labels with the status, pull requests)
   sends no request until the reset time. It logs one line for each wait. A
   step that meets the limit runs again at the first poll after the reset. It
   is not a failure of the issue.
+- At the end of each poll, the worker logs one line with the number of its
+  GitHub requests: the total and the 10 largest counts by path template. The
+  requests of the issue threads count in the line of the next poll.
 - The worker can stop and start again at any time. At start, it reads the
   state from GitHub and continues. A phase that ran when the worker
   stopped runs again from its start.
