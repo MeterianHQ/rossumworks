@@ -97,4 +97,23 @@ class PromptLibraryTest {
             assertThat(library.review(kind, ISSUE, "abc")).contains("When you cannot decide, write reject.");
         }
     }
+
+    @Test
+    void implementAndFixPromptsKeepTheChangeInScopeAndAskForADescription() {
+        PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
+        String implement = library.implement(ISSUE);
+        String fix = library.fix(List.of(new Finding("Bad name", "Rename x")));
+
+        assertThat(implement).contains("Change only what the issue needs", ".factory/description.md");
+        assertThat(fix).contains("Change only what the issue needs", ".factory/description.md",
+                "update .factory/description.md");
+    }
+
+    @Test
+    void qualityReviewPromptRejectsAChangeThatTheIssueDoesNotNeed() {
+        PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
+
+        assertThat(library.review(ReviewKind.QUALITY, ISSUE, "abc123"))
+                .contains("Reject a change of text or code that the issue does not need");
+    }
 }

@@ -7,6 +7,8 @@ Rules:
 - Write a short plan first. Then do the work.
 - Respect the rules of the file CLAUDE.md of this repository.
 - Write tests that check real behavior.
+- Change only what the issue needs. Do not move, rewrite, or reformat text or code that the issue does not need, also in the documents.
+- Write a description of the change to the file .factory/description.md, for a human reviewer: what changed, why, and each change of behavior that a user must know. When there is no such change, write the sentence: No change of behavior for users. Use Simplified Technical English. Do not write a reference to an issue.
 - Do not commit, do not push, and do not merge. The factory commits your changes.
 - Write the files of the factory only in the folder .factory/.
 

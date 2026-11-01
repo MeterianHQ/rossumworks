@@ -91,4 +91,14 @@ class FakeGitHubClientTest {
         assertThat(github.statusOf(4)).isEmpty();
         assertThat(github.statusLabelsOf(4)).containsExactlyInAnyOrder("factory:status:queued", "factory:status:done");
     }
+
+    @Test
+    void editsTheBodyOfAPullRequest() {
+        PullRequest pullRequest = github.createPullRequest("factory/issue-7", "main", "T", "B");
+
+        github.editPullRequestBody(pullRequest.number(), "New");
+
+        assertThat(github.openPullRequest("factory/issue-7").orElseThrow().body()).isEqualTo("New");
+        assertThat(github.editedPullRequestBodies()).containsExactly("New");
+    }
 }

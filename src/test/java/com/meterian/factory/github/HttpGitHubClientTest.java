@@ -246,6 +246,35 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void editsTheBodyOfAPullRequest() {
+        responder = request -> new Answer(200, "{\"number\":5}");
+
+        client.editPullRequestBody(5, "A \"new\" body");
+
+        assertThat(requests.get(0).method()).isEqualTo("PATCH");
+        assertThat(requests.get(0).target()).isEqualTo("/repos/o/r/pulls/5");
+        assertThat(requests.get(0).body()).isEqualTo("{\"body\":\"A \\\"new\\\" body\"}");
+    }
+
+    @Test
+    void neverPutsTheTokenInAnErrorOfAnEditOfAPullRequestBody() {
+        responder = request -> new Answer(500, "{\"message\":\"boom\"}");
+
+        assertThatThrownBy(() -> client.editPullRequestBody(5, "Body"))
+                .isInstanceOf(GitHubException.class)
+                .hasMessageContaining("PATCH")
+                .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
+    }
+
+    @Test
+    void readsTheBodyOfAPullRequest() {
+        responder = request -> new Answer(200, "[{\"number\":5,\"html_url\":\"u\",\"head\":{\"ref\":\"b\"},"
+                + "\"body\":\"The body\"}]");
+
+        assertThat(client.openPullRequest("b")).map(PullRequest::body).contains("The body");
+    }
+
+    @Test
     void readsTheMergedFieldOfThePullRequest() {
         responder = request -> new Answer(200, "{\"number\":5,\"merged\":true}");
 
