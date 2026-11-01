@@ -36,6 +36,13 @@ class ClaudeAgentRunnerTest {
     }
 
     @Test
+    void givesThePromptOnTheStandardInput() throws Exception {
+        runnerFor("success.jsonl", "", "0").runPhase(requestOf(7));
+
+        assertThat(Files.readString(directory.resolve("prompt.txt"))).isEqualTo("Fix it");
+    }
+
+    @Test
     void stopsAtOnceOnAnApiKey() throws Exception {
         ClaudeAgentRunner runner = runnerFor("api-key-init-first.jsonl", "30", "0");
         long start = System.nanoTime();
@@ -235,6 +242,7 @@ class ClaudeAgentRunnerTest {
         variables.put("FAKE_CLAUDE_STREAM", streamFile.toString());
         variables.put("FAKE_CLAUDE_ARGUMENTS", directory.resolve("arguments.txt").toString());
         variables.put("FAKE_CLAUDE_ENVIRONMENT", directory.resolve("environment.txt").toString());
+        variables.put("FAKE_CLAUDE_PROMPT", directory.resolve("prompt.txt").toString());
         variables.put("FAKE_CLAUDE_CHILD_PID_FILE", directory.resolve("child.pid").toString());
         variables.forEach((name, value) -> script.append("export ").append(name).append("='").append(value).append("'\n"));
         script.append("exec '").append(fake).append("' \"$@\"\n");

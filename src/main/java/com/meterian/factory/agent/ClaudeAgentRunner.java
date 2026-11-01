@@ -3,9 +3,9 @@ package com.meterian.factory.agent;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.process.ProcessGroup;
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -83,14 +83,26 @@ public final class ClaudeAgentRunner implements AgentRunner {
         builder.directory(request.workingDirectory().toFile());
         builder.environment().clear();
         builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
-        builder.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
+        builder.redirectInput(ProcessBuilder.Redirect.PIPE);
         try {
             Process process = builder.start();
             logStandardError(process, request.issueNumber());
+            writePrompt(process, request);
             return process;
         } catch (IOException exception) {
             throw new AgentException("The claude process did not start: " + exception.getMessage(), exception);
         }
+    }
+
+    private void writePrompt(Process process, PhaseRequest request) {
+        Thread.ofVirtual().start(() -> {
+            try (OutputStream input = process.getOutputStream()) {
+                input.write(request.prompt().getBytes(StandardCharsets.UTF_8));
+            } catch (IOException exception) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "claude #" + request.issueNumber() + ": the prompt was not written: " + exception.getMessage());
+            }
+        });
     }
 
     private SessionReport readSession(PhaseRequest request, Run run)

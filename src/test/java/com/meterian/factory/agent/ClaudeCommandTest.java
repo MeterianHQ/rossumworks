@@ -36,7 +36,13 @@ class ClaudeCommandTest {
 
         assertThat(arguments).doesNotContain("--dangerously-skip-permissions");
         assertThat(arguments).containsSequence("--permission-mode", "acceptEdits");
-        assertThat(arguments.get(arguments.size() - 1)).isEqualTo("Fix it");
+    }
+
+    @Test
+    void neverPutsThePromptInTheArguments() {
+        List<String> arguments = ClaudeCommand.arguments(settings, requestOf(true));
+
+        assertThat(arguments).doesNotContain("Fix it");
     }
 
     @Test

@@ -2,6 +2,9 @@
 # Test double of the claude command. See the FAKE_CLAUDE_* variables.
 printf '%s\n' "$@" > "$FAKE_CLAUDE_ARGUMENTS"
 env > "$FAKE_CLAUDE_ENVIRONMENT"
+if [ -n "$FAKE_CLAUDE_PROMPT" ]; then
+  cat > "$FAKE_CLAUDE_PROMPT"
+fi
 if [ "$FAKE_CLAUDE_BACKGROUND_CHILD" = 1 ]; then
   sleep 30 &
   echo $! > "$FAKE_CLAUDE_CHILD_PID_FILE"
