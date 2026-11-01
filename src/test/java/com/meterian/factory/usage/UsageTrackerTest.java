@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.meterian.factory.agent.UsageWindow;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -76,11 +78,50 @@ class UsageTrackerTest {
         assertEquals(0.20, tracker.windows().get(0).utilization());
     }
 
+    @Test
+    void blocksOnAWindowWithEpochZeroResetAndBlankStatus() {
+        tracker.record(List.of(new UsageWindow("five_hour", 0.0, Instant.EPOCH, "", NOW)));
+
+        assertFalse(tracker.mayStartPhase());
+        assertEquals(Optional.of(NOW.plus(15, ChronoUnit.MINUTES)), tracker.resumesAt());
+    }
+
+    @Test
+    void blocksOnANotANumberUtilization() {
+        tracker.record(List.of(window("five_hour", Double.NaN, NOW.plus(1, ChronoUnit.HOURS), "allowed")));
+
+        assertFalse(tracker.mayStartPhase());
+    }
+
+    @Test
+    void blocksOnAUtilizationOutsideTheRange() {
+        tracker.record(List.of(window("five_hour", 1.5, NOW.plus(1, ChronoUnit.HOURS), "allowed")));
+        assertFalse(tracker.mayStartPhase());
+        tracker.record(List.of(window("five_hour", -0.1, NOW.plus(1, ChronoUnit.HOURS), "allowed")));
+        assertFalse(tracker.mayStartPhase());
+    }
+
+    @Test
+    void blocksOnANullResetWithoutThrowing() {
+        tracker.record(List.of(window("five_hour", 0.1, null, "allowed")));
+
+        assertFalse(tracker.mayStartPhase());
+    }
+
+    @Test
+    void endsTheBlockOfAnUnreadableWindowFifteenMinutesAfterTheReport() {
+        tracker.record(List.of(new UsageWindow("five_hour", 0.1, null, "allowed", NOW)));
+
+        clock.set(NOW.plus(15, ChronoUnit.MINUTES).plusSeconds(1));
+
+        assertTrue(tracker.mayStartPhase());
+    }
+
     private static UsageWindow window(String name, double utilization, Instant resetsAt, String status) {
         return new UsageWindow(name, utilization, resetsAt, status, NOW);
     }
 
-    private static final class MutableClock extends java.time.Clock {
+    private static final class MutableClock extends Clock {
 
         private volatile Instant instant;
 
@@ -93,12 +134,12 @@ class UsageTrackerTest {
         }
 
         @Override
-        public java.time.ZoneId getZone() {
+        public ZoneId getZone() {
             return ZoneOffset.UTC;
         }
 
         @Override
-        public java.time.Clock withZone(java.time.ZoneId zone) {
+        public Clock withZone(ZoneId zone) {
             return this;
         }
 

@@ -9,16 +9,20 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.io.UncheckedIOException;
+import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Runs the build command of a target in a worktree, in its own process group. */
 public final class BuildRunner {
 
-    private static final int TAIL_LINES = 200;
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
+    private static final String OUTPUT_NOT_ENDED = "The build output did not end.";
 
     private final Map<String, String> parentEnvironment;
 
@@ -31,20 +35,43 @@ public final class BuildRunner {
     }
 
     public BuildOutcome run(Path worktree, TargetRepository target) {
+        Process process;
         try {
-            Process process = startProcess(worktree, target);
-            CompletableFuture<String> tail = CompletableFuture.supplyAsync(() -> readTail(process),
-                    runnable -> Thread.ofVirtual().start(runnable));
-            int exitCode = process.waitFor();
-            ProcessGroup.terminate(process.pid());
-            return new BuildOutcome(exitCode == 0, tail.get());
+            process = startProcess(worktree, target);
         } catch (IOException exception) {
             return new BuildOutcome(false, "The build did not start: " + exception.getMessage());
+        }
+        try {
+            return collectOutcome(process);
+        } finally {
+            endProcessGroup(process);
+        }
+    }
+
+    private BuildOutcome collectOutcome(Process process) {
+        OutputTail tail = new OutputTail();
+        CompletableFuture<Void> reading = CompletableFuture.runAsync(() -> readOutput(process, tail),
+                runnable -> Thread.ofVirtual().start(runnable));
+        try {
+            int exitCode = process.waitFor();
+            endProcessGroup(process);
+            reading.get(READ_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+            return new BuildOutcome(exitCode == 0, tail.text());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return new BuildOutcome(false, "The build was interrupted.");
+        } catch (TimeoutException exception) {
+            return new BuildOutcome(false, tail.text() + "\n" + OUTPUT_NOT_ENDED);
         } catch (ExecutionException exception) {
             return new BuildOutcome(false, "The build output cannot be read: " + exception.getCause());
+        }
+    }
+
+    private void endProcessGroup(Process process) {
+        boolean wasInterrupted = Thread.interrupted();
+        ProcessGroup.terminate(process.pid());
+        if (wasInterrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -52,27 +79,20 @@ public final class BuildRunner {
         ProcessBuilder builder = new ProcessBuilder("setsid", "--wait", "sh", "-c", target.buildCommand());
         builder.directory(worktree.toFile());
         builder.environment().clear();
-        builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
-        builder.environment().putAll(target.buildEnvironment());
+        Map<String, String> environment = new LinkedHashMap<>(parentEnvironment);
+        environment.putAll(target.buildEnvironment());
+        builder.environment().putAll(ClaudeCommand.environment(environment));
         builder.redirectErrorStream(true);
         builder.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
         return builder.start();
     }
 
-    private String readTail(Process process) {
-        Deque<String> lines = new ArrayDeque<>();
+    private void readOutput(Process process, OutputTail tail) {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                lines.addLast(line);
-                if (lines.size() > TAIL_LINES) {
-                    lines.removeFirst();
-                }
-            }
+            tail.readAll(reader);
         } catch (IOException exception) {
-            throw new java.io.UncheckedIOException(exception);
+            throw new UncheckedIOException(exception);
         }
-        return String.join("\n", lines);
     }
 }
