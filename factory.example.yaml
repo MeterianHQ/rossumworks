@@ -1,0 +1,30 @@
+target:
+  owner: MeterianHQ
+  name: heidi-fix
+  clone: /home/bbossola/projects/rocksolid/code/heidi-fix
+  build:
+    command: ./mvnw verify
+    environment:
+      LANG: C.utf8
+      JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
+merge:
+  target-branch: main
+project:
+  owner: MeterianHQ
+  number: 7
+limits:                 # all keys optional
+  parallel-issues: 2
+  fix-loops: 2
+  poll-interval: 60s
+  usage-threshold: 0.90
+accounts:
+  allowed: [bbossola]
+isolation:              # optional
+  mode: same-user
+claude:                 # optional
+  command: claude
+  allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(git status*)", "Bash(./mvnw *)"]
+  disallowed-tools: ["Bash(git push*)", "Bash(gh *)", WebFetch, WebSearch]
+work-directory: /home/bbossola/.claude-ai-factory/work
+gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git
+# prompts-directory: /path/to/prompts   # optional
