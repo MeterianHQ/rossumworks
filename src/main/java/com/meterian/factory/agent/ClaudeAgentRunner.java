@@ -1,13 +1,13 @@
 package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.process.ProcessGroup;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +19,6 @@ import java.util.function.IntConsumer;
 public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
-    private static final Duration GROUP_GRACE = Duration.ofSeconds(2);
-    private static final long POLL_MILLISECONDS = 50;
     private static final String STOPPED_TEXT = "The phase was stopped.";
     private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
@@ -172,44 +170,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
             if (process == null || !ended.compareAndSet(false, true)) {
                 return;
             }
-            long groupId = process.pid();
-            signalGroup("-TERM", groupId);
-            waitUntilGroupIsEmpty(groupId);
-            if (isGroupAlive(groupId)) {
-                signalGroup("-KILL", groupId);
-            }
-        }
-
-        private void waitUntilGroupIsEmpty(long groupId) {
-            long deadline = System.nanoTime() + GROUP_GRACE.toNanos();
-            while (isGroupAlive(groupId) && System.nanoTime() < deadline) {
-                try {
-                    Thread.sleep(POLL_MILLISECONDS);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-        }
-
-        private boolean isGroupAlive(long groupId) {
-            return signalGroup("-0", groupId);
-        }
-
-        private boolean signalGroup(String signal, long groupId) {
-            try {
-                Process signaller = new ProcessBuilder("kill", signal, "--", "-" + groupId)
-                        .redirectErrorStream(true)
-                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                        .start();
-                return signaller.waitFor() == 0;
-            } catch (IOException exception) {
-                LOGGER.log(System.Logger.Level.WARNING, "The signal to the process group failed.", exception);
-                return false;
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
+            ProcessGroup.terminate(process.pid());
         }
     }
 }
