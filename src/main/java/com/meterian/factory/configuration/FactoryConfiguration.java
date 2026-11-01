@@ -7,7 +7,6 @@ import java.util.Optional;
 public record FactoryConfiguration(
         TargetRepository target,
         String mergeTargetBranch,
-        ProjectReference project,
         Limits limits,
         List<String> allowedAccounts,
         IsolationMode isolationMode,

@@ -21,14 +21,26 @@ public interface GitHubClient {
     /** Returns the actor of the newest "labeled" event for this label. */
     Optional<String> lastLabelActor(int issueNumber, String label);
 
-    void ensureLabel(String label, String color);
+    /** Creates the label when it does not exist. Does nothing when it exists. */
+    void ensureLabel(String label, String color, String description);
+
+    default void ensureLabel(String label, String color) {
+        ensureLabel(label, color, "");
+    }
+
+    /** Creates the six status labels when they do not exist. */
+    default void ensureStatusLabels() {
+        for (IssueStatus status : IssueStatus.values()) {
+            ensureLabel(status.labelName(), status.labelColor(), status.labelDescription());
+        }
+    }
 
     void addLabel(int issueNumber, String label);
 
     /** Does nothing when the label is not on the issue. */
     void removeLabel(int issueNumber, String label);
 
-    /** Adds the issue to the Project if it is not there, then sets the field "Status". */
+    /** Makes the status label of the status the only status label on the issue. */
     void setStatus(Issue issue, IssueStatus status);
 
     Optional<PullRequest> openPullRequest(String headBranch);

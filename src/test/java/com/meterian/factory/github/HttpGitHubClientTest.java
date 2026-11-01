@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.meterian.factory.configuration.ProjectReference;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.state.IssueStatus;
 import com.sun.net.httpserver.HttpServer;
@@ -70,7 +69,7 @@ class HttpGitHubClientTest {
         server.start();
         URI apiBase = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         TargetRepository target = new TargetRepository("o", "r", Path.of("clone"), "true", Map.of());
-        client = new HttpGitHubClient(apiBase, TOKEN, target, new ProjectReference("org", 3), HttpClient.newHttpClient());
+        client = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient());
     }
 
     @AfterEach
@@ -80,15 +79,6 @@ class HttpGitHubClientTest {
 
     private static String header(String value) {
         return value == null ? "" : value;
-    }
-
-    private static String statusFieldJson(String... optionNames) {
-        List<String> options = new ArrayList<>();
-        for (String name : optionNames) {
-            options.add("{\"id\":\"opt-" + name.replace(' ', '-') + "\",\"name\":\"" + name + "\"}");
-        }
-        return "{\"data\":{\"organization\":{\"projectV2\":{\"id\":\"proj-1\",\"field\":{\"id\":\"field-1\","
-                + "\"options\":[" + String.join(",", options) + "]}}}}}";
     }
 
     @Test
@@ -135,30 +125,67 @@ class HttpGitHubClientTest {
         assertThat(requests.get(0).method()).isEqualTo("DELETE");
     }
 
-    @Test
-    void setsTheStatusThroughGraphQl() {
-        responder = request -> {
-            if (request.body().contains("projectV2(number")) {
-                return new Answer(200, statusFieldJson("Queued", "In review"));
-            }
-            return new Answer(200, "{\"data\":{\"addProjectV2ItemById\":{\"item\":{\"id\":\"item-9\"}}}}");
-        };
+    private static String issueJson(String... labelNames) {
+        List<String> labels = new ArrayList<>();
+        for (String name : labelNames) {
+            labels.add("{\"name\":\"" + name + "\"}");
+        }
+        return "{\"number\":4,\"node_id\":\"N4\",\"title\":\"T\",\"body\":\"\",\"labels\":["
+                + String.join(",", labels) + "]}";
+    }
 
-        client.setStatus(new Issue(4, "NODE4", "Title", "", Set.of()), IssueStatus.IN_REVIEW);
+    private void answerIssueWithLabels(String... labelNames) {
+        responder = request -> "GET".equals(request.method()) ? new Answer(200, issueJson(labelNames))
+                : new Answer(200, "[]");
+    }
 
-        String allBodies = String.join("\n", requests.stream().map(RecordedRequest::body).toList());
-        assertThat(allBodies).contains("addProjectV2ItemById").contains("NODE4")
-                .contains("updateProjectV2ItemFieldValue").contains("opt-In-review").contains("item-9");
-        assertThat(requests).allSatisfy(request -> assertThat(request.target()).isEqualTo("/graphql"));
+    private List<String> changes() {
+        return requests.stream().filter(request -> !"GET".equals(request.method()))
+                .map(request -> request.method() + " " + request.target()).toList();
     }
 
     @Test
-    void namesTheMissingStatusOption() {
-        responder = request -> new Answer(200, statusFieldJson("Queued"));
+    void setsTheStatusAsALabel() {
+        answerIssueWithLabels("factory:status:queued", "bug");
 
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.BLOCKED))
-                .isInstanceOf(GitHubException.class)
-                .hasMessageContaining("the Project field Status has no option Blocked");
+        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.IN_REVIEW);
+
+        assertThat(changes()).containsExactly("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
+                "POST /repos/o/r/issues/4/labels");
+        assertThat(requests.get(requests.size() - 1).body()).contains("factory:status:in-review");
+    }
+
+    @Test
+    void keepsOnlyOneStatusLabel() {
+        answerIssueWithLabels("factory:status:queued", "factory:status:blocked", "factory:status:done");
+
+        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.DONE);
+
+        assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
+                "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Ablocked");
+    }
+
+    @Test
+    void addsNothingWhenTheStatusIsAlreadySet() {
+        answerIssueWithLabels("factory:status:in-review", "bug");
+
+        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.IN_REVIEW);
+
+        assertThat(changes()).isEmpty();
+    }
+
+    @Test
+    void ensuresTheSixStatusLabels() {
+        client.ensureStatusLabels();
+
+        assertThat(requests).hasSize(6).allSatisfy(request -> {
+            assertThat(request.method()).isEqualTo("POST");
+            assertThat(request.target()).isEqualTo("/repos/o/r/labels");
+        });
+        assertThat(requests.get(0).body()).contains("\"name\":\"factory:status:queued\"")
+                .contains("\"description\":\"Factory status: Queued. The factory sets this label.\"");
+        assertThat(requests.stream().map(RecordedRequest::body).toList())
+                .anyMatch(body -> body.contains("factory:status:waits-for-you"));
     }
 
     @Test
@@ -268,15 +295,6 @@ class HttpGitHubClientTest {
     }
 
     @Test
-    void failsOnGraphQlErrorsInASuccessfulAnswer() {
-        responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"Could not resolve\"}]}");
-
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.QUEUED))
-                .isInstanceOf(GitHubException.class)
-                .hasMessageContaining("Could not resolve");
-    }
-
-    @Test
     void returnsNoActorWhenNoEventMatches() {
         responder = request -> new Answer(200, "[]");
         assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
@@ -299,11 +317,6 @@ class HttpGitHubClientTest {
     void neverPutsTheTokenInAnyError() {
         responder = request -> new Answer(404, "{\"message\":\"Not Found\"}");
         assertThatThrownBy(() -> client.issue(9)).isInstanceOf(GitHubException.class)
-                .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
-
-        responder = request -> new Answer(200, "{\"errors\":[{\"message\":\"bad\"}]}");
-        assertThatThrownBy(() -> client.setStatus(new Issue(4, "NODE4", "T", "", Set.of()), IssueStatus.QUEUED))
-                .isInstanceOf(GitHubException.class)
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
     }
 }

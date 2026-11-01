@@ -3,7 +3,6 @@ package com.meterian.factory.github;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.meterian.factory.configuration.ProjectReference;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.state.IssueStatus;
 import java.io.IOException;
@@ -26,26 +25,18 @@ public final class HttpGitHubClient implements GitHubClient {
 
     private static final String API_VERSION = "2022-11-28";
     private static final Pattern NEXT_LINK = Pattern.compile("<([^>]+)>;\\s*rel=\"next\"");
-    private static final String ADD_ITEM = "mutation($project:ID!,$content:ID!){addProjectV2ItemById("
-            + "input:{projectId:$project,contentId:$content}){item{id}}}";
-    private static final String UPDATE_ITEM = "mutation($project:ID!,$item:ID!,$field:ID!,$option:String!)"
-            + "{updateProjectV2ItemFieldValue(input:{projectId:$project,itemId:$item,fieldId:$field,"
-            + "value:{singleSelectOptionId:$option}}){projectV2Item{id}}}";
 
     private final URI apiBase;
     private final String token;
     private final String repositoryPath;
     private final HttpClient httpClient;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ProjectStatusField statusField;
 
-    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, ProjectReference project,
-                            HttpClient httpClient) {
+    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
         this.apiBase = apiBase;
         this.token = token;
         this.repositoryPath = "/repos/" + target.fullName();
         this.httpClient = httpClient;
-        this.statusField = new ProjectStatusField(project, this::executeGraphQl);
     }
 
     @Override
@@ -109,9 +100,9 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
-    public void ensureLabel(String label, String color) {
+    public void ensureLabel(String label, String color, String description) {
         HttpResponse<String> response = sendRaw("POST", repositoryPath + "/labels",
-                Map.of("name", label, "color", color));
+                Map.of("name", label, "color", color, "description", description));
         boolean alreadyExists = response.statusCode() == 422;
         if (!alreadyExists) {
             requireSuccess("POST", repositoryPath + "/labels", response);
@@ -134,11 +125,15 @@ public final class HttpGitHubClient implements GitHubClient {
 
     @Override
     public void setStatus(Issue issue, IssueStatus status) {
-        String optionId = statusField.optionId(status);
-        JsonNode added = executeGraphQl(ADD_ITEM, Map.of("project", statusField.projectId(), "content", issue.nodeId()));
-        String itemId = added.path("addProjectV2ItemById").path("item").path("id").asText();
-        executeGraphQl(UPDATE_ITEM, Map.of("project", statusField.projectId(), "item", itemId,
-                "field", statusField.fieldId(), "option", optionId));
+        Set<String> currentLabels = issue(issue.number()).labels();
+        for (String label : currentLabels) {
+            if (IssueStatus.isStatusLabel(label) && !label.equals(status.labelName())) {
+                removeLabel(issue.number(), label);
+            }
+        }
+        if (!currentLabels.contains(status.labelName())) {
+            addLabel(issue.number(), status.labelName());
+        }
     }
 
     @Override
@@ -176,14 +171,6 @@ public final class HttpGitHubClient implements GitHubClient {
 
     private String repositoryOwner() {
         return repositoryPath.split("/")[2];
-    }
-
-    private JsonNode executeGraphQl(String query, Map<String, Object> variables) {
-        JsonNode response = send("POST", "/graphql", Map.of("query", query, "variables", variables));
-        if (response.has("errors")) {
-            throw new GitHubException("GitHub GraphQL answered with errors: " + response.path("errors"));
-        }
-        return response.path("data");
     }
 
     private Issue toIssue(JsonNode item) {

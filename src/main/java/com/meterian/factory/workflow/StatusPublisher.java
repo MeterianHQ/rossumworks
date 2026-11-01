@@ -8,7 +8,7 @@ import com.meterian.factory.state.StatusComment;
 import java.util.List;
 import java.util.Optional;
 
-/** Writes the record to the one status comment of the worker and sets the Project status. */
+/** Writes the record to the one status comment of the worker and sets the status label. */
 final class StatusPublisher {
 
     private final GitHubClient gitHub;

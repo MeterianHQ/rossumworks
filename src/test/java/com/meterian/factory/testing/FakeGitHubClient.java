@@ -8,6 +8,7 @@ import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueStatus;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /** An in-memory GitHub for the workflow tests. All methods are thread safe. */
 public final class FakeGitHubClient implements GitHubClient {
@@ -27,7 +29,6 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
-    private final Map<Integer, IssueStatus> statuses = new TreeMap<>();
     private final List<LabelEvent> labelEvents = new ArrayList<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
@@ -63,7 +64,17 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     public synchronized Optional<IssueStatus> statusOf(int issueNumber) {
-        return Optional.ofNullable(statuses.get(issueNumber));
+        Set<String> statusLabels = statusLabelsOf(issueNumber);
+        if (statusLabels.size() != 1) {
+            return Optional.empty();
+        }
+        return Arrays.stream(IssueStatus.values())
+                .filter(status -> status.labelName().equals(statusLabels.iterator().next())).findFirst();
+    }
+
+    public synchronized Set<String> statusLabelsOf(int issueNumber) {
+        return labels.get(issueNumber).stream().filter(IssueStatus::isStatusLabel)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     public synchronized List<IssueComment> commentsOf(int issueNumber) {
@@ -150,7 +161,7 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     @Override
-    public synchronized void ensureLabel(String label, String color) {
+    public synchronized void ensureLabel(String label, String color, String description) {
     }
 
     @Override
@@ -165,7 +176,9 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void setStatus(Issue issue, IssueStatus status) {
-        statuses.put(issue.number(), status);
+        labels.get(issue.number()).removeIf(label -> IssueStatus.isStatusLabel(label)
+                && !label.equals(status.labelName()));
+        addLabel(issue.number(), status.labelName());
     }
 
     @Override

@@ -18,7 +18,6 @@ public final class ConfigurationLoader {
         return new FactoryConfiguration(
                 readTarget(root.requireSection("target")),
                 root.requireNestedText("merge", "target-branch"),
-                readProject(root.requireSection("project")),
                 readLimits(root),
                 readAllowedAccounts(accountsSection),
                 readIsolationMode(root),
@@ -49,10 +48,6 @@ public final class ConfigurationLoader {
                 section.requirePath("clone"),
                 build.requireText("command"),
                 build.findTextMap("environment"));
-    }
-
-    private static ProjectReference readProject(ConfigurationSection section) throws ConfigurationException {
-        return new ProjectReference(section.requireText("owner"), section.requireInteger("number"));
     }
 
     private static Limits readLimits(ConfigurationSection root) throws ConfigurationException {

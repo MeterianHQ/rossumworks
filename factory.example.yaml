@@ -9,9 +9,6 @@ target:
       JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
 merge:
   target-branch: main
-project:
-  owner: MeterianHQ
-  number: 7
 limits:                 # all keys optional
   parallel-issues: 2
   fix-loops: 2

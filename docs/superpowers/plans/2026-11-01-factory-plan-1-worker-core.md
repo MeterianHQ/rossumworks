@@ -46,7 +46,7 @@ README.md                                   Setup and run
 factory.example.yaml                        A full example configuration
 src/main/java/com/meterian/factory/
   Main.java                                 The command line: run --config <file>
-  configuration/   FactoryConfiguration, TargetRepository, ProjectReference, Limits,
+  configuration/   FactoryConfiguration, TargetRepository, Limits,
                    ClaudeSettings, IsolationMode, ConfigurationLoader, ConfigurationException
   state/           IssueStatus, Phase, WaitReason, ReviewKind, Verdict, RiskLevel,
                    IssueRecord, StatusComment
@@ -55,7 +55,7 @@ src/main/java/com/meterian/factory/
                    ApiKeyDetectedException, AgentException
   git/             Git, ProcessGit, Gatekeeper, RebaseOutcome, GitException
   github/          GitHubClient, HttpGitHubClient, GitHubException, Issue, IssueComment,
-                   PullRequest, MergeOutcome, ProjectStatusField
+                   PullRequest, MergeOutcome
   prompt/          PromptLibrary, IssueFence, ReviewResult, ReviewResultReader,
                    RiskResult, RiskResultReader, Finding
   usage/           UsageTracker
@@ -86,9 +86,8 @@ src/test/resources/
 
 **Interfaces:**
 - Produces:
-  - `record FactoryConfiguration(TargetRepository target, String mergeTargetBranch, ProjectReference project, Limits limits, List<String> allowedAccounts, IsolationMode isolationMode, ClaudeSettings claude, Path workDirectory, Path gatekeeperDirectory, Optional<Path> promptDirectory)`
+  - `record FactoryConfiguration(TargetRepository target, String mergeTargetBranch, Limits limits, List<String> allowedAccounts, IsolationMode isolationMode, ClaudeSettings claude, Path workDirectory, Path gatekeeperDirectory, Optional<Path> promptDirectory)`
   - `record TargetRepository(String owner, String name, Path clone, String buildCommand, Map<String, String> buildEnvironment)` with `String fullName()` (`owner/name`) and `String sshUrl()` (`git@github.com:owner/name.git`)
-  - `record ProjectReference(String owner, int number)`
   - `record Limits(int parallelIssues, int fixLoops, Duration pollInterval, double usageThreshold)`
   - `record ClaudeSettings(String command, List<String> allowedTools, List<String> disallowedTools)`
   - `enum IsolationMode { SAME_USER }`
@@ -109,9 +108,6 @@ target:
       JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
 merge:
   target-branch: main
-project:
-  owner: MeterianHQ
-  number: 7
 limits:              # all optional
   parallel-issues: 2
   fix-loops: 2
@@ -140,7 +136,7 @@ Default `claude.allowed-tools`: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash(g
 
 ```java
 @Test void loadsTheExampleConfiguration()          // factory.example.yaml → target.fullName() "MeterianHQ/heidi-fix",
-                                                   // mergeTargetBranch "main", project.number 7, allowedAccounts [bbossola]
+                                                   // mergeTargetBranch "main", allowedAccounts [bbossola]
 @Test void appliesTheDefaultsForOptionalKeys()     // no limits, isolation, claude → Limits(2, 2, 60s, 0.90), SAME_USER,
                                                    // claude.command "claude", allowedTools contains "Bash(./mvnw *)",
                                                    // disallowedTools contains "Bash(git push*)"
@@ -182,7 +178,7 @@ git add -A && git commit -m "Add the Maven project, the rules, and the configura
 **Interfaces:**
 - Consumes: none.
 - Produces:
-  - `enum IssueStatus { QUEUED("Queued"), IN_PROGRESS("In progress"), IN_REVIEW("In review"), WAITS_FOR_YOU("Waits for you"), BLOCKED("Blocked"), DONE("Done"); String displayName() }` — the display names are the option names of the Project field "Status".
+  - `enum IssueStatus { QUEUED("Queued"), IN_PROGRESS("In progress"), IN_REVIEW("In review"), WAITS_FOR_YOU("Waits for you"), BLOCKED("Blocked"), DONE("Done"); String displayName() }` — the display names are in the descriptions of the status labels `factory:status:<slug>`.
   - `enum Phase { PREPARE, IMPLEMENT, BUILD, REVIEW, RISK, MERGE, DONE }`
   - `enum WaitReason { QUESTION, MERGE_NEEDS_APPROVAL, BLOCKED_BY_OWNER, FIX_LOOP_LIMIT, FAILURE; String sentence() }` — `sentence()` gives the one-line reason, for example "The agent has a question." and "The merge needs your approval."
   - `enum ReviewKind { CORRECTNESS, SECURITY, ARCHITECTURE, QUALITY; String fileName() }` — `fileName()` gives `review-correctness.json` and so on.
@@ -415,12 +411,12 @@ git add -A && git commit -m "Add the git operations and the gatekeeper"
 ### Task 6: GitHub client
 
 **Files:**
-- Create: `src/main/java/com/meterian/factory/github/{GitHubClient,HttpGitHubClient,GitHubException,Issue,PullRequest,MergeOutcome,ProjectStatusField}.java`
+- Create: `src/main/java/com/meterian/factory/github/{GitHubClient,HttpGitHubClient,GitHubException,Issue,PullRequest,MergeOutcome}.java`
 - Create: `src/test/java/com/meterian/factory/testing/FakeGitHubClient.java`
 - Test: `src/test/java/com/meterian/factory/github/HttpGitHubClientTest.java`
 
 **Interfaces:**
-- Consumes: `IssueStatus` (Task 2), `IssueComment` (Task 2), `TargetRepository`, `ProjectReference` (Task 1).
+- Consumes: `IssueStatus` (Task 2), `IssueComment` (Task 2), `TargetRepository` (Task 1).
 - Produces:
   - `record Issue(int number, String nodeId, String title, String body, Set<String> labels)`
   - `record PullRequest(int number, String url, String headBranch)`
@@ -433,15 +429,14 @@ git add -A && git commit -m "Add the git operations and the gatekeeper"
     `long createComment(int issueNumber, String body);`
     `void editComment(long commentId, String body);`
     `Optional<String> lastLabelActor(int issueNumber, String label);` — the actor of the newest `labeled` event for this label in `/issues/{n}/events`
-    `void ensureLabel(String label, String color);`
+    `void ensureLabel(String label, String color, String description);` (a default overload without the description) and `default void ensureStatusLabels();` (it creates the six labels `factory:status:<slug>`)
     `void addLabel(int issueNumber, String label);`
     `void removeLabel(int issueNumber, String label);` — no error when the label is not on the issue
-    `void setStatus(Issue issue, IssueStatus status);` — adds the issue to the Project if it is not there, then sets the field "Status"
+    `void setStatus(Issue issue, IssueStatus status);` — makes the label `status.labelName()` the only status label on the issue
     `Optional<PullRequest> openPullRequest(String headBranch);`
     `PullRequest createPullRequest(String headBranch, String baseBranch, String title, String body);`
     `MergeOutcome squashMerge(int pullRequestNumber); }`
-  - `final class HttpGitHubClient implements GitHubClient { HttpGitHubClient(URI apiBase, String token, TargetRepository target, ProjectReference project, HttpClient httpClient) }` — REST for issues, comments, labels, and pull requests; GraphQL (`/graphql`) for the Project.
-  - `final class ProjectStatusField` — finds the project id (`organization(login).projectV2(number)`), the field "Status", and its option ids, once, and keeps them. If an option for an `IssueStatus.displayName()` is missing, it throws `GitHubException` with the text "the Project field Status has no option <name>".
+  - `final class HttpGitHubClient implements GitHubClient { HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) }` — REST for issues, comments, labels, and pull requests. `setStatus` reads the labels of the issue, removes each other `factory:status:*` label, and adds the new one if it is missing.
   - `FakeGitHubClient implements GitHubClient` — in memory, for the workflow tests: issues, comments with authors, label events with actors, statuses, pull requests, and a queue of `MergeOutcome` values.
 
 The token comes from `FACTORY_GITHUB_TOKEN`, or else from the output of `gh auth token` (Task 11 does this).
@@ -455,9 +450,10 @@ The tests use a JDK `com.sun.net.httpserver.HttpServer` on a free port as GitHub
 @Test void listsTheOpenIssuesWithTheLabel()           // GET /repos/o/r/issues?labels=factory&state=open; skips items with "pull_request"
 @Test void findsTheActorOfTheNewestLabelEvent()       // two "labeled" events for "factory:approve" → the actor of the newer one
 @Test void removeLabelAcceptsAMissingLabel()          // the server answers 404 → no exception
-@Test void setsTheStatusThroughGraphQl()              // the request bodies contain addProjectV2ItemById and updateProjectV2ItemFieldValue
-                                                      // with the option id of "In review"
-@Test void namesTheMissingStatusOption()              // the field has no "Blocked" → GitHubException "the Project field Status has no option Blocked"
+@Test void setsTheStatusAsALabel()                    // the old status label is removed, the new one is added, other labels stay
+@Test void keepsOnlyOneStatusLabel()                  // two wrong status labels on the issue → both removed
+@Test void addsNothingWhenTheStatusIsAlreadySet()     // no change request
+@Test void ensuresTheSixStatusLabels()               // six POST requests to /labels
 @Test void reportsNotMergeableOnA405()                // PUT /pulls/5/merge answers 405 → NOT_MERGEABLE
 @Test void squashMergeSendsTheSquashMethod()          // body contains "merge_method":"squash"
 @Test void failsWithTheStatusAndThePath()             // 500 on GET /user → GitHubException message contains "500" and "/user"
@@ -468,7 +464,7 @@ The tests use a JDK `com.sun.net.httpserver.HttpServer` on a free port as GitHub
 Run: `./mvnw -q test -Dtest=HttpGitHubClientTest`
 Expected: compilation errors.
 
-- [ ] **Step 3: Implement `HttpGitHubClient`, `ProjectStatusField`, and `FakeGitHubClient`**
+- [ ] **Step 3: Implement `HttpGitHubClient` and `FakeGitHubClient`**
 
 Read lists with paging (`per_page=100`, follow the `Link` header).
 
@@ -480,7 +476,7 @@ Expected: 9 tests, 0 failures.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A && git commit -m "Add the GitHub client with the Project status field"
+git add -A && git commit -m "Add the GitHub client with the status label"
 ```
 
 ---
@@ -685,7 +681,7 @@ git add -A && git commit -m "Add the merge gate and the merger with the proofs o
 - Produces:
   - `final class WorkspaceLayout { WorkspaceLayout(Path workDirectory); Path worktree(int issueNumber); static String branch(int issueNumber) }` — branch `factory/issue-<n>`, worktree `<work-directory>/issue-<n>`.
   - `final class RequestReader { RequestReader(GitHubClient gitHub, List<String> allowedAccounts); boolean isGivenByAllowedAccount(int issueNumber, String label) }`
-  - `final class IssueWorkflow { IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner, PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage, RequestReader requests, WorkspaceLayout layout, String workerLogin); IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException; boolean isWaiting(IssueRecord record) }` — `advance` runs one step, writes the status comment and the Project status, and returns the new record. `isWaiting` is true for `WAITS_FOR_YOU`, `BLOCKED`, and `DONE`.
+  - `final class IssueWorkflow { IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner, PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage, RequestReader requests, WorkspaceLayout layout, String workerLogin); IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException; boolean isWaiting(IssueRecord record) }` — `advance` runs one step, writes the status comment and the status label, and returns the new record. `isWaiting` is true for `WAITS_FOR_YOU`, `BLOCKED`, and `DONE`.
   - `FakeAgentRunner implements AgentRunner` — a queue of scripted actions for each phase: write a file in the worktree, change a source file, write `.factory/question.md`, return a `SessionReport`.
 
 The steps of `advance`, by phase (section 6 of the spec):
@@ -712,7 +708,7 @@ All tests use `FakeGitHubClient`, `FakeAgentRunner`, a real `TemporaryRepository
 
 ```java
 @Test void fixesALowRiskIssueToDone()                  // agent changes a file, 4 approvals, risk low small → DONE; squashMerge called;
-                                                       // labels removed; exactly 1 status comment; Project status "Done"
+                                                       // labels removed; exactly 1 status comment; status label "factory:status:done"
 @Test void waitsForTheOwnerOnAMediumRisk()             // → WAITS_FOR_YOU, MERGE_NEEDS_APPROVAL; no merge
 @Test void mergesAfterAnApprovalFromAnAllowedAccount() // then label factory:approve by "bbossola" → DONE
 @Test void ignoresAnApprovalFromAnotherAccount()       // factory:approve by "mallory" → still WAITS_FOR_YOU; note contains "mallory";
@@ -770,7 +766,7 @@ git add -A && git commit -m "Add the issue workflow from intake to merge"
   - `Main`: `java -jar claude-ai-factory.jar run --config <file>`.
 
 `pollOnce` does, in this order:
-1. At the first call: `ensureLabel` for `factory`, `factory:approve`, `factory:block`, and `factory:enter`.
+1. At the first call: `ensureLabel` for `factory`, `factory:approve`, `factory:block`, and `factory:enter`, and `ensureStatusLabels()` for the six status labels.
 2. Read the open issues with the label `factory`. For each, read its record with `StatusComment.findRecord(comments, workerLogin)`.
 3. **Block:** an issue with the label `factory:block` from an allowed account → add the issue to the set of blocked issues, then `agentRunner.stopPhase`. The loop of step 5 checks this set before each `advance` and before it keeps the result of an `advance`. So a stopped phase never writes its result over the block. When the loop thread of the issue ends (or at once, if no thread runs), the worker writes the record `BLOCKED` + `BLOCKED_BY_OWNER`, removes the label `factory:block`, and writes the comment and the status.
 4. **Intake:** an issue without a record, with the label `factory` from an allowed account → `IssueRecord.queued`, status `QUEUED`, comment.
@@ -783,7 +779,7 @@ A restart is a new `Worker` with the same GitHub state. A record with phase IMPL
 
 `Main` reads the token from `FACTORY_GITHUB_TOKEN`, or else runs `gh auth token`. It gets `workerLogin` from `authenticatedLogin()`. It refuses to start when `ANTHROPIC_API_KEY` is set in its own environment, with the message "Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription."
 
-The README gets a "Setup" section: create the Project in the organization with the field "Status" and the six options of section 5.2 of the spec. Copy `factory.example.yaml`. Run the worker. Note: if the token belongs to the owner, GitHub sends the owner no notification for the comments of the worker. A separate GitHub account for the worker gives the notifications.
+The README gets a "Setup" section: the factory needs no Project. The worker creates the six status labels itself. Copy `factory.example.yaml`. Run the worker. Note: if the token belongs to the owner, GitHub sends the owner no notification for the comments of the worker. A separate GitHub account for the worker gives the notifications.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -826,7 +822,7 @@ git add -A && git commit -m "Add the worker loop, the block request, the restart
 
 This task changes GitHub. Do each step only after the owner says yes in the chat.
 
-- [ ] **Step 1: Ask the owner** for the Project number, the merge target branch, and one small issue of Heidi Fix for the pilot. Suggest a `factory-pilot` branch as the merge target for the pilot.
-- [ ] **Step 2: The owner creates the Project** with the field "Status" and the six options, and adds the label `factory` to the pilot issue.
+- [ ] **Step 1: Ask the owner** for the merge target branch, and one small issue of Heidi Fix for the pilot. Suggest a `factory-pilot` branch as the merge target for the pilot.
+- [ ] **Step 2: The owner** adds the label `factory` to the pilot issue. The worker creates the status labels.
 - [ ] **Step 3: Run** `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>` in tmux, and watch the status comment.
 - [ ] **Step 4: Report** the result to the owner: the final status, the pull request, the number of fix loops, and each defect, with the log lines.

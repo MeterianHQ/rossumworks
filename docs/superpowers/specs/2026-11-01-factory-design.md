@@ -2,6 +2,9 @@
 
 Date: 2026-11-01. Status: approved by the owner on 2026-11-01.
 
+The owner decided on 2026-11-01: no GitHub Project; the status is a label
+(goal: no or minimal human intervention).
+
 ## 1. Intent
 
 The owner wants to move development into "factory mode". In this mode,
@@ -88,13 +91,13 @@ These constraints come from the owner. They are not open to change.
 - **Live mode:** the worker opens the same session with
   `claude --resume <uuid> --remote-control`. The owner talks with the
   agent in claude.ai/code or in the Claude phone app.
-- **Status:** a single-select field of a GitHub Project. It holds the
-  state of each issue.
+- **Status:** one label on the issue, with the name `factory:status:<slug>`.
+  It holds the state of the issue. The worker creates the labels.
 
 ## 5. Architecture
 
 ```
-GitHub (issues, labels, Project "Status", pull requests)
+GitHub (issues, labels with the status, pull requests)
         ^   |
         |   v
      Worker (Java, this machine) ---- serves ---> web page (view only)
@@ -122,7 +125,7 @@ GitHub (issues, labels, Project "Status", pull requests)
 | Data | Place |
 |---|---|
 | Which issues go into the factory | The label `factory` on the issue |
-| The state of an issue | The "Status" field of the factory Project |
+| The state of an issue | One label `factory:status:<slug>` (section 5.2) |
 | A request to enter | The label `factory:enter` |
 | A merge approval | The label `factory:approve` |
 | A request to block | The label `factory:block` |
@@ -136,19 +139,26 @@ hidden JSON block for the worker (in an HTML comment). The worker reads
 the block only from a comment that its own account wrote. It ignores a
 block in any other comment.
 
+The status label is only a display of the state. The worker never reads
+it as a request or as a proof.
+
 Labels need "triage" access on GitHub, but comments do not. For this
 reason, a request from the owner is always a label, never a comment.
 
 ### 5.2 Status values
 
-| Status | Meaning |
-|---|---|
-| Queued | The issue has the label `factory`. No work started. |
-| In progress | The agent in charge implements or fixes. |
-| In review | The four reviews and the risk check run. |
-| Waits for you | The factory needs the owner. The status comment gives the reason. |
-| Blocked | The factory cannot continue, for example after the fix-loop limit. |
-| Done | The pull request is merged. The card shows the date. |
+| Status | Label | Meaning |
+|---|---|---|
+| Queued | `factory:status:queued` | The issue has the label `factory`. No work started. |
+| In progress | `factory:status:in-progress` | The agent in charge implements or fixes. |
+| In review | `factory:status:in-review` | The four reviews and the risk check run. |
+| Waits for you | `factory:status:waits-for-you` | The factory needs the owner. The status comment gives the reason. |
+| Blocked | `factory:status:blocked` | The factory cannot continue, for example after the fix-loop limit. |
+| Done | `factory:status:done` | The pull request is merged. The card shows the date. |
+
+The worker creates the six status labels when they do not exist. Each issue
+has exactly one status label. When the worker sets a status, it removes the
+other status labels from the issue.
 
 An issue in "Waits for you" or "Blocked" counts as "not in work" for the
 parallel limit.
@@ -156,7 +166,7 @@ parallel limit.
 ## 6. The life of an issue
 
 1. **Intake.** The owner adds the label `factory`. At its next check, the
-   worker sets "Queued" and adds the issue to the Project. The worker
+   worker sets "Queued" (the status label). The worker
    takes the "Queued" issues in the order of their issue number, up to
    the parallel limit (configurable, default 2).
 2. **Prepare.** The worker creates one git worktree for each repository
@@ -401,7 +411,7 @@ buttons (section 9.4).
   against the limit, for example "2 of 2". The usage shows each limit
   window that the CLI reported, with its percent and the time of the
   value.
-- **Kanban board:** one column for each status (section 5.2). The cards
+- **Kanban board:** one column for each status label (section 5.2). The cards
   in "Done" show the date of the merge.
 - **Card:** the issue number and title, and the current phase. The card
   also shows the four review results (positive or negative), the fix-loop
@@ -495,7 +505,6 @@ One file for each factory. My decision: YAML, read with Jackson. It holds:
 - The merge target branch.
 - The isolation mode (section 7.1.1) and the list of accounts that can
   give requests (section 6.0).
-- The GitHub Project of the factory.
 - The parallel limit, the fix-loop limit, the poll interval, and the
   usage threshold.
 - The web page address and port, and the hash of the login password.
@@ -522,8 +531,7 @@ copy to keep as it is:
 
 1. The Java structure of the worker, inside the clean-code rules of the
    factory repository.
-2. The GitHub API calls (REST or GraphQL). The Project fields need
-   GraphQL.
+2. The GitHub API calls (REST).
 3. The exact flow for a change across repositories after the library
    release, as long as it keeps the owner gate.
 4. The prompt texts, as long as they keep the rules of sections 7.2

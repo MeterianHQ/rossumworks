@@ -20,9 +20,6 @@ class ConfigurationLoaderTest {
               clone: /work/heidi-fix
               build:
                 command: ./mvnw verify
-            project:
-              owner: MeterianHQ
-              number: 7
             accounts:
               allowed: [bbossola]
             work-directory: /work/factory
@@ -45,7 +42,6 @@ class ConfigurationLoaderTest {
         assertThat(configuration.target().sshUrl()).isEqualTo("git@github.com:MeterianHQ/heidi-fix.git");
         assertThat(configuration.target().buildEnvironment()).containsEntry("LANG", "C.utf8");
         assertThat(configuration.mergeTargetBranch()).isEqualTo("main");
-        assertThat(configuration.project().number()).isEqualTo(7);
         assertThat(configuration.allowedAccounts()).containsExactly("bbossola");
         assertThat(configuration.limits().pollInterval()).isEqualTo(Duration.ofSeconds(60));
         assertThat(configuration.promptDirectory()).isEmpty();
