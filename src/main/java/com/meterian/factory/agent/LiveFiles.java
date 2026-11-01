@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
@@ -22,6 +23,8 @@ public final class LiveFiles {
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
     private static final int STICKY_BIT = 01000;
+    private static final int GROUP_WRITE_BIT = 0020;
+    private static final int OTHERS_WRITE_BIT = 0002;
     private static final int ROOT_USER_ID = 0;
     private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
     private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
@@ -57,24 +60,71 @@ public final class LiveFiles {
         }
     }
 
-    /** Another user must not rename or replace the live folder, or a folder above it. */
+    /** Another user must not rename or replace the live folder, or a folder above it. A link is judged by its target. */
     private void verifyParentsArePrivate() throws IOException {
-        for (Path parent = liveDirectory.getParent(); parent != null; parent = parent.getParent()) {
-            if (Files.exists(parent) && !isSafeParent(parent)) {
-                throw new IllegalStateException("The folder " + parent + " can be written by the group or by others."
-                        + " Choose a live-directory in a private folder.");
+        ProcessIdentity identity = ProcessIdentity.current();
+        for (Path parent = findNearestExistingParent().toRealPath(); parent != null; parent = parent.getParent()) {
+            int mode = (Integer) Files.getAttribute(parent, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+            int ownerId = (Integer) Files.getAttribute(parent, "unix:uid", LinkOption.NOFOLLOW_LINKS);
+            int groupId = (Integer) Files.getAttribute(parent, "unix:gid", LinkOption.NOFOLLOW_LINKS);
+            String groupName = Files.readAttributes(parent, PosixFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
+                    .group().getName();
+            if (!isSafeParent(mode, ownerId, groupId, groupName, identity)) {
+                throw new IllegalStateException(describeUnsafeParent(parent, mode, groupName));
             }
         }
     }
 
-    /** A sticky folder of root or of the current user stops other users from renaming the folders inside it. */
-    private static boolean isSafeParent(Path parent) throws IOException {
-        if (!isWritableByGroupOrOthers(parent)) {
+    private Path findNearestExistingParent() {
+        Path parent = liveDirectory.getParent();
+        while (!Files.exists(parent)) {
+            parent = parent.getParent();
+        }
+        return parent;
+    }
+
+    private static String describeUnsafeParent(Path parent, int mode, String groupName) {
+        String writer = (mode & OTHERS_WRITE_BIT) != 0 ? "others" : "the group " + groupName;
+        return "The folder " + parent + " can be written by " + writer + ". Run: chmod go-w " + parent
+                + ", or choose a live-directory in a private folder.";
+    }
+
+    /**
+     * A folder passes when the group and others cannot write to it. It also passes when it is sticky and belongs
+     * to root or to the user, or when only the private group of the user can write to it.
+     */
+    static boolean isSafeParent(int mode, int ownerId, int groupId, String groupName, ProcessIdentity identity) {
+        boolean isWritableByOthers = (mode & OTHERS_WRITE_BIT) != 0;
+        boolean isWritableByGroup = (mode & GROUP_WRITE_BIT) != 0;
+        if (!isWritableByOthers && !isWritableByGroup) {
             return true;
         }
-        int mode = (Integer) Files.getAttribute(parent, "unix:mode", LinkOption.NOFOLLOW_LINKS);
-        int ownerId = (Integer) Files.getAttribute(parent, "unix:uid", LinkOption.NOFOLLOW_LINKS);
-        return (mode & STICKY_BIT) != 0 && (ownerId == ROOT_USER_ID || ownerId == readCurrentUserId());
+        boolean isSticky = (mode & STICKY_BIT) != 0;
+        if (isSticky && (ownerId == ROOT_USER_ID || ownerId == identity.userId())) {
+            return true;
+        }
+        boolean hasPrivateGroup = ownerId == identity.userId() && groupId == identity.groupId()
+                && groupName.equals(identity.userName());
+        return !isWritableByOthers && hasPrivateGroup;
+    }
+
+    /** The user and the group of the process, read once from a file that the process creates. */
+    record ProcessIdentity(int userId, int groupId, String userName) {
+
+        private static ProcessIdentity current;
+
+        static synchronized ProcessIdentity current() throws IOException {
+            if (current == null) {
+                Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
+                try {
+                    current = new ProcessIdentity((Integer) Files.getAttribute(probe, "unix:uid"),
+                            (Integer) Files.getAttribute(probe, "unix:gid"), System.getProperty("user.name"));
+                } finally {
+                    Files.deleteIfExists(probe);
+                }
+            }
+            return current;
+        }
     }
 
     private void verifyLiveDirectoryIsPrivate() throws IOException {
@@ -91,17 +141,8 @@ public final class LiveFiles {
     }
 
     private static boolean isOwnedByCurrentUser(Path directory) throws IOException {
-        return Files.getAttribute(directory, "unix:uid", LinkOption.NOFOLLOW_LINKS).equals(readCurrentUserId());
-    }
-
-    /** The user id of the process is the user id of a file that the process creates now. */
-    private static int readCurrentUserId() throws IOException {
-        Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
-        try {
-            return (Integer) Files.getAttribute(probe, "unix:uid", LinkOption.NOFOLLOW_LINKS);
-        } finally {
-            Files.deleteIfExists(probe);
-        }
+        return Files.getAttribute(directory, "unix:uid", LinkOption.NOFOLLOW_LINKS)
+                .equals(ProcessIdentity.current().userId());
     }
 
     /** Each folder that does not exist yet gets the mode 0700, also the parents. */

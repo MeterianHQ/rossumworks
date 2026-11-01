@@ -69,8 +69,17 @@ After `/factory:continue`:
 ### Files and security
 
 The live folder is `live-directory` of the configuration. The default is `<work-directory>/live`. The
-worker creates it with the mode `0700`. The worker stops with exit code 1 when the folder exists and the
-group or others can write to it, or when another user owns it. Run `chmod 700 <live-directory>` to fix this.
+worker creates it with the mode `0700`. The worker stops with exit code 1 when one of these rules fails:
+
+- The live folder must be a real folder. A symbolic link is refused.
+- The user of the worker must own the live folder. The group and others must not write to it.
+  Run `chmod 700 <live-directory>` to fix this.
+- Each folder above the live folder must be safe. A folder is safe when the group and others cannot write
+  to it. A folder is also safe when only the private group of the user can write to it. The private group has
+  the name of the user and the folder belongs to the user. A sticky folder of root or of the user, for
+  example `/tmp`, is also safe.
+- A symbolic link above the live folder is judged by its target.
+- To fix a folder above, run `chmod go-w <folder>`. You can also choose a `live-directory` in a private folder.
 
 The worker writes the launch script `<live-directory>/issue-<n>.launch.sh` with the mode `0700`. The script
 starts `claude` with `env -i` and `TERM=tmux-256color`, so the environment of the tmux server adds no

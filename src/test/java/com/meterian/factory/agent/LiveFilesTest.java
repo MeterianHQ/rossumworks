@@ -100,11 +100,11 @@ class LiveFilesTest {
     }
 
     @Test
-    void installRefusesAnExistingLiveDirectoryInAParentThatTheGroupCanWrite() throws IOException {
+    void installRefusesAnExistingLiveDirectoryInAParentThatOthersCanWrite() throws IOException {
         Path parent = Files.createDirectories(temporaryDirectory.resolve("group-parent"));
         Files.createDirectory(parent.resolve("live"), PosixFilePermissions.asFileAttribute(
                 PosixFilePermissions.fromString("rwx------")));
-        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwx---"));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwxrwx"));
 
         assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
                 .isInstanceOf(IllegalStateException.class)
@@ -134,6 +134,58 @@ class LiveFilesTest {
         new LiveFiles(parent.resolve("live")).install();
 
         assertThat(parent.resolve("live/continue-hook.sh")).isExecutable();
+    }
+
+    @Test
+    void aParentOfTheCurrentUserWithThePrivateGroupMayBeWritableByTheGroup() {
+        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
+
+        assertThat(LiveFiles.isSafeParent(0775, 1000, 1000, "alice", me)).isTrue();
+    }
+
+    @Test
+    void aParentWithAnotherGroupThatCanWriteIsNotSafe() {
+        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
+
+        assertThat(LiveFiles.isSafeParent(0775, 1000, 4, "adm", me)).isFalse();
+        assertThat(LiveFiles.isSafeParent(0775, 1000, 1000, "staff", me)).isFalse();
+        assertThat(LiveFiles.isSafeParent(0775, 0, 1000, "alice", me)).isFalse();
+    }
+
+    @Test
+    void aParentThatOthersCanWriteIsNotSafeWithThePrivateGroup() {
+        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
+
+        assertThat(LiveFiles.isSafeParent(0777, 1000, 1000, "alice", me)).isFalse();
+        assertThat(LiveFiles.isSafeParent(01777, 1000, 1000, "alice", me)).isTrue();
+        assertThat(LiveFiles.isSafeParent(01777, 0, 0, "root", me)).isTrue();
+        assertThat(LiveFiles.isSafeParent(01777, 1001, 1001, "bob", me)).isFalse();
+    }
+
+    @Test
+    void installJudgesALinkedParentByItsRealTarget() throws IOException {
+        Path target = Files.createDirectories(temporaryDirectory.resolve("real-target"));
+        Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rwxrwxrwx"));
+        Path link = Files.createSymbolicLink(temporaryDirectory.resolve("linked-parent"), target);
+
+        assertThatThrownBy(() -> new LiveFiles(link.resolve("live")).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(target.toRealPath().toString())
+                .hasMessageContaining("can be written by others")
+                .hasMessageContaining("chmod go-w " + target.toRealPath());
+    }
+
+    @Test
+    void theRefusalNamesTheGroupAndTheFix() throws IOException {
+        Path parent = Files.createDirectories(temporaryDirectory.resolve("group-message"));
+        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwx---"));
+        String groupName = Files.readAttributes(parent, java.nio.file.attribute.PosixFileAttributes.class)
+                .group().getName();
+        org.junit.jupiter.api.Assumptions.assumeTrue(!groupName.equals(System.getProperty("user.name")));
+
+        assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
+                .hasMessageContaining("can be written by the group " + groupName)
+                .hasMessageContaining("Run: chmod go-w " + parent);
     }
 
     @Test
