@@ -1,6 +1,5 @@
 package com.meterian.factory.worker;
 
-import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.github.GitHubClient;
@@ -19,16 +18,13 @@ import com.meterian.factory.workflow.MergedIssue;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -45,18 +41,17 @@ public final class Worker {
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
-    private static final Set<Phase> PHASES_WITH_A_WORKTREE =
-            EnumSet.of(Phase.IMPLEMENT, Phase.BUILD, Phase.REVIEW, Phase.RISK, Phase.MERGE);
 
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
-    private final AgentRunner agentRunner;
+    private final PhaseStopper phaseStopper;
     private final RequestReader requests;
     private final String workerLogin;
     private final ExecutorService executor;
     private final WorkspaceLayout layout;
     private final StatusPublisher statusPublisher;
+    private final RestartPreparation restartPreparation;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
@@ -65,16 +60,17 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  AgentRunner agentRunner, RequestReader requests, String workerLogin, ExecutorService executor) {
+                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
-        this.agentRunner = agentRunner;
+        this.phaseStopper = phaseStopper;
         this.requests = requests;
         this.workerLogin = workerLogin;
         this.executor = executor;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
+        this.restartPreparation = new RestartPreparation(gitHub, layout);
     }
 
     /** Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. */
@@ -122,7 +118,7 @@ public final class Worker {
      */
     public boolean shutDown(Duration timeout) {
         stopSignal.countDown();
-        agentRunner.refuseNewPhases();
+        phaseStopper.refuseNewWork();
         stopPhasesInWork();
         executor.shutdown();
         try {
@@ -212,7 +208,7 @@ public final class Worker {
             noteIgnoredLabel(issue.number(), FACTORY_LABEL, comments);
             return Optional.empty();
         }
-        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.hashOf(issue));
+        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
         return Optional.of(publishFirstRecord(issue, queued));
     }
 
@@ -246,7 +242,14 @@ public final class Worker {
         if (!reserveSlot(issueNumber)) {
             return;
         }
-        IssueRecord start = prepareRestart(record);
+        IssueRecord start;
+        try {
+            start = restartPreparation.prepare(record);
+        } catch (GitHubException exception) {
+            logGitHubFailure("The restart of the issue #" + issueNumber, exception);
+            releaseIssue(record, Optional.empty());
+            return;
+        }
         try {
             executor.submit(() -> runIssue(start));
         } catch (RejectedExecutionException exception) {
@@ -266,23 +269,6 @@ public final class Worker {
 
     private synchronized boolean isBlockInProgress(int issueNumber) {
         return blockedIssues.contains(issueNumber);
-    }
-
-    /**
-     * A restart runs the phase again from its start. Without the worktree, the issue prepares again in a new
-     * session, and the results that belong to the old worktree go away. The fix-loop count stays.
-     */
-    private IssueRecord prepareRestart(IssueRecord record) {
-        boolean needsWorktree = PHASES_WITH_A_WORKTREE.contains(record.phase());
-        if (!needsWorktree || Files.isDirectory(layout.worktree(record.issueNumber()))) {
-            return record;
-        }
-        return record.withSessionId(UUID.randomUUID())
-                .withoutReviews()
-                .withoutConflictedPaths()
-                .withoutRisk()
-                .withoutBuiltTree()
-                .withPhase(Phase.PREPARE);
     }
 
     /** Keeps the result of a step only when no block and no stop came during the step, or when it merged. */
@@ -348,7 +334,7 @@ public final class Worker {
             }
             isRunning = issuesInWork.contains(issueNumber);
         }
-        agentRunner.stopPhase(issueNumber);
+        phaseStopper.stopIssue(issueNumber);
         if (!isRunning) {
             finishBlock(issueNumber, Optional.empty(), Optional.empty());
         }
@@ -380,7 +366,7 @@ public final class Worker {
                 return;
             }
             Optional<IssueRecord> laterRecord = interruptedResult.or(() -> onGitHub);
-            IssueRecord base = keptByLoop.map(kept -> keepFacts(kept, laterRecord))
+            IssueRecord base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
             if (isMergedOnGitHub(base)) {
                 noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
@@ -417,31 +403,11 @@ public final class Worker {
     private void restoreKeptRecord(IssueRecord kept, IssueRecord interruptedResult) {
         int issueNumber = kept.issueNumber();
         try {
-            IssueRecord restored = keepFacts(kept, Optional.of(interruptedResult));
+            IssueRecord restored = RecordFacts.keep(kept, Optional.of(interruptedResult));
             statusPublisher.publish(gitHub.issue(issueNumber), interruptedResult, restored);
         } catch (GitHubException exception) {
             logGitHubFailure("The restore of the issue #" + issueNumber, exception);
         }
-    }
-
-    /**
-     * Keeps the facts of a later record that the kept record must not lose: the start of the agent session
-     * (the next run must resume it) and the pull request that the step opened.
-     */
-    private static IssueRecord keepFacts(IssueRecord kept, Optional<IssueRecord> laterRecord) {
-        if (laterRecord.isEmpty()) {
-            return kept;
-        }
-        IssueRecord later = laterRecord.get();
-        IssueRecord result = kept;
-        boolean isSameSession = later.sessionId().equals(kept.sessionId());
-        if (isSameSession && later.agentSessionStarted() && !kept.agentSessionStarted()) {
-            result = result.withAgentSessionStarted();
-        }
-        if (kept.pullRequestNumber().isEmpty() && later.pullRequestNumber().isPresent()) {
-            result = result.withPullRequest(later.pullRequestNumber().get());
-        }
-        return result;
     }
 
     /**
@@ -477,12 +443,12 @@ public final class Worker {
                 exception.getMessage());
         apiKeyFound = true;
         stopSignal.countDown();
-        agentRunner.refuseNewPhases();
+        phaseStopper.refuseNewWork();
         stopPhasesInWork();
     }
 
     private void stopPhasesInWork() {
-        issuesInWork().forEach(agentRunner::stopPhase);
+        issuesInWork().forEach(phaseStopper::stopIssue);
     }
 
     private Optional<IssueRecord> readRecord(int issueNumber) {

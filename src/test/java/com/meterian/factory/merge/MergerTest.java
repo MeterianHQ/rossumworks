@@ -306,9 +306,10 @@ class MergerTest {
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
 
-        merger.merge(worktree, record);
+        MergeResult result = merger.merge(worktree, record);
 
         String head = run(worktree, "rev-parse", "HEAD");
+        assertThat(result).isEqualTo(new MergeResult.Merged(git.treeHash(worktree)));
         assertThat(run(gatekeeper, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(head);
         assertThat(run(github, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(head);
         assertThat(gitHub.squashMergeShas()).containsExactly(head);

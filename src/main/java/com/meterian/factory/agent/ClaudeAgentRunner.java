@@ -130,7 +130,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
         if (report.success() && report.apiKeySource().isEmpty()) {
             throw new ApiKeyDetectedException(UNKNOWN_SOURCE_MESSAGE);
         }
-                if (report.success() && (exitCode != 0 || run.isStopRequested())) {
+        if (report.success() && (exitCode != 0 || run.isStopRequested())) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),
                     report.contextUsage(), report.usageWindows());
         }

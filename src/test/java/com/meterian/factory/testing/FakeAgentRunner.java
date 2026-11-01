@@ -117,6 +117,15 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    /** Writes the risk result, then runs the side effect in the worktree, as a confused risk session does. */
+    public synchronized FakeAgentRunner thenAssessRiskAnd(String risk, boolean small, Action sideEffect) {
+        then(request -> {
+            writeResult(request, "{\"risk\": \"" + risk + "\", \"small\": " + small + ", \"reasons\": [\"scripted\"]}");
+            sideEffect.perform(request);
+        });
+        return this;
+    }
+
     public synchronized FakeAgentRunner thenDetectAnApiKey() {
         then(request -> {
             throw new ApiKeyDetectedException("The session uses the API key source ANTHROPIC_API_KEY.");

@@ -22,9 +22,9 @@ final class ConfigurationSection {
     ConfigurationSection requireSection(String key) throws ConfigurationException {
         JsonNode child = requireChild(key);
         if (!child.isObject()) {
-            throw invalid(key, "must be a section");
+            throw createInvalidKeyException(key, "must be a section");
         }
-        return new ConfigurationSection(child, pathOf(key));
+        return new ConfigurationSection(child, buildKeyPath(key));
     }
 
     Optional<ConfigurationSection> findSection(String key) throws ConfigurationException {
@@ -38,7 +38,7 @@ final class ConfigurationSection {
     String requireText(String key) throws ConfigurationException {
         JsonNode child = requireChild(key);
         if (!child.isTextual() || child.asText().isBlank()) {
-            throw invalid(key, "must be a text");
+            throw createInvalidKeyException(key, "must be a text");
         }
         return child.asText();
     }
@@ -46,34 +46,35 @@ final class ConfigurationSection {
     String requireNestedText(String sectionKey, String key) throws ConfigurationException {
         Optional<ConfigurationSection> section = findSection(sectionKey);
         if (section.isEmpty()) {
-            throw new ConfigurationException("Configuration key " + pathOf(sectionKey + "." + key) + " is missing.");
+            throw new ConfigurationException("Configuration key " + buildKeyPath(sectionKey + "." + key)
+                    + " is missing.");
         }
         return section.get().requireText(key);
     }
 
     Optional<String> findText(String key) throws ConfigurationException {
-        return has(key) ? Optional.of(requireText(key)) : Optional.empty();
+        return containsKey(key) ? Optional.of(requireText(key)) : Optional.empty();
     }
 
     int requireInteger(String key) throws ConfigurationException {
         JsonNode child = requireChild(key);
         if (!child.isInt()) {
-            throw invalid(key, "must be an integer");
+            throw createInvalidKeyException(key, "must be an integer");
         }
         return child.asInt();
     }
 
     Optional<Integer> findInteger(String key) throws ConfigurationException {
-        return has(key) ? Optional.of(requireInteger(key)) : Optional.empty();
+        return containsKey(key) ? Optional.of(requireInteger(key)) : Optional.empty();
     }
 
     Optional<Double> findNumber(String key) throws ConfigurationException {
-        if (!has(key)) {
+        if (!containsKey(key)) {
             return Optional.empty();
         }
         JsonNode child = node.get(key);
         if (!child.isNumber()) {
-            throw invalid(key, "must be a number");
+            throw createInvalidKeyException(key, "must be a number");
         }
         return Optional.of(child.asDouble());
     }
@@ -89,12 +90,12 @@ final class ConfigurationSection {
     List<String> requireTextList(String key) throws ConfigurationException {
         JsonNode child = requireChild(key);
         if (!child.isArray()) {
-            throw invalid(key, "must be a list");
+            throw createInvalidKeyException(key, "must be a list");
         }
         List<String> values = new ArrayList<>();
         for (JsonNode element : child) {
             if (!element.isTextual()) {
-                throw invalid(key, "must be a list of texts");
+                throw createInvalidKeyException(key, "must be a list of texts");
             }
             values.add(element.asText());
         }
@@ -102,16 +103,16 @@ final class ConfigurationSection {
     }
 
     Optional<List<String>> findTextList(String key) throws ConfigurationException {
-        return has(key) ? Optional.of(requireTextList(key)) : Optional.empty();
+        return containsKey(key) ? Optional.of(requireTextList(key)) : Optional.empty();
     }
 
     Map<String, String> findTextMap(String key) throws ConfigurationException {
-        if (!has(key)) {
+        if (!containsKey(key)) {
             return Map.of();
         }
         JsonNode child = node.get(key);
         if (!child.isObject()) {
-            throw invalid(key, "must be a section of texts");
+            throw createInvalidKeyException(key, "must be a section of texts");
         }
         Map<String, String> values = new LinkedHashMap<>();
         for (Map.Entry<String, JsonNode> entry : child.properties()) {
@@ -120,23 +121,23 @@ final class ConfigurationSection {
         return Map.copyOf(values);
     }
 
-    ConfigurationException invalid(String key, String problem) {
-        return new ConfigurationException("Configuration key " + pathOf(key) + " " + problem + ".");
+    ConfigurationException createInvalidKeyException(String key, String problem) {
+        return new ConfigurationException("Configuration key " + buildKeyPath(key) + " " + problem + ".");
     }
 
-    private boolean has(String key) {
+    private boolean containsKey(String key) {
         JsonNode child = node.get(key);
         return child != null && !child.isNull();
     }
 
     private JsonNode requireChild(String key) throws ConfigurationException {
-        if (!has(key)) {
-            throw new ConfigurationException("Configuration key " + pathOf(key) + " is missing.");
+        if (!containsKey(key)) {
+            throw new ConfigurationException("Configuration key " + buildKeyPath(key) + " is missing.");
         }
         return node.get(key);
     }
 
-    private String pathOf(String key) {
+    private String buildKeyPath(String key) {
         return keyPath.isEmpty() ? key : keyPath + "." + key;
     }
 }

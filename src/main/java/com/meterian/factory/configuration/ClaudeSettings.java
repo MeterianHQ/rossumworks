@@ -16,7 +16,7 @@ public record ClaudeSettings(String command, List<String> allowedTools, List<Str
             "Bash(ssh *)", "Bash(scp *)", "Bash(curl *)", "Bash(wget *)",
             "WebFetch", "WebSearch");
 
-    public static ClaudeSettings defaults() {
+    public static ClaudeSettings createDefaults() {
         return new ClaudeSettings(DEFAULT_COMMAND, DEFAULT_ALLOWED_TOOLS, DEFAULT_DISALLOWED_TOOLS);
     }
 }

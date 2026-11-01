@@ -244,6 +244,22 @@ class ProcessGitTest {
     }
 
     @Test
+    void patchIdDiffersWhenOnlyAnInvalidUtf8ByteDiffers() throws IOException {
+        String first = patchIdOfANewFile("one", new byte[] {'a', (byte) 0xFF, 'b', '\n'});
+        String second = patchIdOfANewFile("two", new byte[] {'a', (byte) 0xFE, 'b', '\n'});
+
+        assertThat(first).isNotBlank().isNotEqualTo(second);
+    }
+
+    private String patchIdOfANewFile(String branch, byte[] content) throws IOException {
+        run(clone, "checkout", "-q", "-b", branch, "main");
+        Files.write(clone.resolve("bytes.txt"), content);
+        run(clone, "add", "bytes.txt");
+        run(clone, "commit", "-q", "-m", "Bytes " + branch);
+        return git.patchId(clone, "main");
+    }
+
+    @Test
     void pushCommitPushesTheGivenCommitAndNotHead() {
         Path remote = createBare(temporaryDirectory.resolve("remote.git"));
         git.setRemote(clone, "remote", remote.toString());

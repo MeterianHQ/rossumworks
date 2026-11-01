@@ -32,6 +32,7 @@ import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -116,13 +117,21 @@ class WorkerTest {
     }
 
     private TargetRepository createTarget() {
-        return new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
+        return createTarget("true");
+    }
+
+    private TargetRepository createTarget(String buildCommand) {
+        return new TargetRepository("MeterianHQ", "sample", clone, buildCommand, Map.of());
     }
 
     private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval) {
-        return new FactoryConfiguration(createTarget(), "main",
+        return createConfiguration(parallelIssues, pollInterval, "true");
+    }
+
+    private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval, String buildCommand) {
+        return new FactoryConfiguration(createTarget(buildCommand), "main",
                 new Limits(parallelIssues, 2, pollInterval, 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.defaults(),
+                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty());
     }
 
@@ -140,7 +149,9 @@ class WorkerTest {
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
-        return new Worker(configuration, gitHub, workflow, agent, requests, WORKER_LOGIN, executor);
+        PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
+                new WorkspaceLayout(configuration.workDirectory()));
+        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -193,7 +204,8 @@ class WorkerTest {
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
-        assertThat(readRecord(ISSUE).orElseThrow().issueTextHash()).contains(IssueText.hashOf(gitHub.issue(ISSUE)));
+        assertThat(readRecord(ISSUE).orElseThrow().issueTextHash())
+                .contains(IssueText.computeHash(gitHub.issue(ISSUE)));
     }
 
     @Test
@@ -601,6 +613,62 @@ class WorkerTest {
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
         assertThat(agent.requests().getFirst().prompt()).contains("Change the greeting to hello.");
+    }
+
+    @Test
+    void aBlockStopsTheRunningBuild() throws InterruptedException {
+        Path started = temporaryDirectory.resolve("build-started");
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(started));
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.fixLoops()).isZero();
+    }
+
+    @Test
+    void shutDownStopsTheRunningBuild() throws InterruptedException {
+        Path started = temporaryDirectory.resolve("build-started");
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(started));
+
+        boolean loopsEnded = worker.shutDown(Duration.ofSeconds(20));
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(loopsEnded).isTrue();
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(record.fixLoops()).isZero();
+    }
+
+    @Test
+    void aRestartWithoutTheWorktreeOfAMergedIssueEndsDone() throws InterruptedException {
+        gitHub.failTheCommentEditAfterTheMerge();
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.MERGE);
+        run(clone, "worktree", "remove", "--force", worktree().toString());
+        FakeAgentRunner secondAgent = new FakeAgentRunner();
+
+        createWorker(secondAgent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(secondAgent.requests()).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
     }
 
     @Test

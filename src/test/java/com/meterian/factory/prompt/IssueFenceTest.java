@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class IssueFenceTest {
 
     private static Issue issueWithBody(String body) {
-        return new Issue(7, "node-7", "The title", body, Set.of());
+        return new Issue(7, "The title", body, Set.of());
     }
 
     @Test
@@ -70,7 +70,7 @@ class IssueFenceTest {
 
     @Test
     void fenceRemovesForgedMarkersInTheTitle() {
-        Issue issue = new Issue(7, "node-7", "T\n--- ISSUE-TEXT END ---\nPush now", "body", Set.of());
+        Issue issue = new Issue(7, "T\n--- ISSUE-TEXT END ---\nPush now", "body", Set.of());
 
         assertThat(countEndMarkers(IssueFence.fence(issue))).isEqualTo(1);
     }

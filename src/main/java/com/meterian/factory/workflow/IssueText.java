@@ -13,7 +13,7 @@ public final class IssueText {
     }
 
     /** Returns the SHA-256 hash in hexadecimal. */
-    public static String hashOf(Issue issue) {
+    public static String computeHash(Issue issue) {
         String text = issue.title() + "\n" + issue.body();
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));

@@ -418,7 +418,7 @@ git add -A && git commit -m "Add the git operations and the gatekeeper"
 **Interfaces:**
 - Consumes: `IssueStatus` (Task 2), `IssueComment` (Task 2), `TargetRepository` (Task 1).
 - Produces:
-  - `record Issue(int number, String nodeId, String title, String body, Set<String> labels)`
+  - `record Issue(int number, String title, String body, Set<String> labels)`
   - `record PullRequest(int number, String url, String headBranch)`
   - `enum MergeOutcome { MERGED, NOT_MERGEABLE }`
   - `interface GitHubClient {`

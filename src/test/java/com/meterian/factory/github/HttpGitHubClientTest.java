@@ -132,7 +132,7 @@ class HttpGitHubClientTest {
         List<Issue> issues = client.openIssuesWithLabel("factory");
 
         assertThat(requests.get(0).target()).startsWith("/repos/o/r/issues?labels=factory&state=open");
-        assertThat(issues).containsExactly(new Issue(1, "N1", "One", "text", Set.of("factory")));
+        assertThat(issues).containsExactly(new Issue(1, "One", "text", Set.of("factory")));
     }
 
     @Test
@@ -179,7 +179,7 @@ class HttpGitHubClientTest {
     void setsTheStatusAsALabel() {
         answerIssueWithLabels("factory:status:queued", "bug");
 
-        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.IN_REVIEW);
+        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.IN_REVIEW);
 
         assertThat(changes()).containsExactly("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
                 "POST /repos/o/r/issues/4/labels");
@@ -190,7 +190,7 @@ class HttpGitHubClientTest {
     void keepsOnlyOneStatusLabel() {
         answerIssueWithLabels("factory:status:queued", "factory:status:blocked", "factory:status:done");
 
-        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.DONE);
+        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.DONE);
 
         assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
                 "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Ablocked");
@@ -200,7 +200,7 @@ class HttpGitHubClientTest {
     void addsNothingWhenTheStatusIsAlreadySet() {
         answerIssueWithLabels("factory:status:in-review", "bug");
 
-        client.setStatus(new Issue(4, "N4", "T", "", Set.of()), IssueStatus.IN_REVIEW);
+        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.IN_REVIEW);
 
         assertThat(changes()).isEmpty();
     }
@@ -263,7 +263,8 @@ class HttpGitHubClientTest {
 
     @Test
     void readsTheHeadCommitOfThePullRequest() {
-        responder = request -> new Answer(200, "{\"number\":5,\"head\":{\"ref\":\"factory/issue-7\",\"sha\":\"abc123\"}}");
+        responder = request -> new Answer(200,
+                "{\"number\":5,\"head\":{\"ref\":\"factory/issue-7\",\"sha\":\"abc123\"}}");
 
         assertThat(client.pullRequestHead(5)).isEqualTo("abc123");
         assertThat(requests.get(0).method()).isEqualTo("GET");

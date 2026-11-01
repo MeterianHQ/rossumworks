@@ -70,8 +70,9 @@ public final class ProcessGit implements Git {
     @Override
     public String patchId(Path worktree, String base) {
         String mergeBase = run(worktree, "merge-base", base, "HEAD").trim();
-        String difference = run(worktree, "diff", "--binary", "--full-index", "--no-textconv",
-                "--no-ext-diff", "--no-color", mergeBase + "..HEAD");
+        // ISO-8859-1 keeps each byte as one character, so a byte that is not UTF-8 still changes the hash.
+        String difference = new String(runForBytes(worktree, "diff", "--binary", "--full-index", "--no-textconv",
+                "--no-ext-diff", "--no-color", mergeBase + "..HEAD"), StandardCharsets.ISO_8859_1);
         return difference.isEmpty() ? "" : hashWithoutPositions(difference);
     }
 
@@ -86,7 +87,7 @@ public final class ProcessGit implements Git {
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(stable.toString().getBytes(StandardCharsets.UTF_8));
+                    .digest(stable.toString().getBytes(StandardCharsets.ISO_8859_1));
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new GitException("The SHA-256 algorithm is missing", exception);
@@ -211,6 +212,10 @@ public final class ProcessGit implements Git {
 
     String run(Path directory, String... arguments) {
         return requireSuccess(arguments, execute(directory, arguments)).outputText();
+    }
+
+    private byte[] runForBytes(Path directory, String... arguments) {
+        return requireSuccess(arguments, execute(directory, arguments)).output();
     }
 
     private void runOverTheNetwork(Path directory, String... arguments) {

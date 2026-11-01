@@ -102,6 +102,9 @@ public final class Merger {
         String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
         String treeHash = perform("The read of the tree hash", () -> git.treeHashOf(worktree, headCommit));
         BuildOutcome build = buildRunner.run(worktree, target);
+        if (build.stopped()) {
+            return new MergeResult.Postponed(build.outputTail());
+        }
         if (!build.passed()) {
             return new MergeResult.NeedsFix(build.outputTail());
         }

@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import com.meterian.factory.usage.UsageTracker;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -51,6 +53,19 @@ class StreamEventParserTest {
         assertEquals(Instant.ofEpochSecond(1793815200), window.resetsAt());
         assertEquals("allowed", window.status());
         assertEquals(NOW, window.reportedAt());
+    }
+
+    @Test
+    void readsAMissingUtilizationAsNotANumberSoTheTrackerBlocks() {
+        StreamEventParser parser = new StreamEventParser(Clock.fixed(NOW, ZoneOffset.UTC));
+        parser.accept("{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"unifiedWindows\":"
+                + "{\"five_hour\":{\"resetsAt\":1793815200,\"status\":\"allowed\"}}}}");
+        UsageTracker tracker = new UsageTracker(0.90, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        tracker.record(parser.report().usageWindows());
+
+        assertTrue(Double.isNaN(parser.report().usageWindows().getFirst().utilization()));
+        assertEquals(Optional.of(NOW.plus(Duration.ofMinutes(15))), tracker.resumesAt());
     }
 
     @Test

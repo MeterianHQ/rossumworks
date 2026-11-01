@@ -9,6 +9,9 @@ import java.util.List;
 
 public final class ConfigurationLoader {
 
+    /** A shorter interval uses up the rate limit of the GitHub API. */
+    private static final Duration MINIMUM_POLL_INTERVAL = Duration.ofSeconds(10);
+
     private ConfigurationLoader() {
     }
 
@@ -51,7 +54,7 @@ public final class ConfigurationLoader {
     }
 
     private static Limits readLimits(ConfigurationSection root) throws ConfigurationException {
-        Limits defaults = Limits.defaults();
+        Limits defaults = Limits.createDefaults();
         ConfigurationSection section = root.findSection("limits").orElse(null);
         if (section == null) {
             return defaults;
@@ -67,7 +70,7 @@ public final class ConfigurationLoader {
             throws ConfigurationException {
         int value = section.findInteger(key).orElse(defaultValue);
         if (value < 1) {
-            throw section.invalid(key, "must be 1 or more");
+            throw section.createInvalidKeyException(key, "must be 1 or more");
         }
         return value;
     }
@@ -79,18 +82,24 @@ public final class ConfigurationLoader {
         if (text == null) {
             return defaultValue;
         }
+        Duration interval;
         try {
-            return PollIntervalParser.parse(text);
+            interval = PollIntervalParser.parse(text);
         } catch (IllegalArgumentException exception) {
-            throw section.invalid(key, "is not valid. " + exception.getMessage());
+            throw section.createInvalidKeyException(key, "is not valid. " + exception.getMessage());
         }
+        if (interval.compareTo(MINIMUM_POLL_INTERVAL) < 0) {
+            throw section.createInvalidKeyException(key, "must be 10 seconds or more");
+        }
+        return interval;
     }
 
     private static double readUsageThreshold(ConfigurationSection section, double defaultValue)
             throws ConfigurationException {
         double value = section.findNumber("usage-threshold").orElse(defaultValue);
-        if (value <= 0.0 || value > 1.0) {
-            throw section.invalid("usage-threshold", "must be more than 0 and at most 1");
+        boolean isInRange = value > 0.0 && value <= 1.0;
+        if (!isInRange) {
+            throw section.createInvalidKeyException("usage-threshold", "must be more than 0 and at most 1");
         }
         return value;
     }
@@ -98,7 +107,7 @@ public final class ConfigurationLoader {
     private static List<String> readAllowedAccounts(ConfigurationSection section) throws ConfigurationException {
         List<String> accounts = section.requireTextList("allowed");
         if (accounts.isEmpty()) {
-            throw section.invalid("allowed", "must have at least one account");
+            throw section.createInvalidKeyException("allowed", "must have at least one account");
         }
         return accounts;
     }
@@ -117,7 +126,7 @@ public final class ConfigurationLoader {
     private static ClaudeSettings readClaudeSettings(ConfigurationSection root) throws ConfigurationException {
         ConfigurationSection section = root.findSection("claude").orElse(null);
         if (section == null) {
-            return ClaudeSettings.defaults();
+            return ClaudeSettings.createDefaults();
         }
         return new ClaudeSettings(
                 section.findText("command").orElse(ClaudeSettings.DEFAULT_COMMAND),

@@ -84,10 +84,16 @@ public final class StreamEventParser {
     private UsageWindow buildUsageWindow(String name, JsonNode window, Instant reportedAt) {
         return new UsageWindow(
                 name,
-                window.path("utilization").asDouble(),
+                readUtilization(window),
                 Instant.ofEpochSecond(window.path("resetsAt").asLong()),
                 window.path("status").asText(),
                 reportedAt);
+    }
+
+    /** A missing or a text value is not a number, so the usage tracker treats the window as unreadable. */
+    private static double readUtilization(JsonNode window) {
+        JsonNode utilization = window.path("utilization");
+        return utilization.isNumber() ? utilization.asDouble() : Double.NaN;
     }
 
     private SessionReport buildReport(JsonNode resultEvent) {

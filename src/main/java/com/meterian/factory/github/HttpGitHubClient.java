@@ -177,7 +177,8 @@ public final class HttpGitHubClient implements GitHubClient {
 
     @Override
     public Optional<String> mergeCommitTree(int pullRequestNumber) {
-        JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("merge_commit_sha");
+        JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null)
+                .path("merge_commit_sha");
         if (!mergeCommit.isTextual()) {
             return Optional.empty();
         }
@@ -209,8 +210,8 @@ public final class HttpGitHubClient implements GitHubClient {
         for (JsonNode label : item.path("labels")) {
             labels.add(label.path("name").asText());
         }
-        return new Issue(item.path("number").asInt(), item.path("node_id").asText(), item.path("title").asText(),
-                item.path("body").asText(""), labels);
+        return new Issue(item.path("number").asInt(), item.path("title").asText(), item.path("body").asText(""),
+                labels);
     }
 
     private PullRequest toPullRequest(JsonNode item) {

@@ -88,7 +88,7 @@ class IssueWorkflowTest {
 
     /** The worker stores the hash of the issue text at the intake. */
     private IssueRecord queuedRecord(int issueNumber) {
-        return IssueRecord.queued(issueNumber).withIssueTextHash(IssueText.hashOf(gitHub.issue(issueNumber)));
+        return IssueRecord.queued(issueNumber).withIssueTextHash(IssueText.computeHash(gitHub.issue(issueNumber)));
     }
 
     private IssueRecord queuedRecord() {
@@ -103,7 +103,7 @@ class IssueWorkflowTest {
         TargetRepository target = createTarget(buildCommand);
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.defaults(),
+                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty());
         BuildRunner buildRunner = new BuildRunner();
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main", Duration.ZERO);
@@ -564,7 +564,7 @@ class IssueWorkflowTest {
         assertThat(record.phase()).isEqualTo(Phase.BUILD);
         assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(record.waitReason()).isEmpty();
-        assertThat(record.issueTextHash()).contains(IssueText.hashOf(gitHub.issue(ISSUE)));
+        assertThat(record.issueTextHash()).contains(IssueText.computeHash(gitHub.issue(ISSUE)));
         assertThat(record.issueTextHash()).isNotEqualTo(prepared.issueTextHash());
         assertThat(agent.requests()).singleElement()
                 .satisfies(request -> assertThat(request.prompt()).contains("Change the greeting to hello."));
@@ -637,6 +637,30 @@ class IssueWorkflowTest {
 
         assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
         assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void blocksWhenTheRiskSessionChangesAFile() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRiskAnd("low", true, writeFile("a.txt", "risk\n"));
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.notes()).contains("The risk session changed the files.");
+        assertThat(record.risk()).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void blocksWhenTheRiskSessionMovesHead() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRiskAnd("low", true,
+                request -> run(request.workingDirectory(), "commit", "-q", "--allow-empty", "-m", "Risk"));
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.notes()).contains("The risk session changed the files.");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
     @Test

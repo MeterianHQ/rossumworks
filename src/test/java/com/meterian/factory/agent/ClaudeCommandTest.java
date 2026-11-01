@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class ClaudeCommandTest {
 
-    private final ClaudeSettings settings = ClaudeSettings.defaults();
+    private final ClaudeSettings settings = ClaudeSettings.createDefaults();
     private final UUID sessionId = UUID.randomUUID();
 
     @Test

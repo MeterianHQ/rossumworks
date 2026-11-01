@@ -16,7 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class PromptLibraryTest {
 
-    private static final Issue ISSUE = new Issue(7, "node-7", "The title", "fix the parser {{base}}", Set.of());
+    private static final Issue ISSUE = new Issue(7, "The title", "fix the parser {{base}}", Set.of());
 
     @TempDir
     Path temporaryDirectory;
@@ -84,7 +84,7 @@ class PromptLibraryTest {
     @Test
     void aPlaceholderInTheIssueTextStaysLiteral() {
         PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
-        Issue issue = new Issue(7, "node-7", "T", "use {{tree}} here", Set.of());
+        Issue issue = new Issue(7, "T", "use {{tree}} here", Set.of());
 
         assertThat(library.review(ReviewKind.QUALITY, issue, "abc123")).contains("use {{tree}} here");
     }

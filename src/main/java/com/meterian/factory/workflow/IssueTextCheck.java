@@ -23,7 +23,7 @@ final class IssueTextCheck {
     /** Fail closed: a record without a hash counts as a change. */
     boolean hasChanged(Issue issue, IssueRecord record) {
         return PHASES_WITH_THE_ISSUE_TEXT.contains(record.phase())
-                && !record.issueTextHash().equals(Optional.of(IssueText.hashOf(issue)));
+                && !record.issueTextHash().equals(Optional.of(IssueText.computeHash(issue)));
     }
 
     /** Only an approval after the change counts, so an older label factory:approve goes away. */
@@ -38,6 +38,6 @@ final class IssueTextCheck {
     IssueRecord acceptNewText(Issue issue, IssueRecord record) {
         ownerApproval.withdraw(record.issueNumber());
         IssueStatus status = record.phase() == Phase.IMPLEMENT ? IssueStatus.IN_PROGRESS : IssueStatus.IN_REVIEW;
-        return record.withIssueTextHash(IssueText.hashOf(issue)).withoutWaitReason().withStatus(status);
+        return record.withIssueTextHash(IssueText.computeHash(issue)).withoutWaitReason().withStatus(status);
     }
 }

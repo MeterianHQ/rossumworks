@@ -105,6 +105,36 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void refusesAThresholdThatIsNotANumber() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + """
+                limits:
+                  usage-threshold: .nan
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("Malformed numeric value '.nan'");
+    }
+
+    @Test
+    void refusesAPollIntervalBelowTenSeconds() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + """
+                limits:
+                  poll-interval: 9s
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key limits.poll-interval must be 10 seconds or more.");
+    }
+
+    @Test
+    void acceptsAPollIntervalOfTenSeconds() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION + """
+                limits:
+                  poll-interval: 10s
+                """);
+
+        assertThat(configuration.limits().pollInterval()).isEqualTo(Duration.ofSeconds(10));
+    }
+
+    @Test
     void reportsAFileThatDoesNotExist() {
         assertThatThrownBy(() -> ConfigurationLoader.load(temporaryDirectory.resolve("missing.yaml")))
                 .isInstanceOf(ConfigurationException.class)

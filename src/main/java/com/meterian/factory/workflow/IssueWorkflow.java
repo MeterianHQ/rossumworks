@@ -190,6 +190,9 @@ public final class IssueWorkflow {
         }
         String headCommit = git.headCommit(worktree);
         BuildOutcome outcome = buildRunner.run(worktree, configuration.target());
+        if (outcome.stopped()) {
+            return record;
+        }
         if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
             return block(record, "The build changed the files.");
         }
@@ -232,7 +235,11 @@ public final class IssueWorkflow {
             return record;
         }
         new FactoryFolder(worktree).deleteRiskResult();
+        String headCommit = git.headCommit(worktree);
         SessionReport report = phaseRunner.runInNewSession(record.issueNumber(), worktree, prompts.risk(issue));
+        if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
+            return block(record, "The risk session changed the files.");
+        }
         if (!report.success()) {
             return retryReviewRound(record);
         }

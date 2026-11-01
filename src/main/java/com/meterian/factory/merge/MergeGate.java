@@ -23,10 +23,10 @@ public final class MergeGate {
         if (notApproving.isPresent()) {
             return new MergeDecision.Refused("the review " + notApproving.get() + " does not approve");
         }
-        if (!matches(record.reviewedTreeHash(), currentTreeHash)) {
+        if (!isRecordedForTree(record.reviewedTreeHash(), currentTreeHash)) {
             return new MergeDecision.Refused("the files changed after the reviews");
         }
-        if (!matches(record.builtTreeHash(), currentTreeHash)) {
+        if (!isRecordedForTree(record.builtTreeHash(), currentTreeHash)) {
             return new MergeDecision.Refused("the build does not match the files");
         }
         if (record.risk().equals(Optional.of(RiskLevel.LOW)) && record.small()) {
@@ -38,7 +38,7 @@ public final class MergeGate {
         return new MergeDecision.NeedsOwner(OWNER_APPROVAL_NEEDED);
     }
 
-    private static boolean matches(Optional<String> recordedTreeHash, String currentTreeHash) {
+    private static boolean isRecordedForTree(Optional<String> recordedTreeHash, String currentTreeHash) {
         return !currentTreeHash.isBlank() && recordedTreeHash.filter(currentTreeHash::equals).isPresent();
     }
 

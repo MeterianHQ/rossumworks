@@ -63,14 +63,14 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     public synchronized void addIssue(int number, String title, String body) {
-        issues.put(number, new Issue(number, "NODE" + number, title, body, Set.of()));
+        issues.put(number, new Issue(number, title, body, Set.of()));
         labels.put(number, new LinkedHashSet<>());
         commentsByIssue.put(number, new ArrayList<>());
     }
 
     /** A person edits the title and the body of the issue. */
     public synchronized void editIssue(int number, String title, String body) {
-        issues.put(number, new Issue(number, issues.get(number).nodeId(), title, body, Set.of()));
+        issues.put(number, new Issue(number, title, body, Set.of()));
     }
 
     public synchronized void addLabelBy(int issueNumber, String label, String actor) {
@@ -214,7 +214,7 @@ public final class FakeGitHubClient implements GitHubClient {
         if (issue == null) {
             throw new GitHubException("GitHub answered 404 for GET /issues/" + number);
         }
-        return new Issue(issue.number(), issue.nodeId(), issue.title(), issue.body(), Set.copyOf(labels.get(number)));
+        return new Issue(issue.number(), issue.title(), issue.body(), Set.copyOf(labels.get(number)));
     }
 
     @Override

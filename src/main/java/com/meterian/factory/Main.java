@@ -15,6 +15,7 @@ import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.RequestReader;
@@ -213,9 +214,12 @@ public final class Main {
         String workerLogin = gitHub.authenticatedLogin();
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, requests, workerLogin);
+        BuildRunner buildRunner = new BuildRunner();
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
-        Worker worker = new Worker(configuration, gitHub, workflow, agentRunner, requests, workerLogin, executor);
+        PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
+                new WorkspaceLayout(configuration.workDirectory()));
+        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor);
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
         worker.runUntilStopped();
         worker.shutDown(LOOP_END_TIMEOUT);
@@ -233,10 +237,9 @@ public final class Main {
     }
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
-                                                ClaudeAgentRunner agentRunner, RequestReader requests,
-                                                String workerLogin) {
+                                                ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
+                                                RequestReader requests, String workerLogin) {
         Git git = new ProcessGit();
-        BuildRunner buildRunner = new BuildRunner();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
                 MERGE_RETRY_DELAY);

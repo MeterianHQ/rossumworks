@@ -50,8 +50,8 @@ class IssueWorkspaceTest {
         run(pusher, "config", "user.name", "Factory Test");
         run(pusher, "config", "user.email", "factory-test@example.com");
         TargetRepository target = new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.defaults(),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.defaults(),
+        FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
+                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty());
         IssueWorkspace workspace = new IssueWorkspace(configuration, git);
         Path mergeWorktree = temporaryDirectory.resolve("work").resolve("issue-2");

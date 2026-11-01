@@ -7,9 +7,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,13 +18,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** Runs the build command of a target in a worktree, in its own process group. */
+/** Runs the build command of a target in a worktree, in its own process group. A stop ends the group. */
 public final class BuildRunner {
 
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
     private static final String OUTPUT_NOT_ENDED = "The build output did not end.";
 
     private final Map<String, String> parentEnvironment;
+    private final RunningBuilds runningBuilds = new RunningBuilds();
 
     public BuildRunner() {
         this(System.getenv());
@@ -34,16 +35,35 @@ public final class BuildRunner {
         this.parentEnvironment = parentEnvironment;
     }
 
+    /** Ends the build that runs in the worktree, for example on a block of the issue. */
+    public void stopBuild(Path worktree) {
+        runningBuilds.stop(worktree);
+    }
+
+    /** Ends all builds and starts no new build, for example when the factory stops. */
+    public void stopAllBuilds() {
+        runningBuilds.stopAll();
+    }
+
     public BuildOutcome run(Path worktree, TargetRepository target) {
+        if (runningBuilds.refusesNewBuilds()) {
+            return BuildOutcome.createStopped();
+        }
         Process process;
         try {
             process = startProcess(worktree, target);
         } catch (IOException exception) {
             return new BuildOutcome(false, "The build did not start: " + exception.getMessage());
         }
+        if (!runningBuilds.register(worktree, process)) {
+            endProcessGroup(process);
+            return BuildOutcome.createStopped();
+        }
         try {
-            return collectOutcome(process);
+            BuildOutcome outcome = collectOutcome(process);
+            return runningBuilds.wasStopped(worktree) ? BuildOutcome.createStopped() : outcome;
         } finally {
+            runningBuilds.unregister(worktree);
             endProcessGroup(process);
         }
     }
