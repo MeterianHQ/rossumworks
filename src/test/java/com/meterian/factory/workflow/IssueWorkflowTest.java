@@ -1456,4 +1456,27 @@ class IssueWorkflowTest {
         assertThat(agent.requests()).hasSize(1);
         assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
     }
+
+    @Test
+    void aConversationDuringAFixLoopKeepsTheFindings() throws ApiKeyDetectedException {
+        agent.thenChangeFile()
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord record = queuedRecord();
+        for (int step = 0; step < 10 && record.fixLoops() == 0; step++) {
+            record = workflow.advance(record);
+        }
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        IssueRecord live = workflow.enterLiveMode(record);
+        liveSessions.requestContinue(ISSUE);
+        IssueRecord continued = workflow.advance(live);
+        assertThat(continued.afterConversation()).isTrue();
+
+        workflow.advance(continued);
+
+        String continuePrompt = new PromptLibrary(Optional.empty(), "main").continueAfterConversation();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(agent.requests().get(5).prompt()).startsWith(continuePrompt).contains("Missing input check");
+    }
 }

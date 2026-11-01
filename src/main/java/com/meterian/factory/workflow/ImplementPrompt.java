@@ -18,11 +18,17 @@ final class ImplementPrompt {
             return Optional.of(prompts.implement(issue));
         }
         if (record.afterConversation()) {
-            return Optional.of(prompts.continueAfterConversation());
+            return Optional.of(continueWithThePendingFix(prompts, folder));
         }
         if (record.fixLoops() == 0) {
             return Optional.of(prompts.implement(issue));
         }
         return folder.readFixPrompt();
+    }
+
+    /** A conversation during a fix loop must not lose the findings: the fix prompt follows the continue prompt. */
+    private static String continueWithThePendingFix(PromptLibrary prompts, FactoryFolder folder) {
+        String continuePrompt = prompts.continueAfterConversation();
+        return folder.readFixPrompt().map(fixPrompt -> continuePrompt + "\n\n" + fixPrompt).orElse(continuePrompt);
     }
 }
