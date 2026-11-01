@@ -10,6 +10,8 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 
 /** The files of live mode: the factory plugin, the continue hook, and the settings and marker of each issue. */
@@ -18,6 +20,7 @@ public final class LiveFiles {
     private static final String HOOK_FILE_NAME = "continue-hook.sh";
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
+    private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
     private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
 
     private final Path liveDirectory;
@@ -26,10 +29,46 @@ public final class LiveFiles {
         this.liveDirectory = liveDirectory.toAbsolutePath();
     }
 
+    /** Fails closed when another user could replace a launch script in the live folder. */
     public void install() {
+        prepareLiveDirectory();
         writeResource("plugin.json", pluginDirectory().resolve(".claude-plugin/plugin.json"), FILE_PERMISSIONS);
         writeResource("continue.md", pluginDirectory().resolve("commands/continue.md"), FILE_PERMISSIONS);
         writeResource(HOOK_FILE_NAME, hookFile(), EXECUTABLE_PERMISSIONS);
+    }
+
+    private void prepareLiveDirectory() {
+        try {
+            if (Files.exists(liveDirectory)) {
+                verifyLiveDirectoryIsPrivate();
+            } else {
+                createPrivateDirectories(liveDirectory);
+            }
+        } catch (IOException exception) {
+            throw new UncheckedIOException("Cannot prepare the live folder " + liveDirectory, exception);
+        }
+    }
+
+    private void verifyLiveDirectoryIsPrivate() throws IOException {
+        boolean isWritableByOthers = Files.getPosixFilePermissions(liveDirectory).stream()
+                .anyMatch(permission -> permission == PosixFilePermission.GROUP_WRITE
+                        || permission == PosixFilePermission.OTHERS_WRITE);
+        boolean isOwnedByAnotherUser = !Files.getOwner(liveDirectory).getName()
+                .equals(System.getProperty("user.name"));
+        if (isWritableByOthers || isOwnedByAnotherUser) {
+            throw new IllegalStateException("The live folder " + liveDirectory + " must belong to the current user"
+                    + " and must not be writable by the group or by others. Run: chmod 700 " + liveDirectory);
+        }
+    }
+
+    /** Each folder that does not exist yet gets the mode 0700, also the parents. */
+    private static void createPrivateDirectories(Path directory) throws IOException {
+        Path parent = directory.getParent();
+        if (parent != null && !Files.exists(parent)) {
+            createPrivateDirectories(parent);
+        }
+        Files.createDirectory(directory, PosixFilePermissions.asFileAttribute(
+                PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS)));
     }
 
     public Path pluginDirectory() {

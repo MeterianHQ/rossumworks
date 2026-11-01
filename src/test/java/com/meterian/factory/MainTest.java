@@ -100,6 +100,22 @@ class MainTest {
     }
 
     @Test
+    void refusesToStartWhenTmuxAndJqAreMissing() throws IOException {
+        Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
+        for (String command : List.of("claude", "git", "setsid", "kill")) {
+            Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
+            assertThat(file.toFile().setExecutable(true)).isTrue();
+        }
+        Path configuration = writeConfiguration("claude");
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
+                Map.of("PATH", binDirectory.toString()), errors);
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("The factory needs these commands on the PATH: tmux, jq");
+    }
+
+    @Test
     void findsTheMissingCommands() throws IOException {
         Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
         Path tool = Files.writeString(binDirectory.resolve("tool"), "#!/bin/sh\n");

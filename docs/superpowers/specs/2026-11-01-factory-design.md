@@ -344,10 +344,25 @@ until it ends. Then the worker:
 1. Removes the label `factory:enter`. This shows the owner that the worker
    took the request.
 2. Sets "Waits for you" with the reason "live conversation".
-3. Starts in a tmux session: `claude --resume <uuid> --remote-control
-   "Fix #N" --settings <hook file> --plugin-dir <factory plugin>`, in the
-   worktree of the target.
-4. Writes the Remote Control link in a comment and on the card.
+3. Writes the launch script `<live-directory>/issue-<n>.launch.sh` with the
+   mode 0700. The script runs `env -i` with the allowed variables and
+   `TERM=tmux-256color`, and then `claude --resume <uuid> --remote-control
+   "Fix #N" --settings <hook file> --plugin-dir <factory plugin>`. The
+   filter of the variables is the same as for the auto mode, so the
+   environment of the tmux server adds no credential variable.
+4. Starts the script in a tmux session, in the worktree of the target.
+5. Writes the Remote Control link in a comment of the issue. The status
+   comment shows the line "Live conversation: <link>".
+
+The live folder is `<live-directory>`. The default is
+`<work-directory>/live`. The worker creates it with the mode 0700. The worker
+fails closed when the folder exists and the group or others can write to it,
+or when another user owns it: another user could replace a launch script.
+Then the worker stops with exit code 1 and the message names the fix
+(`chmod 700`). The worker checks this before the first poll.
+
+The worker needs `tmux` and `jq` on the `PATH` (`jq` is for the hook). The
+start checks both.
 
 Spike results (section 13):
 
@@ -355,6 +370,8 @@ Spike results (section 13):
   project you created or one you trust?". The worker must answer this
   prompt, or mark the worktree as trusted before the start. Otherwise the
   session waits for ever.
+- The worker answers the trust prompt on the tmux screen. It never edits
+  `~/.claude.json` or another configuration file of Claude Code.
 - The worker reads the link from the tmux screen (`tmux capture-pane`).
   The screen has the line `/remote-control is active · Continue here, on
   your phone, or at https://claude.ai/code/session_<id>`.
@@ -381,9 +398,11 @@ The mechanism, verified in the spike from the phone:
 - The worker also starts the live session with `--settings <file>`. This
   file adds a `UserPromptSubmit` hook. The hook sees a prompt that starts
   with `/factory:continue` (the phone can add a space at the end), writes
-  the marker file `.factory/continue`, and blocks the prompt with exit
-  code 2. The owner sees the message of the hook. The worker sees the marker, ends the tmux session, and
-continues in auto mode with the same session UUID. The conversation has
+  the marker file `<live-directory>/issue-<n>.continue`, and blocks the
+  prompt with exit code 2. The marker is outside the worktree, so the agent
+  does not see it. The hook needs `jq` to read the prompt. The owner sees
+  the message of the hook. The worker sees the marker, ends the tmux
+  session, and continues in auto mode with the same session UUID. The conversation has
 the full discussion, so the agent continues with what the owner agreed.
 
 My decisions on the next phase after `/factory:continue` or "Continue":
@@ -396,6 +415,13 @@ My decisions on the next phase after `/factory:continue` or "Continue":
 - If the files did not change, the issue goes back to the phase where it
   stopped.
 - The fix-loop count does not go back to 0.
+- An issue that waited for a merge approval or for a changed issue text
+  waits again for the same label. A blocked issue starts again in the phase
+  where it stopped.
+- In the phase IMPLEMENT, the agent continues with the continue prompt.
+
+The shutdown of the worker keeps a live session: tmux keeps it, and the next
+worker finds it again. A block closes it.
 
 ### 8.3 Known limits of Remote Control
 
@@ -405,7 +431,7 @@ From the research of 2026-11-01:
 - The session exits after about 10 minutes without network.
 
 When the tmux session exits without `/factory:continue`, the worker keeps "Waits
-for you" and writes this in the status comment. A new `factory:enter`
+for you" and writes a note in the status comment. A new `factory:enter`
 opens a new live session.
 
 ## 9. Web page

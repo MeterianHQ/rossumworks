@@ -1,6 +1,7 @@
 package com.meterian.factory.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,6 +41,41 @@ class LiveFilesTest {
         assertThat(Files.readString(pluginDirectory.resolve("commands/continue.md")))
                 .contains("description: Give the issue back to the factory");
         assertThat(temporaryDirectory.resolve("live/continue-hook.sh")).isExecutable();
+    }
+
+    @Test
+    void installCreatesANewLiveDirectoryWithOwnerOnlyPermissions() throws IOException {
+        assertThat(permissionsOf(temporaryDirectory.resolve("live"))).isEqualTo("rwx------");
+    }
+
+    @Test
+    void installCreatesTheParentsOfANewLiveDirectoryWithOwnerOnlyPermissions() throws IOException {
+        new LiveFiles(temporaryDirectory.resolve("parent/child/live")).install();
+
+        assertThat(permissionsOf(temporaryDirectory.resolve("parent"))).isEqualTo("rwx------");
+        assertThat(permissionsOf(temporaryDirectory.resolve("parent/child/live"))).isEqualTo("rwx------");
+    }
+
+    @Test
+    void installRefusesALiveDirectoryThatTheGroupCanWrite() throws IOException {
+        Path directory = Files.createDirectories(temporaryDirectory.resolve("shared"));
+        Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxrwx---"));
+
+        assertThatThrownBy(() -> new LiveFiles(directory).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(directory.toString())
+                .hasMessageContaining("chmod 700");
+    }
+
+    @Test
+    void installRefusesALiveDirectoryThatEveryoneCanWrite() throws IOException {
+        Path directory = Files.createDirectories(temporaryDirectory.resolve("open"));
+        Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxrwxrwx"));
+
+        assertThatThrownBy(() -> new LiveFiles(directory).install())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(directory.toString())
+                .hasMessageContaining("chmod 700");
     }
 
     @Test
@@ -139,6 +175,10 @@ class LiveFilesTest {
         liveFiles.clearContinueRequest(ISSUE_NUMBER);
 
         assertThat(liveFiles.isContinueRequested(ISSUE_NUMBER)).isFalse();
+    }
+
+    private static String permissionsOf(Path directory) throws IOException {
+        return PosixFilePermissions.toString(Files.getPosixFilePermissions(directory));
     }
 
     private int runHook(String standardInput) throws Exception {

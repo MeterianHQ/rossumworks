@@ -26,6 +26,7 @@ import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
@@ -110,7 +111,7 @@ public final class Main {
     }
 
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
-        List<String> commands = List.of(configuration.claude().command(), "git", "setsid", "kill");
+        List<String> commands = List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq");
         List<String> missing = findMissingCommands(commands, path);
         if (!missing.isEmpty()) {
             throw new StartupException("The factory needs these commands on the PATH: " + String.join(", ", missing));
@@ -212,14 +213,15 @@ public final class Main {
     }
 
     private static int runWorker(FactoryConfiguration configuration, String token, PrintStream errors)
-            throws InterruptedException {
+            throws InterruptedException, StartupException {
+        LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
         BuildRunner buildRunner = new BuildRunner();
-        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(),
-                new LiveFiles(configuration.liveDirectory()), System.getenv(), TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
+        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
                 liveSessions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
@@ -236,6 +238,17 @@ public final class Main {
         }
         errors.println("The factory stopped: a claude session used an API key.");
         return EXIT_API_KEY;
+    }
+
+    /** The install runs before the first poll: a live folder that is not private stops the start. */
+    private static LiveFiles installLiveFiles(FactoryConfiguration configuration) throws StartupException {
+        LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
+        try {
+            liveFiles.install();
+        } catch (IllegalStateException | UncheckedIOException exception) {
+            throw new StartupException(exception.getMessage());
+        }
+        return liveFiles;
     }
 
     /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
