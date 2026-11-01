@@ -2,12 +2,16 @@ package com.meterian.factory.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class IssueRecordTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());
 
     private final IssueRecord queued = IssueRecord.queued(3);
 
@@ -124,15 +128,11 @@ class IssueRecordTest {
 
     @Test
     void anOldRecordWithoutTheLiveFieldsReadsAsNotLive() throws Exception {
-        String json = new com.fasterxml.jackson.databind.ObjectMapper()
-                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
-                .writeValueAsString(queued)
+        String json = MAPPER.writeValueAsString(queued)
                 .replace(",\"live\":null", "")
                 .replace(",\"afterConversation\":false", "");
 
-        IssueRecord old = new com.fasterxml.jackson.databind.ObjectMapper()
-                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
-                .readValue(json, IssueRecord.class);
+        IssueRecord old = MAPPER.readValue(json, IssueRecord.class);
 
         assertThat(json).doesNotContain("live").doesNotContain("afterConversation");
         assertThat(old.live()).isEmpty();
@@ -165,5 +165,11 @@ class IssueRecordTest {
     void theAfterConversationFlagSetsAndClears() {
         assertThat(queued.withAfterConversation().afterConversation()).isTrue();
         assertThat(queued.withAfterConversation().withoutAfterConversation().afterConversation()).isFalse();
+    }
+
+    @Test
+    void withLiveLinkDoesNothingWhenTheIssueIsNotLive() {
+        assertThat(queued.withLiveLink("https://claude.ai/code/session_x")).isEqualTo(queued);
+        assertThat(queued.withoutLiveLink()).isEqualTo(queued);
     }
 }

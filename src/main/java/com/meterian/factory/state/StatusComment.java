@@ -27,7 +27,7 @@ public final class StatusComment {
         body.append(renderReviews(record)).append('\n');
         body.append(renderCounters(record, fixLoopLimit)).append('\n');
         renderLiveLink(record).ifPresent(line -> body.append(line).append('\n'));
-        record.notes().forEach(note -> body.append(sanitizeNote(note)).append('\n'));
+        record.notes().forEach(note -> body.append(sanitizeLine(note)).append('\n'));
         body.append('\n').append(RECORD_START).append('\n');
         body.append(writeJson(record)).append('\n');
         body.append(RECORD_END);
@@ -59,8 +59,8 @@ public final class StatusComment {
                 .max(Comparator.comparingLong(IssueComment::id));
     }
 
-    private static String sanitizeNote(String note) {
-        return neutralizeCommentMarkers(note.replaceAll("\\R", " "));
+    private static String sanitizeLine(String text) {
+        return neutralizeCommentMarkers(text.replaceAll("\\R", " "));
     }
 
     private static String renderHeadline(IssueRecord record) {
@@ -89,7 +89,7 @@ public final class StatusComment {
     }
 
     private static Optional<String> renderLiveLink(IssueRecord record) {
-        return record.live().flatMap(LiveSession::link).map(link -> "Live conversation: " + link);
+        return record.live().flatMap(LiveSession::link).map(link -> "Live conversation: " + sanitizeLine(link));
     }
 
     private static String writeJson(IssueRecord record) {
