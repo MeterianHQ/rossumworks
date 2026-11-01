@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -58,9 +61,31 @@ public final class ProcessGit implements Git {
     @Override
     public String patchId(Path worktree, String base) {
         String mergeBase = run(worktree, "merge-base", base, "HEAD").trim();
-        String difference = run(worktree, "diff", mergeBase + "..HEAD");
-        String patchIdLine = runWithInput(worktree, difference, "patch-id", "--stable").trim();
-        return patchIdLine.isEmpty() ? "" : patchIdLine.split("\\s+")[0];
+        String difference = run(worktree, "diff", "--no-color", "--no-ext-diff", mergeBase + "..HEAD");
+        return difference.isEmpty() ? "" : hashWithoutPositions(difference);
+    }
+
+    /** Git patch-id ignores whitespace, so this hash keeps it. It drops the blob hashes and the line numbers. */
+    private static String hashWithoutPositions(String difference) {
+        StringBuilder stable = new StringBuilder();
+        for (String line : difference.split("\n", -1)) {
+            if (line.startsWith("index ")) {
+                continue;
+            }
+            stable.append(line.startsWith("@@") ? "@@" : line).append('\n');
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(stable.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new GitException("The SHA-256 algorithm is missing", exception);
+        }
+    }
+
+    @Override
+    public String headCommit(Path worktree) {
+        return run(worktree, "rev-parse", "HEAD").trim();
     }
 
     @Override

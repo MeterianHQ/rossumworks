@@ -156,11 +156,14 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
-    public MergeOutcome squashMerge(int pullRequestNumber) {
+    public MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha) {
         String path = repositoryPath + "/pulls/" + pullRequestNumber + "/merge";
-        HttpResponse<String> response = sendRaw("PUT", path, Map.of("merge_method", "squash"));
+        HttpResponse<String> response = sendRaw("PUT", path, Map.of("merge_method", "squash", "sha", expectedHeadSha));
         if (response.statusCode() == 405) {
             return MergeOutcome.NOT_MERGEABLE;
+        }
+        if (response.statusCode() == 409) {
+            return MergeOutcome.HEAD_CHANGED;
         }
         requireSuccess("PUT", path, response);
         return MergeOutcome.MERGED;

@@ -33,6 +33,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Set<Integer> mergedPullRequests = new HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
     private final List<Integer> squashMergeCalls = new ArrayList<>();
+    private final List<String> squashMergeShas = new ArrayList<>();
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
@@ -81,6 +82,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     public synchronized List<Integer> squashMergeCalls() {
         return List.copyOf(squashMergeCalls);
+    }
+
+    public synchronized List<String> squashMergeShas() {
+        return List.copyOf(squashMergeShas);
     }
 
     @Override
@@ -165,8 +170,9 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     @Override
-    public synchronized MergeOutcome squashMerge(int pullRequestNumber) {
+    public synchronized MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha) {
         squashMergeCalls.add(pullRequestNumber);
+        squashMergeShas.add(expectedHeadSha);
         MergeOutcome outcome = mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();
         if (outcome == MergeOutcome.MERGED) {
             mergedPullRequests.add(pullRequestNumber);

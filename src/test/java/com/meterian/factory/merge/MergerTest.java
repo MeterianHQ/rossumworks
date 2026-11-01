@@ -88,6 +88,7 @@ class MergerTest {
 
         assertThat(result).isEqualTo(new MergeResult.Merged(record.builtTreeHash().orElseThrow()));
         assertThat(gitHub.squashMergeCalls()).containsExactly(pullRequest.number());
+        assertThat(gitHub.squashMergeShas()).containsExactly(run(worktree, "rev-parse", "HEAD"));
         assertThat(buildCount()).isZero();
         assertThat(run(gatekeeper, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(run(worktree, "rev-parse", "HEAD"));
     }
@@ -189,5 +190,101 @@ class MergerTest {
         assertThat(result).isInstanceOf(MergeResult.Failed.class);
         assertThat(((MergeResult.Failed) result).reason()).startsWith("The push to the gatekeeper failed");
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void failsWhenTheRecordedBuildIsNotTheTreeAfterARebaseByHand() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+        git.fetch(worktree, "origin", "main");
+        git.rebase(worktree, "origin/main");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The files differ from the built and reviewed tree."));
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void failsWhenAnotherCommitFollowsTheReviews() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        commitFile(worktree, "d.txt", "late\n", "Late change");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The files differ from the built and reviewed tree."));
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void failsWhenTheRecordedReviewedTreeDiffers() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord().withReviewedTree("other", "p");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The files differ from the built and reviewed tree."));
+    }
+
+    @Test
+    void failsWithoutABuiltTreeWhenTheBaseDidNotMove() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = IssueRecord.queued(7).withPullRequest(pullRequest.number());
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isEqualTo(new MergeResult.Failed("The record has no built tree hash."));
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void asksForNewReviewsWhenTheReviewedPatchIdIsEmptyAfterARebase() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord().withReviewedTree(git.treeHash(worktree), "");
+        moveTheBase("c.txt", "base\n");
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isInstanceOf(MergeResult.NeedsNewReviews.class);
+    }
+
+    @Test
+    void pushesTheRebasedHeadToTheGatekeeperAndForwardsIt() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        moveTheBase("c.txt", "base\n");
+
+        merger.merge(worktree, record);
+
+        String head = run(worktree, "rev-parse", "HEAD");
+        assertThat(run(gatekeeper, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(head);
+        assertThat(gitHub.squashMergeShas()).containsExactly(head);
+    }
+
+    @Test
+    void forcePushesOverAnOlderVersionOfTheBranch() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        run(worktree, "push", "-q", "gatekeeper", "HEAD:refs/heads/" + BRANCH);
+        run(worktree, "commit", "-q", "--amend", "-m", "Feature amended");
+        IssueRecord record = reviewedRecord();
+
+        MergeResult result = merger.merge(worktree, record);
+
+        assertThat(result).isInstanceOf(MergeResult.Merged.class);
+        assertThat(run(gatekeeper, "rev-parse", "refs/heads/" + BRANCH)).isEqualTo(run(worktree, "rev-parse", "HEAD"));
+    }
+
+    @Test
+    void failsWithoutARetryWhenGitHubHasAnotherHead() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
+
+        MergeResult result = merger.merge(worktree, reviewedRecord());
+
+        assertThat(result).isEqualTo(
+                new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequest.number() + "."));
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 }

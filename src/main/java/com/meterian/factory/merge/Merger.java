@@ -39,13 +39,6 @@ public final class Merger {
         this.retryDelay = retryDelay;
     }
 
-    /** A step failed with a Git or a GitHub exception. */
-    private static final class StepFailedException extends RuntimeException {
-        StepFailedException(String message) {
-            super(message);
-        }
-    }
-
     public MergeResult merge(Path worktree, IssueRecord record) {
         if (record.pullRequestNumber().isEmpty()) {
             return new MergeResult.Failed("The issue has no pull request.");
@@ -69,7 +62,7 @@ public final class Merger {
                     + ". Rebase it and solve the conflict.");
             case REBASED -> buildAfterRebase(worktree, record, pullRequestNumber, upstream);
             case UP_TO_DATE -> record.builtTreeHash()
-                    .map(builtTreeHash -> pushAndSquashMerge(worktree, record, pullRequestNumber, builtTreeHash))
+                    .map(builtTreeHash -> mergeUnchangedBranch(worktree, record, pullRequestNumber, builtTreeHash))
                     .orElseGet(() -> new MergeResult.Failed("The record has no built tree hash."));
         };
     }
@@ -79,11 +72,25 @@ public final class Merger {
         if (!patchIdIsUnchanged(worktree, record, upstream)) {
             return new MergeResult.NeedsNewReviews();
         }
+        String treeHashBeforeBuild = perform("The read of the tree hash", () -> git.treeHash(worktree));
         BuildOutcome build = buildRunner.run(worktree, target);
         if (!build.passed()) {
             return new MergeResult.NeedsFix(build.outputTail());
         }
         String builtTreeHash = perform("The read of the tree hash", () -> git.treeHash(worktree));
+        if (!builtTreeHash.equals(treeHashBeforeBuild)) {
+            return new MergeResult.Failed("The build changed the files.");
+        }
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, builtTreeHash);
+    }
+
+    private MergeResult mergeUnchangedBranch(Path worktree, IssueRecord record, int pullRequestNumber,
+                                             String builtTreeHash) {
+        String currentTreeHash = perform("The read of the tree hash", () -> git.treeHash(worktree));
+        boolean isReviewed = record.reviewedTreeHash().filter(currentTreeHash::equals).isPresent();
+        if (!currentTreeHash.equals(builtTreeHash) || !isReviewed) {
+            return new MergeResult.Failed("The files differ from the built and reviewed tree.");
+        }
         return pushAndSquashMerge(worktree, record, pullRequestNumber, builtTreeHash);
     }
 
@@ -99,10 +106,14 @@ public final class Merger {
             git.push(worktree, GATEKEEPER, branch);
             return null;
         });
+        String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
-            MergeOutcome outcome = perform("The squash merge", () -> gitHub.squashMerge(pullRequestNumber));
+            MergeOutcome outcome = perform("The squash merge", () -> gitHub.squashMerge(pullRequestNumber, headCommit));
             if (outcome == MergeOutcome.MERGED) {
                 return new MergeResult.Merged(builtTreeHash);
+            }
+            if (outcome == MergeOutcome.HEAD_CHANGED) {
+                return new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequestNumber + ".");
             }
             if (attempt < MERGE_ATTEMPTS && !waitForRetry()) {
                 return new MergeResult.Failed("The wait for the merge was interrupted.");
@@ -126,6 +137,13 @@ public final class Merger {
             return step.get();
         } catch (GitException | GitHubException exception) {
             throw new StepFailedException(stepName + " failed: " + exception.getMessage());
+        }
+    }
+
+    /** A step failed with a Git or a GitHub exception. */
+    private static final class StepFailedException extends RuntimeException {
+        StepFailedException(String message) {
+            super(message);
         }
     }
 }

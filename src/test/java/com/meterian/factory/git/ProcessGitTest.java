@@ -140,4 +140,20 @@ class ProcessGitTest {
         assertThat(run(clone, "log", "-1", "--format=%an <%ae>"))
                 .isEqualTo("claude-ai-factory <claude-ai-factory@users.noreply.github.com>");
     }
+
+    @Test
+    void headCommitReturnsTheHashOfHead() {
+        assertThat(git.headCommit(clone)).isEqualTo(run(clone, "rev-parse", "HEAD"));
+    }
+
+    @Test
+    void patchIdDiffersWhenOnlyTheIndentationDiffers() {
+        run(clone, "checkout", "-q", "-b", "feature");
+        commitFile(clone, "b.txt", "if (x) {\n  y();\n}\n", "Two spaces");
+        String twoSpaces = git.patchId(clone, "main");
+        run(clone, "reset", "-q", "--hard", "main");
+        commitFile(clone, "b.txt", "if (x) {\n    y();\n}\n", "Four spaces");
+
+        assertThat(git.patchId(clone, "main")).isNotEqualTo(twoSpaces);
+    }
 }

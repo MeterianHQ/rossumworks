@@ -23,10 +23,10 @@ public final class MergeGate {
         if (notApproving.isPresent()) {
             return new MergeDecision.Refused("the review " + notApproving.get() + " does not approve");
         }
-        if (!record.reviewedTreeHash().equals(Optional.of(currentTreeHash))) {
+        if (!matches(record.reviewedTreeHash(), currentTreeHash)) {
             return new MergeDecision.Refused("the files changed after the reviews");
         }
-        if (!record.builtTreeHash().equals(Optional.of(currentTreeHash))) {
+        if (!matches(record.builtTreeHash(), currentTreeHash)) {
             return new MergeDecision.Refused("the build does not match the files");
         }
         if (record.risk().equals(Optional.of(RiskLevel.LOW)) && record.small()) {
@@ -36,6 +36,10 @@ public final class MergeGate {
             return new MergeDecision.Approved();
         }
         return new MergeDecision.NeedsOwner(OWNER_APPROVAL_NEEDED);
+    }
+
+    private static boolean matches(Optional<String> recordedTreeHash, String currentTreeHash) {
+        return !currentTreeHash.isBlank() && recordedTreeHash.filter(currentTreeHash::equals).isPresent();
     }
 
     private static Optional<ReviewKind> findReviewThatDoesNotApprove(IssueRecord record) {

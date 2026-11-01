@@ -35,5 +35,6 @@ public interface GitHubClient {
 
     PullRequest createPullRequest(String headBranch, String baseBranch, String title, String body);
 
-    MergeOutcome squashMerge(int pullRequestNumber);
+    /** Merges only if the head of the pull request is the expected commit. */
+    MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
 }

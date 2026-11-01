@@ -165,7 +165,7 @@ class HttpGitHubClientTest {
     void reportsNotMergeableOnA405() {
         responder = request -> new Answer(405, "{\"message\":\"Pull Request is not mergeable\"}");
 
-        assertThat(client.squashMerge(5)).isEqualTo(MergeOutcome.NOT_MERGEABLE);
+        assertThat(client.squashMerge(5, "abc123")).isEqualTo(MergeOutcome.NOT_MERGEABLE);
         assertThat(requests.get(0).method()).isEqualTo("PUT");
         assertThat(requests.get(0).target()).isEqualTo("/repos/o/r/pulls/5/merge");
     }
@@ -174,8 +174,24 @@ class HttpGitHubClientTest {
     void squashMergeSendsTheSquashMethod() {
         responder = request -> new Answer(200, "{\"merged\":true}");
 
-        assertThat(client.squashMerge(5)).isEqualTo(MergeOutcome.MERGED);
+        assertThat(client.squashMerge(5, "abc123")).isEqualTo(MergeOutcome.MERGED);
         assertThat(requests.get(0).body()).contains("\"merge_method\":\"squash\"");
+    }
+
+    @Test
+    void squashMergePinsTheHeadWithTheSha() {
+        responder = request -> new Answer(200, "{\"merged\":true}");
+
+        client.squashMerge(5, "abc123");
+
+        assertThat(requests.get(0).body()).contains("\"sha\":\"abc123\"");
+    }
+
+    @Test
+    void reportsAChangedHeadOnA409() {
+        responder = request -> new Answer(409, "{\"message\":\"Head branch was modified\"}");
+
+        assertThat(client.squashMerge(5, "abc123")).isEqualTo(MergeOutcome.HEAD_CHANGED);
     }
 
     @Test

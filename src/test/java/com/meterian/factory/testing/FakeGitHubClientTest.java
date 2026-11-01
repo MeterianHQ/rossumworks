@@ -14,7 +14,7 @@ class FakeGitHubClientTest {
     void closesThePullRequestAfterAMerge() {
         PullRequest pullRequest = github.createPullRequest("factory/issue-7", "main", "T", "B");
 
-        assertThat(github.squashMerge(pullRequest.number())).isEqualTo(MergeOutcome.MERGED);
+        assertThat(github.squashMerge(pullRequest.number(), "sha")).isEqualTo(MergeOutcome.MERGED);
 
         assertThat(github.openPullRequest("factory/issue-7")).isEmpty();
         assertThat(github.pullRequests()).containsExactly(pullRequest);
@@ -25,7 +25,7 @@ class FakeGitHubClientTest {
         PullRequest pullRequest = github.createPullRequest("factory/issue-7", "main", "T", "B");
         github.queueMergeOutcomes(MergeOutcome.NOT_MERGEABLE);
 
-        github.squashMerge(pullRequest.number());
+        github.squashMerge(pullRequest.number(), "sha");
 
         assertThat(github.openPullRequest("factory/issue-7")).contains(pullRequest);
     }

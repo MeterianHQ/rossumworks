@@ -6,6 +6,7 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class MergeGateTest {
@@ -42,7 +43,7 @@ class MergeGateTest {
     }
 
     @Test
-    void refusesWhenNoTreeHashIsRecorded() {
+    void refusesWhenTheReviewedTreeHashIsMissing() {
         IssueRecord record = approvedRecord(RiskLevel.LOW, true).withoutReviews();
         for (ReviewKind kind : ReviewKind.values()) {
             record = record.withReview(kind, Verdict.APPROVE);
@@ -97,7 +98,7 @@ class MergeGateTest {
     void asksTheOwnerWhenTheRiskIsUnknown() {
         IssueRecord record = approvedRecord(RiskLevel.LOW, true);
         record = new IssueRecord(record.issueNumber(), record.sessionId(), record.status(), record.phase(),
-                record.reviews(), 0, java.util.Optional.empty(), true, record.reviewedTreeHash(),
+                record.reviews(), 0, Optional.empty(), true, record.reviewedTreeHash(),
                 record.reviewedPatchId(), record.builtTreeHash(), record.waitReason(), record.pullRequestNumber(),
                 record.statusCommentId(), record.notes());
 
@@ -111,5 +112,23 @@ class MergeGateTest {
         MergeDecision decision = MergeGate.decide(approvedRecord(RiskLevel.HIGH, false), "a", false, true);
 
         assertThat(decision).isInstanceOf(MergeDecision.Approved.class);
+    }
+
+    @Test
+    void refusesWhenAllTreeHashesAreEmpty() {
+        IssueRecord record = approvedRecord(RiskLevel.LOW, true).withReviewedTree("", "p").withBuiltTree("");
+
+        MergeDecision decision = MergeGate.decide(record, "", false, true);
+
+        assertThat(decision).isInstanceOf(MergeDecision.Refused.class);
+    }
+
+    @Test
+    void refusesWhenTheBuiltTreeHashIsEmpty() {
+        IssueRecord record = approvedRecord(RiskLevel.LOW, true).withBuiltTree("");
+
+        MergeDecision decision = MergeGate.decide(record, "a", false, true);
+
+        assertThat(decision).isEqualTo(new MergeDecision.Refused("the build does not match the files"));
     }
 }

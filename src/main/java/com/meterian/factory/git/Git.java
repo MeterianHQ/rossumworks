@@ -13,8 +13,11 @@ public interface Git {
     /** Returns the hash of the tree of HEAD. */
     String treeHash(Path worktree);
 
-    /** Returns the stable patch identifier of the changes since the merge base with the base. */
+    /** Returns a stable identifier of the changes since the merge base with the base. It keeps whitespace. */
     String patchId(Path worktree, String base);
+
+    /** Returns the hash of the commit of HEAD. */
+    String headCommit(Path worktree);
 
     boolean hasUncommittedChanges(Path worktree);
 
