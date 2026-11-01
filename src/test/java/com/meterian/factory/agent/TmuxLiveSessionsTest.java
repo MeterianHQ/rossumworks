@@ -81,6 +81,7 @@ class TmuxLiveSessionsTest {
         assertThat(arguments).containsSubsequence("--plugin-dir", liveFiles.pluginDirectory().toString());
         assertThat(arguments).containsSubsequence("--allowedTools", "Read", "Edit");
         assertThat(arguments).containsSubsequence("--disallowedTools", "Bash(git push*)");
+        assertThat(arguments).containsSubsequence("--append-system-prompt", ClaudeCommand.HUMAN_LANGUAGE_RULE);
     }
 
     @Test

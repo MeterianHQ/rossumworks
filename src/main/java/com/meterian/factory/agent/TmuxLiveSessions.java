@@ -251,6 +251,7 @@ public final class TmuxLiveSessions implements LiveSessions {
         arguments.addAll(List.of("--remote-control", "Fix #" + issueNumber));
         arguments.addAll(List.of("--settings", settingsFile.toString()));
         arguments.addAll(List.of("--plugin-dir", liveFiles.pluginDirectory().toString()));
+        arguments.addAll(ClaudeCommand.humanLanguageArguments());
         arguments.add("--allowedTools");
         arguments.addAll(settings.allowedTools());
         arguments.add("--disallowedTools");

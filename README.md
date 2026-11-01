@@ -33,6 +33,13 @@ The worker exits with code 2 when a `claude` session uses an API key. It exits w
 before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
 their start at the next run.
 
+## The language of the agents
+
+Each agent session, in auto mode and in live mode, gets the extra system prompt "When you write to a human,
+write in Simplified Technical English (ASD-STE100): short sentences, active voice, simple tenses, and one
+word for one thing." This applies to the questions, the descriptions of the pull requests, and the live
+conversations, also for a target that has no such rule in its `CLAUDE.md`.
+
 ## Live mode
 
 In live mode the owner talks to the agent of an issue through Remote Control. The factory needs `tmux` and
