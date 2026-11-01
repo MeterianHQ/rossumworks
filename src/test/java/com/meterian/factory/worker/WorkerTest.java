@@ -22,6 +22,7 @@ import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.state.StatusComment;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -62,6 +64,11 @@ class WorkerTest {
     private static final String FACTORY_LABEL = "factory";
     private static final String BLOCK_LABEL = "factory:block";
     private static final String APPROVE_LABEL = "factory:approve";
+    private static final String ENTER_LABEL = "factory:enter";
+    private static final String MALLORY_ENTER_NOTE =
+            "The label factory:enter from mallory is ignored: the account is not in accounts.allowed.";
+    private static final String ENDED_NOTE = "The live conversation ended without /factory:continue."
+            + " Add the label factory:enter to open a new one.";
     private static final String MALLORY_NOTE =
             "The label factory from mallory is ignored: the account is not in accounts.allowed.";
     private static final String MALLORY_BLOCK_NOTE =
@@ -80,6 +87,7 @@ class WorkerTest {
 
     private final Git git = new ProcessGit();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
+    private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final List<ExecutorService> executors = new ArrayList<>();
     private Path clone;
 
@@ -149,12 +157,13 @@ class WorkerTest {
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
-                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, new FakeLiveSessions());
+                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
-                new WorkspaceLayout(configuration.workDirectory()));
-        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor);
+                new WorkspaceLayout(configuration.workDirectory()), liveSessions);
+        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
+                liveSessions);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -741,5 +750,182 @@ class WorkerTest {
         assertThat(record.notes()).containsExactly(BROKEN_RECORD_NOTE);
         assertThat(gitHub.commentsOf(ISSUE)).hasSize(2);
         assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    /** A worker runs the issue to the wait for the merge approval, with the worktree and the agent session. */
+    private void runToTheMergeApproval() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    /** The owner gives factory:enter on the waiting issue, and a new worker reads it. */
+    private Worker enterTheWaitingIssue() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+        worker.pollOnce();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        return worker;
+    }
+
+    private Optional<String> readLiveLink() {
+        return readRecord(ISSUE).orElseThrow().live().flatMap(LiveSession::link);
+    }
+
+    @Test
+    void enterOpensTheConversationOfAWaitingIssue() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
+    }
+
+    @Test
+    void enterWaitsForTheRunningPhaseToEnd() throws InterruptedException {
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change in the phase\n");
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+
+        worker.pollOnce();
+        assertThat(liveSessions.openCalls()).isEmpty();
+        phaseMayEnd.countDown();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.stoppedIssues()).isEmpty();
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(TIME_BOUND.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("The wait was interrupted", exception);
+        }
+    }
+
+    @Test
+    void enterFromAnotherAccountIsIgnored() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "mallory");
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+        worker.pollOnce();
+
+        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
+                .filteredOn(MALLORY_ENTER_NOTE::equals).hasSize(1);
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void continueStartsTheIssueAgain() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        worker.pollOnce();
+        assertThat(liveSessions.closeCalls()).isEmpty();
+        liveSessions.requestContinue(ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.live()).isEmpty();
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
+        assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
+    }
+
+    @Test
+    void anEndedSessionAddsANoteOnce() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        liveSessions.endSession(ISSUE);
+
+        worker.pollOnce();
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.notes()).filteredOn(ENDED_NOTE::equals).hasSize(1);
+        assertThat(gitHub.editedBodies()).filteredOn(body -> body.contains(ENDED_NOTE)).hasSize(1);
+        assertThat(readLiveLink()).isEmpty();
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        worker.pollOnce();
+        assertThat(liveSessions.openCalls()).hasSize(2);
+        assertThat(readLiveLink()).isPresent();
+    }
+
+    @Test
+    void aRestartFindsTheOpenConversation() throws InterruptedException {
+        enterTheWaitingIssue();
+        Worker secondWorker = createWorker(new FakeAgentRunner(), 2);
+        secondWorker.pollOnce();
+        assertThat(readRecord(ISSUE).orElseThrow().notes()).doesNotContain(ENDED_NOTE);
+        liveSessions.requestContinue(ISSUE);
+
+        secondWorker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.live()).isEmpty();
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(liveSessions.openCalls()).hasSize(1);
+    }
+
+    @Test
+    void blockClosesTheLiveSession() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+
+        worker.pollOnce();
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
+        assertThat(liveSessions.isOpen(ISSUE)).isFalse();
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.notes()).doesNotContain(ENDED_NOTE);
+    }
+
+    @Test
+    void shutDownKeepsTheLiveSession() throws InterruptedException {
+        runToTheMergeApproval();
+        addLabeledIssue(8);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+
+        assertThat(worker.shutDown(TIME_BOUND)).isTrue();
+
+        assertThat(agent.stoppedIssues()).contains(8);
+        assertThat(liveSessions.closeCalls()).isEmpty();
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
     }
 }

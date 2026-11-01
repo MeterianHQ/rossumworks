@@ -2,6 +2,7 @@ package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
 import com.meterian.factory.agent.LiveFiles;
+import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
@@ -217,11 +218,15 @@ public final class Main {
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
         BuildRunner buildRunner = new BuildRunner();
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin);
+        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(),
+                new LiveFiles(configuration.liveDirectory()), System.getenv(), TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
+                liveSessions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
-                new WorkspaceLayout(configuration.workDirectory()));
-        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor);
+                new WorkspaceLayout(configuration.workDirectory()), liveSessions);
+        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
+                liveSessions);
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
         worker.runUntilStopped();
         worker.shutDown(LOOP_END_TIMEOUT);
@@ -240,7 +245,8 @@ public final class Main {
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
-                                                RequestReader requests, String workerLogin) {
+                                                RequestReader requests, String workerLogin,
+                                                LiveSessions liveSessions) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
@@ -248,8 +254,6 @@ public final class Main {
         UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(),
-                new LiveFiles(configuration.liveDirectory()), System.getenv(), TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger, usage,
                 requests, layout, workerLogin, liveSessions);
     }
