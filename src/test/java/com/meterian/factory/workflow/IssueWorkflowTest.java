@@ -21,6 +21,7 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
@@ -78,6 +79,7 @@ class IssueWorkflowTest {
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
         gitHub.setAuthenticatedLogin(WORKER_LOGIN);
+        gitHub.readPullRequestHeadsFrom(githubRepository);
         gitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         gitHub.addLabelBy(ISSUE, "factory", "bbossola");
     }
@@ -450,6 +452,72 @@ class IssueWorkflowTest {
         assertThat(record).isEqualTo(beforeMerge);
         assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.IN_REVIEW);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void aSquashMergeAnswerThatIsLostAfterTheMergeEndsDone() throws ApiKeyDetectedException {
+        gitHub.failTheNextSquashMergeAfterTheMerge();
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
+    void anotherHeadOnGitHubDoesNotBlockTheIssue() throws ApiKeyDetectedException {
+        gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
+        assertThat(readRecordFromGitHub()).isEqualTo(beforeMerge);
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(2);
+        assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
+    void repeatsTheBuildWhenTheForwardDidNotReachGitHub() throws ApiKeyDetectedException {
+        Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
+        String targetUrl = createTarget("true").sshUrl();
+        run(gatekeeper, "config", "--unset", "url." + githubRepository + ".insteadOf");
+        run(gatekeeper, "config", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf", targetUrl);
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.BUILD);
+        assertThatThrownBy(() -> workflow.advance(beforeBuild))
+                .isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub does not have the pushed commit yet.");
+        assertThat(readRecordFromGitHub()).isEqualTo(beforeBuild);
+
+        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
+
+        assertThat(readRecordFromGitHub()).isEqualTo(beforeBuild);
+        assertThat(gitHub.pullRequests()).hasSize(1);
+    }
+
+    @Test
+    void reviewsAfterTheRepeatedBuildWhenGitHubShowsTheOldHeadForAWhile() throws ApiKeyDetectedException {
+        gitHub.answerAnOldPullRequestHeadOnce();
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.BUILD);
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
+
+        IssueRecord record = workflow.advance(readRecordFromGitHub());
+
+        assertThat(record.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(record.pullRequestNumber()).isPresent();
+        assertThat(gitHub.pullRequests()).hasSize(1);
     }
 
     @Test

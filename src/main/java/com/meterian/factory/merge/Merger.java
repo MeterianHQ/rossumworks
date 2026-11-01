@@ -19,6 +19,7 @@ import java.util.function.Supplier;
 /**
  * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, and squash merges. Only
  * one issue of a target merges at a time, and the base must not move between the rebase and the squash merge.
+ * A failure of GitHub is transient: it leaves as a GitHubException, and the next poll runs the merge again.
  */
 public final class Merger {
 
@@ -148,20 +149,21 @@ public final class Merger {
             git.pushCommit(worktree, GATEKEEPER, headCommit, branch);
             return null;
         });
+        PushedCommitCheck.verifyGitHubHas(gitHub, pullRequestNumber, headCommit);
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);
-            MergeOutcome outcome = perform("The squash merge", () -> gitHub.squashMerge(pullRequestNumber, headCommit));
+            MergeOutcome outcome = gitHub.squashMerge(pullRequestNumber, headCommit);
             if (outcome == MergeOutcome.MERGED) {
                 return new MergeResult.Merged(builtTreeHash, describeMergedTree(pullRequestNumber, builtTreeHash));
             }
             if (outcome == MergeOutcome.HEAD_CHANGED) {
-                return new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequestNumber + ".");
+                throw new GitHubException("GitHub has another head for the pull request #" + pullRequestNumber + ".");
             }
             if (attempt < MERGE_ATTEMPTS && !waitForRetry()) {
                 return new MergeResult.Failed("The wait for the merge was interrupted.");
             }
         }
-        return new MergeResult.Failed("GitHub refuses the merge of the pull request #" + pullRequestNumber);
+        throw new GitHubException("GitHub refuses the merge of the pull request #" + pullRequestNumber + ".");
     }
 
     private void verifyBaseDidNotMove(Path worktree, String upstreamCommit) {
@@ -170,7 +172,7 @@ public final class Merger {
         }
     }
 
-    /** The merge is done, so a failure here must not become a failed merge: a GitHubException leaves. */
+    /** The merge is done, so a failure here must not become a failed merge. */
     private Optional<String> describeMergedTree(int pullRequestNumber, String builtTreeHash) {
         return gitHub.mergeCommitTree(pullRequestNumber)
                 .filter(mergedTreeHash -> !mergedTreeHash.equals(builtTreeHash))
@@ -188,15 +190,16 @@ public final class Merger {
         }
     }
 
+    /** A GitHubException is transient and leaves: the next poll runs the merge step again. */
     private <T> T perform(String stepName, Supplier<T> step) {
         try {
             return step.get();
-        } catch (GitException | GitHubException exception) {
+        } catch (GitException exception) {
             throw new StepFailedException(stepName + " failed: " + exception.getMessage());
         }
     }
 
-    /** A step failed with a Git or a GitHub exception. */
+    /** A step failed with a Git exception. */
     private static final class StepFailedException extends RuntimeException {
         StepFailedException(String message) {
             super(message);

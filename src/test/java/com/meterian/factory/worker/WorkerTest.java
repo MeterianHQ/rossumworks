@@ -97,6 +97,7 @@ class WorkerTest {
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
         gitHub.setAuthenticatedLogin(WORKER_LOGIN);
+        gitHub.readPullRequestHeadsFrom(githubRepository);
         addLabeledIssue(ISSUE);
     }
 

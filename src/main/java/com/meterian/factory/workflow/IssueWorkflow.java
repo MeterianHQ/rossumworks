@@ -54,6 +54,7 @@ public final class IssueWorkflow {
     private final OwnerApproval ownerApproval;
     private final ConflictResolution conflictResolution;
     private final IssueWorkspace workspace;
+    private final PullRequestPublisher pullRequestPublisher;
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
@@ -67,6 +68,7 @@ public final class IssueWorkflow {
         this.ownerApproval = new OwnerApproval(gitHub, requests);
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
+        this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch());
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
@@ -138,7 +140,7 @@ public final class IssueWorkflow {
     private IssueRecord implement(Issue issue, IssueRecord record, Path worktree)
             throws AgentException, ApiKeyDetectedException {
         if (conflictResolution.hasUnfinishedMergeCommit(worktree)) {
-            conflictResolution.finishMergeCommit(worktree, describeChange(issue));
+            conflictResolution.finishMergeCommit(worktree, ChangeTitle.describe(issue));
             return record.withoutConflictedPaths().withPhase(Phase.BUILD);
         }
         if (!phaseRunner.mayStartPhase()) {
@@ -173,7 +175,7 @@ public final class IssueWorkflow {
         if (!git.hasUncommittedChanges(worktree)) {
             return block(started, "The agent made no change.");
         }
-        git.commitAll(worktree, describeChange(issue));
+        git.commitAll(worktree, ChangeTitle.describe(issue));
         return started.withPhase(Phase.BUILD);
     }
 
@@ -183,7 +185,7 @@ public final class IssueWorkflow {
         if (remainingMarkers.isPresent()) {
             return startFixLoop(record, worktree, List.of(remainingMarkers.get()));
         }
-        conflictResolution.commitAsOneCommit(worktree, describeChange(issue));
+        conflictResolution.commitAsOneCommit(worktree, ChangeTitle.describe(issue));
         return record.withoutConflictedPaths().withPhase(Phase.BUILD);
     }
 
@@ -200,10 +202,7 @@ public final class IssueWorkflow {
             return startFixLoop(record, worktree, List.of(new Finding("The build failed", outcome.outputTail())));
         }
         ownerApproval.withdraw(record.issueNumber());
-        String branch = WorkspaceLayout.branch(record.issueNumber());
-        git.pushCommit(worktree, IssueWorkspace.GATEKEEPER_REMOTE, headCommit, branch);
-        PullRequest pullRequest = gitHub.openPullRequest(branch)
-                .orElseGet(() -> openPullRequest(issue, branch));
+        PullRequest pullRequest = pullRequestPublisher.publish(issue, worktree, headCommit);
         return record.withBuiltTree(git.treeHashOf(worktree, headCommit))
                 .withPullRequest(pullRequest.number())
                 .withStatus(IssueStatus.IN_REVIEW)
@@ -339,16 +338,6 @@ public final class IssueWorkflow {
 
     private boolean isMergedOnGitHub(IssueRecord record) {
         return record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
-    }
-
-    private PullRequest openPullRequest(Issue issue, String branch) {
-        String body = "Fixes #" + issue.number()
-                + "\n\nThe factory made this change for the issue #" + issue.number() + ".";
-        return gitHub.createPullRequest(branch, configuration.mergeTargetBranch(), describeChange(issue), body);
-    }
-
-    private String describeChange(Issue issue) {
-        return "Fix #" + issue.number() + ": " + issue.title();
     }
 
     private String mergeTargetReference() {

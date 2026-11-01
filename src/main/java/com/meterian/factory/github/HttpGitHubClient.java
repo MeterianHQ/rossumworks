@@ -167,6 +167,15 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public String pullRequestHead(int pullRequestNumber) {
+        JsonNode head = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("head").path("sha");
+        if (!head.isTextual() || head.asText().isBlank()) {
+            throw new GitHubException("GitHub sent the pull request #" + pullRequestNumber + " without a head commit.");
+        }
+        return head.asText();
+    }
+
+    @Override
     public Optional<String> mergeCommitTree(int pullRequestNumber) {
         JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("merge_commit_sha");
         if (!mergeCommit.isTextual()) {

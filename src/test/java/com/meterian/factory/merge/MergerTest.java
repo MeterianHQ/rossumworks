@@ -5,12 +5,14 @@ import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueRecord;
@@ -65,6 +67,7 @@ class MergerTest {
         merger = new Merger(git, gitHub, new BuildRunner(), target, "main", Duration.ZERO);
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
         gitHub.squashMergeInto(clone);
+        gitHub.readPullRequestHeadsFrom(github);
     }
 
     private IssueRecord reviewedRecord() {
@@ -207,15 +210,14 @@ class MergerTest {
     }
 
     @Test
-    void failsAfterThreeNotMergeableAnswers() {
+    void threeNotMergeableAnswersAreATransientFailure() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         gitHub.queueMergeOutcomes(MergeOutcome.NOT_MERGEABLE, MergeOutcome.NOT_MERGEABLE,
                 MergeOutcome.NOT_MERGEABLE);
 
-        MergeResult result = merger.merge(worktree, reviewedRecord());
-
-        assertThat(result).isEqualTo(
-                new MergeResult.Failed("GitHub refuses the merge of the pull request #" + pullRequest.number()));
+        assertThatThrownBy(() -> merger.merge(worktree, reviewedRecord()))
+                .isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub refuses the merge of the pull request #" + pullRequest.number() + ".");
         assertThat(gitHub.squashMergeCalls()).hasSize(3);
     }
 
@@ -326,15 +328,51 @@ class MergerTest {
     }
 
     @Test
-    void failsWithoutARetryWhenGitHubHasAnotherHead() {
+    void anotherHeadOnGitHubIsATransientFailureWithoutARetry() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
 
-        MergeResult result = merger.merge(worktree, reviewedRecord());
-
-        assertThat(result).isEqualTo(
-                new MergeResult.Failed("GitHub has another head for the pull request #" + pullRequest.number() + "."));
+        assertThatThrownBy(() -> merger.merge(worktree, reviewedRecord()))
+                .isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub has another head for the pull request #" + pullRequest.number() + ".");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aFailedSquashMergeRequestLeavesAsAGitHubException() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        gitHub.failTheNextSquashMergeAfterTheMerge();
+
+        assertThatThrownBy(() -> merger.merge(worktree, reviewedRecord())).isInstanceOf(GitHubException.class);
+        assertThat(gitHub.isMerged(pullRequest.number())).isTrue();
+    }
+
+    @Test
+    void doesNotMergeWhenTheForwardDidNotReachGitHub() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        git.setRemote(gatekeeper, "github", temporaryDirectory.resolve("missing.git").toString());
+
+        assertThatThrownBy(() -> merger.merge(worktree, record))
+                .isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub does not have the pushed commit yet.");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThatThrownBy(() -> merger.merge(worktree, record)).isInstanceOf(GitHubException.class);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void mergesAtTheNextAttemptWhenGitHubShowsTheOldHeadForAWhile() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        gitHub.answerAnOldPullRequestHeadOnce();
+
+        assertThatThrownBy(() -> merger.merge(worktree, record))
+                .isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub does not have the pushed commit yet.");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+
+        assertThat(merger.merge(worktree, record)).isInstanceOf(MergeResult.Merged.class);
     }
 
     @Test

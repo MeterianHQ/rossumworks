@@ -1,5 +1,6 @@
 package com.meterian.factory.testing;
 
+import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
@@ -39,6 +40,9 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, String> baseBranches = new TreeMap<>();
     private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
     private SquashMergeSimulation squashMergeSimulation;
+    private Path pullRequestRepository;
+    private boolean failsTheNextSquashMergeAfterTheMerge;
+    private boolean answersAnOldPullRequestHead;
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
@@ -132,6 +136,21 @@ public final class FakeGitHubClient implements GitHubClient {
     /** Each successful squash merge writes a squash commit on the origin of the clone, as GitHub does. */
     public synchronized void squashMergeInto(Path clone) {
         squashMergeSimulation = new SquashMergeSimulation(clone);
+    }
+
+    /** The head of a pull request is the branch of the pull request in this bare repository, as on GitHub. */
+    public synchronized void readPullRequestHeadsFrom(Path repository) {
+        pullRequestRepository = repository;
+    }
+
+    /** The next pullRequestHead gives an old head, as GitHub does for a short time after a push. */
+    public synchronized void answerAnOldPullRequestHeadOnce() {
+        answersAnOldPullRequestHead = true;
+    }
+
+    /** The next successful squash merge merges, then throws a GitHubException, as a lost answer does. */
+    public synchronized void failTheNextSquashMergeAfterTheMerge() {
+        failsTheNextSquashMergeAfterTheMerge = true;
     }
 
     /** The first comment edit with a body that contains the text runs the action first, in the same thread. */
@@ -296,6 +315,11 @@ public final class FakeGitHubClient implements GitHubClient {
                 nextRemoveLabelFailure = removeLabelFailureAfterTheMerge;
                 removeLabelFailureAfterTheMerge = null;
             }
+            if (failsTheNextSquashMergeAfterTheMerge) {
+                failsTheNextSquashMergeAfterTheMerge = false;
+                throw new GitHubException("the request PUT /pulls/" + pullRequestNumber + "/merge failed: "
+                        + "HttpTimeoutException");
+            }
         }
         return outcome;
     }
@@ -303,6 +327,25 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized boolean isMerged(int pullRequestNumber) {
         return mergedPullRequests.contains(pullRequestNumber);
+    }
+
+    /** A missing branch gives an empty head. A test that pushes must name the repository first. */
+    @Override
+    public synchronized String pullRequestHead(int pullRequestNumber) {
+        if (pullRequestRepository == null) {
+            throw new IllegalStateException("The test did not name the repository of the pull request heads.");
+        }
+        if (answersAnOldPullRequestHead) {
+            answersAnOldPullRequestHead = false;
+            return "0000000000000000000000000000000000000000";
+        }
+        String branch = pullRequests.stream().filter(pullRequest -> pullRequest.number() == pullRequestNumber)
+                .findFirst().orElseThrow().headBranch();
+        try {
+            return TemporaryRepository.run(pullRequestRepository, "rev-parse", "--verify", "refs/heads/" + branch);
+        } catch (GitException missingBranch) {
+            return "";
+        }
     }
 
     @Override

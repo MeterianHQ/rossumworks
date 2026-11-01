@@ -262,6 +262,23 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void readsTheHeadCommitOfThePullRequest() {
+        responder = request -> new Answer(200, "{\"number\":5,\"head\":{\"ref\":\"factory/issue-7\",\"sha\":\"abc123\"}}");
+
+        assertThat(client.pullRequestHead(5)).isEqualTo("abc123");
+        assertThat(requests.get(0).method()).isEqualTo("GET");
+        assertThat(requests.get(0).target()).isEqualTo("/repos/o/r/pulls/5");
+    }
+
+    @Test
+    void failsWhenThePullRequestHasNoHeadCommit() {
+        responder = request -> new Answer(200, "{\"number\":5}");
+
+        assertThatThrownBy(() -> client.pullRequestHead(5)).isInstanceOf(GitHubException.class)
+                .hasMessage("GitHub sent the pull request #5 without a head commit.");
+    }
+
+    @Test
     void readsTheTreeOfTheMergeCommit() {
         responder = request -> request.target().equals("/repos/o/r/pulls/5")
                 ? new Answer(200, "{\"number\":5,\"merged\":true,\"merge_commit_sha\":\"c0ffee\"}")
