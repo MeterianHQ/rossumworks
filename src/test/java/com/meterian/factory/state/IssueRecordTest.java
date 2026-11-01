@@ -12,6 +12,18 @@ class IssueRecordTest {
     private final IssueRecord queued = IssueRecord.queued(3);
 
     @Test
+    void withoutRiskAndWithoutBuiltTreeClearOnlyTheirFields() {
+        IssueRecord full = queued.withRisk(RiskLevel.HIGH, true).withBuiltTree("built").withPullRequest(9);
+
+        IssueRecord cleared = full.withoutRisk().withoutBuiltTree();
+
+        assertThat(cleared.risk()).isEmpty();
+        assertThat(cleared.small()).isFalse();
+        assertThat(cleared.builtTreeHash()).isEmpty();
+        assertThat(cleared.pullRequestNumber()).contains(9);
+    }
+
+    @Test
     void withoutReviewsClearsTheReviewedTree() {
         IssueRecord cleared = queued
                 .withReview(ReviewKind.SECURITY, Verdict.REJECT)

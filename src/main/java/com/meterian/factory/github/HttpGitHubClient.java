@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,17 +27,27 @@ public final class HttpGitHubClient implements GitHubClient {
     private static final String API_VERSION = "2022-11-28";
     private static final Pattern NEXT_LINK = Pattern.compile("<([^>]+)>;\\s*rel=\"next\"");
 
+    /** A request that gets no answer in this time fails, so that a poll never waits without an end. */
+    static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
     private final URI apiBase;
     private final String token;
     private final String repositoryPath;
     private final HttpClient httpClient;
+    private final Duration requestTimeout;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
+        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT);
+    }
+
+    HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
+                     Duration requestTimeout) {
         this.apiBase = apiBase;
         this.token = token;
         this.repositoryPath = "/repos/" + target.fullName();
         this.httpClient = httpClient;
+        this.requestTimeout = requestTimeout;
     }
 
     @Override
@@ -229,6 +240,7 @@ public final class HttpGitHubClient implements GitHubClient {
                     : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload));
             HttpRequest request = HttpRequest.newBuilder(uri)
                     .method(method, publisher)
+                    .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + token)
                     .header("Accept", "application/vnd.github+json")
                     .header("Content-Type", "application/json")

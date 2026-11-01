@@ -37,11 +37,11 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 /** The command line: java -jar claude-ai-factory.jar run --config <file>. */
 public final class Main {
 
+    static final int EXIT_SUCCESS = 0;
     static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
@@ -52,6 +52,9 @@ public final class Main {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);
     private static final Duration LOOP_END_TIMEOUT = Duration.ofMinutes(1);
+    private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration TOKEN_COMMAND_TIMEOUT = Duration.ofSeconds(30);
+    private static final System.Logger LOGGER = System.getLogger(Main.class.getName());
 
     /** A check before the start failed. The message tells the owner what to do. */
     static final class StartupException extends Exception {
@@ -131,30 +134,69 @@ public final class Main {
                 .anyMatch(file -> Files.isRegularFile(file) && Files.isExecutable(file));
     }
 
-    static String readToken(Map<String, String> environment, Supplier<Optional<String>> ghToken)
-            throws StartupException {
+    /** A source of the token that can stop the start, for example a command that does not answer. */
+    @FunctionalInterface
+    interface TokenSource {
+        Optional<String> read() throws StartupException;
+    }
+
+    static String readToken(Map<String, String> environment, TokenSource ghToken) throws StartupException {
         String fromEnvironment = environment.getOrDefault(TOKEN_VARIABLE, "");
         if (!fromEnvironment.isBlank()) {
             return fromEnvironment.strip();
         }
-        return ghToken.get()
+        return ghToken.read()
                 .filter(token -> !token.isBlank())
                 .orElseThrow(() -> new StartupException("Set FACTORY_GITHUB_TOKEN, or log in with gh auth login."));
     }
 
-    /** Runs gh auth token. A missing gh or a failure gives no token. */
-    private static Optional<String> readTokenFromGh() {
+    private static Optional<String> readTokenFromGh() throws StartupException {
+        return readTokenFromCommand(List.of("gh", "auth", "token"), TOKEN_COMMAND_TIMEOUT);
+    }
+
+    /**
+     * Runs the command and returns its output. A missing command or a failure gives no token. A command that
+     * does not end in the timeout stops the start.
+     */
+    static Optional<String> readTokenFromCommand(List<String> command, Duration timeout) throws StartupException {
+        Path outputFile = null;
         try {
-            Process process = new ProcessBuilder("gh", "auth", "token")
+            outputFile = Files.createTempFile("factory-token", ".out");
+            Process process = new ProcessBuilder(command)
+                    .redirectOutput(outputFile.toFile())
                     .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
-            return process.waitFor() == 0 ? Optional.of(output) : Optional.empty();
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                throw new StartupException("The command " + String.join(" ", command) + " did not answer in "
+                        + describeSeconds(timeout) + " seconds. Set FACTORY_GITHUB_TOKEN.");
+            }
+            String output = Files.readString(outputFile, StandardCharsets.UTF_8).strip();
+            return process.exitValue() == 0 ? Optional.of(output) : Optional.empty();
         } catch (IOException exception) {
             return Optional.empty();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return Optional.empty();
+        } finally {
+            deleteQuietly(outputFile);
+        }
+    }
+
+    private static String describeSeconds(Duration duration) {
+        long millis = duration.toMillis();
+        return millis % 1000 == 0 ? Long.toString(millis / 1000) : Double.toString(millis / 1000.0);
+    }
+
+    /** The file can hold the token, so it must not stay on the disk. */
+    private static void deleteQuietly(Path file) {
+        if (file == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "Cannot delete the temporary file {0}", file);
         }
     }
 
@@ -174,14 +216,20 @@ public final class Main {
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, requests, workerLogin);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         Worker worker = new Worker(configuration, gitHub, workflow, agentRunner, requests, workerLogin, executor);
-        try {
-            worker.runUntilStopped();
-        } finally {
-            executor.shutdown();
-            executor.awaitTermination(LOOP_END_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
+        worker.runUntilStopped();
+        worker.shutDown(LOOP_END_TIMEOUT);
+        if (!worker.foundAnApiKey()) {
+            errors.println("The factory stopped.");
+            return EXIT_SUCCESS;
         }
         errors.println("The factory stopped: a claude session used an API key.");
         return EXIT_API_KEY;
+    }
+
+    /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
+    static Thread createShutdownHook(Worker worker) {
+        return new Thread(() -> worker.shutDown(SHUTDOWN_TIMEOUT), "factory-shutdown");
     }
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,

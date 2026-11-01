@@ -14,6 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +80,36 @@ class HttpGitHubClientTest {
 
     private static String header(String value) {
         return value == null ? "" : value;
+    }
+
+    @Test
+    void usesARequestTimeoutOfSixtySeconds() {
+        assertThat(HttpGitHubClient.REQUEST_TIMEOUT).isEqualTo(Duration.ofSeconds(60));
+    }
+
+    @Test
+    void stopsARequestAfterTheTimeout() {
+        responder = request -> {
+            sleepQuietly(Duration.ofSeconds(3));
+            return new Answer(200, "{\"login\":\"bot\"}");
+        };
+        URI apiBase = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+        TargetRepository target = new TargetRepository("o", "r", Path.of("clone"), "true", Map.of());
+        HttpGitHubClient slowClient = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient(),
+                Duration.ofMillis(300));
+
+        assertThatThrownBy(slowClient::authenticatedLogin)
+                .isInstanceOf(GitHubException.class)
+                .hasMessageContaining("HttpTimeoutException")
+                .hasMessageNotContaining(TOKEN);
+    }
+
+    private static void sleepQuietly(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test

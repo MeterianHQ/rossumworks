@@ -1,6 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.git.CloneLock;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import java.nio.file.Files;
@@ -23,10 +24,22 @@ final class IssueWorkspace {
 
     /**
      * Makes a new worktree on the branch of the issue from the merge target, and the remote of the gatekeeper.
-     * Synchronized: two git commands in the same clone at the same time can fail on a lock file.
+     * All steps run under the lock of the clone, because they write its shared refs and worktree metadata.
      */
-    synchronized void create(int issueNumber, Path worktree) {
+    void create(int issueNumber, Path worktree) {
         Path clone = configuration.target().cloneDirectory();
+        CloneLock.run(clone, () -> createUnderLock(clone, issueNumber, worktree));
+    }
+
+    void remove(Path worktree) {
+        Path clone = configuration.target().cloneDirectory();
+        CloneLock.run(clone, () -> {
+            removeIfPresent(clone, worktree);
+            git.pruneWorktrees(clone);
+        });
+    }
+
+    private void createUnderLock(Path clone, int issueNumber, Path worktree) {
         Path gatekeeperDirectory = configuration.gatekeeperDirectory().toAbsolutePath();
         git.pruneWorktrees(clone);
         Gatekeeper.ensure(gatekeeperDirectory, configuration.target().sshUrl());
@@ -36,12 +49,6 @@ final class IssueWorkspace {
         String startPoint = ORIGIN + "/" + configuration.mergeTargetBranch();
         git.addWorktree(clone, worktree, WorkspaceLayout.branch(issueNumber), startPoint);
         git.excludeFactoryFolder(worktree);
-    }
-
-    synchronized void remove(Path worktree) {
-        Path clone = configuration.target().cloneDirectory();
-        removeIfPresent(clone, worktree);
-        git.pruneWorktrees(clone);
     }
 
     private void removeIfPresent(Path clone, Path worktree) {

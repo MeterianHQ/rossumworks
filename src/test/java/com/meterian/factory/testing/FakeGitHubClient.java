@@ -40,6 +40,10 @@ public final class FakeGitHubClient implements GitHubClient {
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
     private boolean failsTheCommentEditAfterTheMerge;
+    private final Set<Integer> issuesWithFailingComments = new HashSet<>();
+    private Runnable squashMergeAction = () -> { };
+    private String commentEditTrigger;
+    private Runnable commentEditAction = () -> { };
 
     public synchronized void setAuthenticatedLogin(String login) {
         authenticatedLogin = login;
@@ -111,6 +115,22 @@ public final class FakeGitHubClient implements GitHubClient {
         failsTheCommentEditAfterTheMerge = true;
     }
 
+    /** The next squash merge runs the action first, in the thread of the merge. */
+    public synchronized void whenSquashMerging(Runnable action) {
+        squashMergeAction = action;
+    }
+
+    /** The first comment edit with a body that contains the text runs the action first, in the same thread. */
+    public synchronized void whenACommentEditContains(String text, Runnable action) {
+        commentEditTrigger = text;
+        commentEditAction = action;
+    }
+
+    /** The comments of the issue throw an IllegalStateException, as an unexpected defect does. */
+    public synchronized void failTheCommentsOf(int issueNumber) {
+        issuesWithFailingComments.add(issueNumber);
+    }
+
     @Override
     public synchronized String authenticatedLogin() {
         return authenticatedLogin;
@@ -132,6 +152,9 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized List<IssueComment> comments(int issueNumber) {
+        if (issuesWithFailingComments.contains(issueNumber)) {
+            throw new IllegalStateException("A defect in the comments of the issue " + issueNumber);
+        }
         return commentsOf(issueNumber);
     }
 
@@ -142,6 +165,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void editComment(long commentId, String body) {
+        if (commentEditTrigger != null && body.contains(commentEditTrigger)) {
+            commentEditTrigger = null;
+            commentEditAction.run();
+        }
         if (failsTheNextCommentEdit) {
             failsTheNextCommentEdit = false;
             throw new GitHubException("GitHub answered 502 for PATCH /issues/comments/" + commentId);
@@ -200,6 +227,9 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha) {
+        Runnable action = squashMergeAction;
+        squashMergeAction = () -> { };
+        action.run();
         squashMergeCalls.add(pullRequestNumber);
         squashMergeShas.add(expectedHeadSha);
         MergeOutcome outcome = mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();

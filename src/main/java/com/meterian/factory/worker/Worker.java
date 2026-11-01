@@ -17,6 +17,7 @@ import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -54,7 +55,9 @@ public final class Worker {
     private final StatusPublisher statusPublisher;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final Set<Integer> issuesInWork = new HashSet<>();
+    /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
+    private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
@@ -87,7 +90,7 @@ public final class Worker {
         }
     }
 
-    /** Polls at the poll interval until an API key stops the worker. */
+    /** Polls at the poll interval until the worker stops. */
     public void runUntilStopped() throws InterruptedException {
         long pollIntervalMillis = configuration.limits().pollInterval().toMillis();
         while (!isStopped()) {
@@ -98,6 +101,29 @@ public final class Worker {
 
     public boolean isStopped() {
         return stopSignal.getCount() == 0;
+    }
+
+    /** Tells if the worker stopped because a claude session used an API key. */
+    public boolean foundAnApiKey() {
+        return apiKeyFound;
+    }
+
+    /**
+     * Stops the worker, ends the phases in work, and waits for the loops. A loop that ends because of the stop
+     * writes back the record from before the stopped step.
+     *
+     * @return true when all loops ended in the timeout
+     */
+    public boolean shutDown(Duration timeout) {
+        stopSignal.countDown();
+        stopPhasesInWork();
+        executor.shutdown();
+        try {
+            return executor.awaitTermination(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     public synchronized Set<Integer> issuesInWork() {
@@ -122,25 +148,36 @@ public final class Worker {
                 .toList();
     }
 
-    /** A GitHub failure keeps the issue out of work for this poll only. */
+    /** A failure keeps the issue out of work for this poll only. The next issue still gets its check. */
     private Optional<IssueRecord> checkIssue(Issue issue) {
         try {
             return findStartableRecord(issue);
         } catch (GitHubException exception) {
             logGitHubFailure("The check of the issue #" + issue.number(), exception);
             return Optional.empty();
+        } catch (RuntimeException exception) {
+            LOGGER.log(System.Logger.Level.ERROR, "The check of the issue #" + issue.number() + " failed.",
+                    exception);
+            return Optional.empty();
         }
     }
 
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
-        if (isBlockRequested(issue)) {
-            requestBlock(issue.number());
+        int issueNumber = issue.number();
+        if (isBlockInProgress(issueNumber)) {
             return Optional.empty();
         }
-        if (isInWork(issue.number())) {
+        if (issue.labels().contains(BLOCK_LABEL)) {
+            if (requests.isGivenByAllowedAccount(issueNumber, BLOCK_LABEL)) {
+                requestBlock(issueNumber);
+                return Optional.empty();
+            }
+            noteIgnoredLabel(issueNumber, BLOCK_LABEL, gitHub.comments(issueNumber));
+        }
+        if (isInWork(issueNumber)) {
             return Optional.empty();
         }
-        List<IssueComment> comments = gitHub.comments(issue.number());
+        List<IssueComment> comments = gitHub.comments(issueNumber);
         if (StatusComment.hasBrokenRecord(comments, workerLogin)) {
             blockBrokenRecord(issue);
             return Optional.empty();
@@ -150,10 +187,6 @@ public final class Worker {
             return takeIntoQueue(issue, comments);
         }
         return record.filter(found -> isStartable(issue, found));
-    }
-
-    private boolean isBlockRequested(Issue issue) {
-        return issue.labels().contains(BLOCK_LABEL) && requests.isGivenByAllowedAccount(issue.number(), BLOCK_LABEL);
     }
 
     private boolean isStartable(Issue issue, IssueRecord record) {
@@ -169,17 +202,16 @@ public final class Worker {
 
     private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments) {
         if (!requests.isGivenByAllowedAccount(issue.number(), FACTORY_LABEL)) {
-            noteIgnoredIntake(issue.number(), comments);
+            noteIgnoredLabel(issue.number(), FACTORY_LABEL, comments);
             return Optional.empty();
         }
         return Optional.of(publishFirstRecord(issue, IssueRecord.queued(issue.number())));
     }
 
     /** Writes the note once: a comment of the worker with the same text means the note is there. */
-    private void noteIgnoredIntake(int issueNumber, List<IssueComment> comments) {
-        String actor = requests.findLabelActor(issueNumber, FACTORY_LABEL).orElse("an unknown account");
-        String note = "The label " + FACTORY_LABEL + " from " + actor
-                + " is ignored: the account is not in accounts.allowed.";
+    private void noteIgnoredLabel(int issueNumber, String label, List<IssueComment> comments) {
+        String actor = requests.findLabelActor(issueNumber, label).orElse("an unknown account");
+        String note = "The label " + label + " from " + actor + " is ignored: the account is not in accounts.allowed.";
         boolean isNoted = comments.stream()
                 .anyMatch(comment -> workerLogin.equals(comment.authorLogin()) && note.equals(comment.body()));
         if (!isNoted) {
@@ -211,7 +243,7 @@ public final class Worker {
             executor.submit(() -> runIssue(start));
         } catch (RejectedExecutionException exception) {
             LOGGER.log(System.Logger.Level.WARNING, "The executor refuses the issue #{0}.", issueNumber);
-            releaseIssue(start);
+            releaseIssue(start, Optional.empty());
         }
     }
 
@@ -224,38 +256,58 @@ public final class Worker {
         return issuesInWork.contains(issueNumber);
     }
 
-    /** A restart runs the phase again from its start. Without the worktree, the issue prepares again. */
-    private IssueRecord prepareRestart(IssueRecord record) {
-        boolean needsWorktree = PHASES_WITH_A_WORKTREE.contains(record.phase());
-        if (needsWorktree && !Files.isDirectory(layout.worktree(record.issueNumber()))) {
-            return record.withSessionId(UUID.randomUUID()).withPhase(Phase.PREPARE);
-        }
-        return record;
+    private synchronized boolean isBlockInProgress(int issueNumber) {
+        return blockedIssues.contains(issueNumber);
     }
 
-    /** Keeps the result of a step only when no block and no stop came during the step. */
+    /**
+     * A restart runs the phase again from its start. Without the worktree, the issue prepares again in a new
+     * session, and the results that belong to the old worktree go away. The fix-loop count stays.
+     */
+    private IssueRecord prepareRestart(IssueRecord record) {
+        boolean needsWorktree = PHASES_WITH_A_WORKTREE.contains(record.phase());
+        if (!needsWorktree || Files.isDirectory(layout.worktree(record.issueNumber()))) {
+            return record;
+        }
+        return record.withSessionId(UUID.randomUUID())
+                .withoutReviews()
+                .withoutConflictedPaths()
+                .withoutRisk()
+                .withoutBuiltTree()
+                .withPhase(Phase.PREPARE);
+    }
+
+    /** Keeps the result of a step only when no block and no stop came during the step, or when it merged. */
     private void runIssue(IssueRecord start) {
         int issueNumber = start.issueNumber();
         IssueRecord kept = start;
+        Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
-            do {
-                if (!mayContinue(issueNumber)) {
+            while (mayContinue(issueNumber)) {
+                IssueRecord next = workflow.advance(kept);
+                if (!mayContinue(issueNumber) && !keepsTheMerge(issueNumber, next)) {
+                    interruptedResult = Optional.of(next);
                     break;
                 }
-                IssueRecord next = workflow.advance(kept);
-                if (!mayContinue(issueNumber) || next.equals(kept)) {
+                if (next.equals(kept)) {
                     break;
                 }
                 kept = next;
-            } while (!workflow.isWaiting(kept));
+                if (workflow.isWaiting(kept)) {
+                    break;
+                }
+            }
         } catch (ApiKeyDetectedException exception) {
             stopOnApiKey(issueNumber, exception);
         } catch (GitHubException exception) {
             logGitHubFailure("The step of the issue #" + issueNumber, exception);
         } catch (RuntimeException exception) {
             blockOnFailure(kept, exception);
+        } catch (Error error) {
+            LOGGER.log(System.Logger.Level.ERROR, "The loop of the issue #" + issueNumber + " ends.", error);
+            throw error;
         } finally {
-            releaseIssue(kept);
+            releaseIssue(kept, interruptedResult);
         }
     }
 
@@ -263,46 +315,58 @@ public final class Worker {
         return !isStopped() && !blockedIssues.contains(issueNumber);
     }
 
+    /** A merged change cannot be blocked: the issue continues to DONE and the block request goes away. */
+    private boolean keepsTheMerge(int issueNumber, IssueRecord result) {
+        if (result.phase() != Phase.DONE) {
+            return false;
+        }
+        if (isBlockInProgress(issueNumber)) {
+            gitHub.removeLabel(issueNumber, BLOCK_LABEL);
+            synchronized (this) {
+                blockedIssues.remove(issueNumber);
+            }
+        }
+        return true;
+    }
+
     /** Exactly one of requestBlock and releaseIssue sees the other, so the block is written once. */
     private void requestBlock(int issueNumber) {
         boolean isRunning;
         synchronized (this) {
-            blockedIssues.add(issueNumber);
+            if (!blockedIssues.add(issueNumber)) {
+                return;
+            }
             isRunning = issuesInWork.contains(issueNumber);
         }
         agentRunner.stopPhase(issueNumber);
         if (!isRunning) {
-            finishBlock(issueNumber, Optional.empty());
+            finishBlock(issueNumber, Optional.empty(), Optional.empty());
         }
     }
 
-    private void releaseIssue(IssueRecord kept) {
+    private void releaseIssue(IssueRecord kept, Optional<IssueRecord> interruptedResult) {
         boolean isBlocked;
         synchronized (this) {
             issuesInWork.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
         }
         if (isBlocked) {
-            finishBlock(kept.issueNumber(), Optional.of(kept));
+            finishBlock(kept.issueNumber(), Optional.of(kept), interruptedResult);
+        } else if (interruptedResult.isPresent()) {
+            restoreKeptRecord(kept, interruptedResult.get());
         }
-    }
-
-    /** The stopped step can start the agent session. The next run must resume that session, not start it again. */
-    private static IssueRecord keepSessionStart(IssueRecord kept, Optional<IssueRecord> onGitHub) {
-        boolean sessionStarted = onGitHub.filter(record -> record.sessionId().equals(kept.sessionId()))
-                .map(IssueRecord::agentSessionStarted)
-                .orElse(false);
-        return sessionStarted && !kept.agentSessionStarted() ? kept.withAgentSessionStarted() : kept;
     }
 
     /**
      * Writes BLOCKED over the record. The record of a loop is the last record that the loop kept; without a
      * loop, the record on GitHub is the last result.
      */
-    private void finishBlock(int issueNumber, Optional<IssueRecord> keptByLoop) {
+    private void finishBlock(int issueNumber, Optional<IssueRecord> keptByLoop,
+                             Optional<IssueRecord> interruptedResult) {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
-            IssueRecord base = keptByLoop.map(kept -> keepSessionStart(kept, onGitHub))
+            Optional<IssueRecord> laterRecord = interruptedResult.or(() -> onGitHub);
+            IssueRecord base = keptByLoop.map(kept -> keepFacts(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
             IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER);
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
@@ -314,6 +378,37 @@ public final class Worker {
                 blockedIssues.remove(issueNumber);
             }
         }
+    }
+
+    /** The stop came during a step, so the record from before the step goes back to GitHub. */
+    private void restoreKeptRecord(IssueRecord kept, IssueRecord interruptedResult) {
+        int issueNumber = kept.issueNumber();
+        try {
+            IssueRecord restored = keepFacts(kept, Optional.of(interruptedResult));
+            statusPublisher.publish(gitHub.issue(issueNumber), interruptedResult, restored);
+        } catch (GitHubException exception) {
+            logGitHubFailure("The restore of the issue #" + issueNumber, exception);
+        }
+    }
+
+    /**
+     * Keeps the facts of a later record that the kept record must not lose: the start of the agent session
+     * (the next run must resume it) and the pull request that the step opened.
+     */
+    private static IssueRecord keepFacts(IssueRecord kept, Optional<IssueRecord> laterRecord) {
+        if (laterRecord.isEmpty()) {
+            return kept;
+        }
+        IssueRecord later = laterRecord.get();
+        IssueRecord result = kept;
+        boolean isSameSession = later.sessionId().equals(kept.sessionId());
+        if (isSameSession && later.agentSessionStarted() && !kept.agentSessionStarted()) {
+            result = result.withAgentSessionStarted();
+        }
+        if (kept.pullRequestNumber().isEmpty() && later.pullRequestNumber().isPresent()) {
+            result = result.withPullRequest(later.pullRequestNumber().get());
+        }
+        return result;
     }
 
     /** Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. */
@@ -338,7 +433,12 @@ public final class Worker {
     private void stopOnApiKey(int issueNumber, ApiKeyDetectedException exception) {
         LOGGER.log(System.Logger.Level.ERROR, "The issue #{0} found an API key: {1}", issueNumber,
                 exception.getMessage());
+        apiKeyFound = true;
         stopSignal.countDown();
+        stopPhasesInWork();
+    }
+
+    private void stopPhasesInWork() {
         issuesInWork().forEach(agentRunner::stopPhase);
     }
 

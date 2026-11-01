@@ -132,7 +132,8 @@ public final class IssueWorkflow {
             return record;
         }
         FactoryFolder factoryFolder = new FactoryFolder(worktree);
-        boolean isFirstImplement = record.fixLoops() == 0;
+        // A new session (also after a restart without the worktree) gets the full task, not the findings.
+        boolean isFirstImplement = record.fixLoops() == 0 || !record.agentSessionStarted();
         Optional<String> prompt = isFirstImplement
                 ? Optional.of(prompts.implement(issue))
                 : factoryFolder.readFixPrompt();

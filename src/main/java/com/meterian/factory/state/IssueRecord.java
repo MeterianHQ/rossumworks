@@ -113,6 +113,18 @@ public record IssueRecord(
                 waitReason, pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths);
     }
 
+    public IssueRecord withoutRisk() {
+        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, Optional.empty(), false,
+                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths);
+    }
+
+    public IssueRecord withoutBuiltTree() {
+        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
+                reviewedTreeHash, reviewedPatchId, Optional.empty(), waitReason, pullRequestNumber,
+                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths);
+    }
+
     public IssueRecord withReviewedTree(String treeHash, String patchId) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 Optional.of(treeHash), Optional.of(patchId), builtTreeHash, waitReason, pullRequestNumber,

@@ -61,6 +61,8 @@ class WorkerTest {
     private static final String APPROVE_LABEL = "factory:approve";
     private static final String MALLORY_NOTE =
             "The label factory from mallory is ignored: the account is not in accounts.allowed.";
+    private static final String MALLORY_BLOCK_NOTE =
+            "The label factory:block from mallory is ignored: the account is not in accounts.allowed.";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
@@ -280,8 +282,109 @@ class WorkerTest {
         gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "mallory");
 
         worker.pollOnce();
+        worker.pollOnce();
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
+                .filteredOn(body -> body.equals(MALLORY_BLOCK_NOTE)).hasSize(1);
+    }
+
+    @Test
+    void aBlockDuringTheMergeKeepsTheMerge() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        Worker worker = createWorker(agent, 2);
+        gitHub.whenSquashMerging(() -> {
+            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            worker.pollOnce();
+        });
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.stoppedIssues()).contains(ISSUE);
+        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aPollDuringTheBlockDoesNotBlockTwice() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.whenACommentEditContains(WaitReason.BLOCKED_BY_OWNER.sentence(), worker::pollOnce);
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.stoppedIssues()).containsExactly(ISSUE);
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+    }
+
+    @Test
+    void shutDownStopsThePhasesInWork() throws InterruptedException {
+        addLabeledIssue(8);
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenWaitForStop().thatFails().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+
+        boolean loopsEnded = worker.shutDown(TIME_BOUND);
+
+        assertThat(loopsEnded).isTrue();
+        assertThat(worker.isStopped()).isTrue();
+        assertThat(agent.stoppedIssues()).contains(7, 8);
+        assertThat(worker.foundAnApiKey()).isFalse();
+        for (int issueNumber : List.of(7, 8)) {
+            assertThat(readRecord(issueNumber).orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+        }
+    }
+
+    @Test
+    void aRestartWithoutTheWorktreeAfterAFixLoopImplementsAgain() throws InterruptedException {
+        FakeAgentRunner firstAgent = new FakeAgentRunner().thenChangeFile()
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .thenChangeFile()
+                .then(request -> {
+                    throw new GitHubException("GitHub answered 502 for GET /issues/7");
+                });
+        createWorker(firstAgent, 2).pollOnce();
+        waitForTheLoops();
+        IssueRecord stopped = readRecord(ISSUE).orElseThrow();
+        assertThat(stopped.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(stopped.fixLoops()).isEqualTo(1);
+        run(clone, "worktree", "remove", "--force", worktree().toString());
+        FakeAgentRunner secondAgent = new FakeAgentRunner()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        createWorker(secondAgent, 2).pollOnce();
+        waitForTheLoops();
+
+        PhaseRequest implement = secondAgent.requests().getFirst();
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(implement.newSession()).isTrue();
+        assertThat(implement.sessionId()).isNotEqualTo(firstAgent.requests().getFirst().sessionId());
+        assertThat(implement.prompt()).startsWith("Do the work of the issue below")
+                .doesNotContain("Missing input check");
+    }
+
+    @Test
+    void keepsPollingAfterAnUnexpectedFailureOfOneIssue() {
+        addLabeledIssue(8);
+        gitHub.failTheCommentsOf(ISSUE);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        assertThat(gitHub.statusOf(8)).contains(IssueStatus.QUEUED);
+        assertThat(worker.isStopped()).isFalse();
     }
 
     @Test
@@ -336,13 +439,23 @@ class WorkerTest {
     }
 
     @Test
-    void stopsTheFactoryOnAnApiKey() {
-        FakeAgentRunner agent = new FakeAgentRunner().thenDetectAnApiKey();
+    void stopsTheFactoryOnAnApiKey() throws InterruptedException {
+        addLabeledIssue(8);
+        FakeAgentRunner agent = new FakeAgentRunner().thenDetectAnApiKey().thenWaitForStop().thatFails();
         Worker worker = createWorker(agent, createConfiguration(2, Duration.ofMillis(50)));
 
         assertTimeoutPreemptively(TIME_BOUND, worker::runUntilStopped);
+        waitForTheLoops();
 
+        int issueWithTheApiKey = agent.requests().getFirst().issueNumber();
+        int otherIssue = issueWithTheApiKey == 7 ? 8 : 7;
+        IssueRecord otherRecord = readRecord(otherIssue).orElseThrow();
         assertThat(worker.isStopped()).isTrue();
+        assertThat(worker.foundAnApiKey()).isTrue();
+        assertThat(agent.stoppedIssues()).contains(otherIssue);
+        assertThat(otherRecord.status()).isIn(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS);
+        assertThat(otherRecord.phase()).isIn(Phase.PREPARE, Phase.IMPLEMENT);
+        assertThat(otherRecord.notes()).isEmpty();
     }
 
     @Test

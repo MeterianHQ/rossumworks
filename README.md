@@ -30,4 +30,5 @@ Note: if the token belongs to the owner, GitHub sends the owner no notification 
 worker. A separate GitHub account for the worker gives the notifications.
 
 The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
-before the start fails.
+before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
+their start at the next run.

@@ -135,6 +135,29 @@ class MainTest {
     }
 
     @Test
+    void readsTheTokenFromTheOutputOfACommand() throws Main.StartupException {
+        Optional<String> token = Main.readTokenFromCommand(List.of("sh", "-c", "echo command-token"),
+                Duration.ofSeconds(30));
+
+        assertThat(token).contains("command-token");
+    }
+
+    @Test
+    void givesNoTokenWhenTheCommandFails() throws Main.StartupException {
+        assertThat(Main.readTokenFromCommand(List.of("sh", "-c", "echo partial; exit 1"), Duration.ofSeconds(30)))
+                .isEmpty();
+        assertThat(Main.readTokenFromCommand(List.of("no-such-gh-for-the-factory"), Duration.ofSeconds(30)))
+                .isEmpty();
+    }
+
+    @Test
+    void stopsATokenCommandThatDoesNotAnswer() {
+        assertThatThrownBy(() -> Main.readTokenFromCommand(List.of("sleep", "20"), Duration.ofMillis(300)))
+                .isInstanceOf(Main.StartupException.class)
+                .hasMessage("The command sleep 20 did not answer in 0.3 seconds. Set FACTORY_GITHUB_TOKEN.");
+    }
+
+    @Test
     void createsAClientThatFollowsNoRedirect() {
         HttpClient client = Main.createHttpClient();
 

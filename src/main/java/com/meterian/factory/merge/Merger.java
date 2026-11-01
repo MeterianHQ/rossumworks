@@ -3,6 +3,7 @@ package com.meterian.factory.merge;
 import com.meterian.factory.build.BuildOutcome;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.git.CloneLock;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.git.RebaseOutcome;
@@ -51,10 +52,11 @@ public final class Merger {
     }
 
     private MergeResult rebaseAndMerge(Path worktree, IssueRecord record, int pullRequestNumber) {
-        perform("The fetch of " + mergeTargetBranch, () -> {
+        // The fetch writes refs/remotes/origin of the clone, which all worktrees share.
+        perform("The fetch of " + mergeTargetBranch, () -> CloneLock.run(target.cloneDirectory(), () -> {
             git.fetch(worktree, ORIGIN, mergeTargetBranch);
             return null;
-        });
+        }));
         String upstream = ORIGIN + "/" + mergeTargetBranch;
         RebaseOutcome outcome = perform("The rebase", () -> git.rebase(worktree, upstream));
         return switch (outcome) {
