@@ -20,12 +20,12 @@ public final class StatusComment {
     private StatusComment() {
     }
 
-    public static String render(IssueRecord record) {
+    public static String render(IssueRecord record, int fixLoopLimit) {
         StringBuilder body = new StringBuilder();
         body.append(renderHeadline(record)).append('\n');
         body.append(renderReviews(record)).append('\n');
-        body.append(renderCounters(record)).append('\n');
-        record.notes().forEach(note -> body.append(note).append('\n'));
+        body.append(renderCounters(record, fixLoopLimit)).append('\n');
+        record.notes().forEach(note -> body.append(sanitizeNote(note)).append('\n'));
         body.append('\n').append(RECORD_START).append('\n');
         body.append(writeJson(record)).append('\n');
         body.append(RECORD_END);
@@ -35,10 +35,13 @@ public final class StatusComment {
     public static Optional<IssueRecord> findRecord(List<IssueComment> comments, String workerLogin) {
         return comments.stream()
                 .filter(comment -> workerLogin.equals(comment.authorLogin()))
-                .sorted(Comparator.comparingLong(IssueComment::id).reversed())
-                .map(comment -> readRecord(comment.body()))
-                .flatMap(Optional::stream)
-                .findFirst();
+                .filter(comment -> comment.body().contains(RECORD_START))
+                .max(Comparator.comparingLong(IssueComment::id))
+                .flatMap(comment -> readRecord(comment.body()));
+    }
+
+    private static String sanitizeNote(String note) {
+        return note.replaceAll("\\R", " ").replace("<!--", "<! --").replace("-->", "-- >");
     }
 
     private static String renderHeadline(IssueRecord record) {
@@ -60,10 +63,10 @@ public final class StatusComment {
         return verdict == null ? NOT_SET : verdict.name().toLowerCase();
     }
 
-    private static String renderCounters(IssueRecord record) {
+    private static String renderCounters(IssueRecord record, int fixLoopLimit) {
         String risk = record.risk().map(level -> level.name().toLowerCase()).orElse(NOT_SET);
         String pullRequest = record.pullRequestNumber().map(number -> "#" + number).orElse(NOT_SET);
-        return "Fix loops: " + record.fixLoops() + " · Risk: " + risk + " · Pull request: " + pullRequest;
+        return "Fix loops: " + record.fixLoops() + " of " + fixLoopLimit + " · Risk: " + risk + " · Pull request: " + pullRequest;
     }
 
     private static String writeJson(IssueRecord record) {
@@ -75,17 +78,18 @@ public final class StatusComment {
     }
 
     private static Optional<IssueRecord> readRecord(String body) {
-        int start = body.indexOf("\n" + RECORD_START + "\n");
+        String trimmed = body.stripTrailing();
+        if (!trimmed.endsWith(RECORD_END)) {
+            return Optional.empty();
+        }
+        String marker = "\n" + RECORD_START + "\n";
+        int start = trimmed.lastIndexOf(marker);
         if (start < 0) {
             return Optional.empty();
         }
-        int jsonStart = start + RECORD_START.length() + 2;
-        int end = body.indexOf("\n" + RECORD_END, jsonStart);
-        if (end < 0) {
-            return Optional.empty();
-        }
+        String json = trimmed.substring(start + marker.length(), trimmed.length() - RECORD_END.length());
         try {
-            return Optional.of(MAPPER.readValue(body.substring(jsonStart, end), IssueRecord.class));
+            return Optional.of(MAPPER.readValue(json, IssueRecord.class));
         } catch (IOException | RuntimeException exception) {
             return Optional.empty();
         }

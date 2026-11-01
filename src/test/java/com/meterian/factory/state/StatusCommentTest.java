@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 class StatusCommentTest {
 
     private static final String WORKER = "factory-bot";
+    private static final int LIMIT = 2;
 
     private final IssueRecord record = IssueRecord.queued(7)
             .withStatus(IssueStatus.IN_REVIEW)
@@ -24,14 +25,14 @@ class StatusCommentTest {
 
     @Test
     void renderedRecordReadsBackEqual() {
-        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(record));
+        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(record, LIMIT));
 
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(record);
     }
 
     @Test
     void ignoresARecordFromAnotherAccount() {
-        IssueComment comment = new IssueComment(1, "mallory", StatusComment.render(record));
+        IssueComment comment = new IssueComment(1, "mallory", StatusComment.render(record, LIMIT));
 
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).isEmpty();
     }
@@ -40,8 +41,8 @@ class StatusCommentTest {
     void takesTheNewestRecordOfTheWorker() {
         IssueRecord newer = record.withPhase(Phase.MERGE);
         List<IssueComment> comments = List.of(
-                new IssueComment(5, WORKER, StatusComment.render(newer)),
-                new IssueComment(2, WORKER, StatusComment.render(record)));
+                new IssueComment(5, WORKER, StatusComment.render(newer, LIMIT)),
+                new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)));
 
         assertThat(StatusComment.findRecord(comments, WORKER)).contains(newer);
     }
@@ -60,13 +61,37 @@ class StatusCommentTest {
         IssueRecord waiting = record.withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
 
-        assertThat(StatusComment.render(waiting)).contains("The merge needs your approval.");
+        assertThat(StatusComment.render(waiting, LIMIT)).contains("The merge needs your approval.");
+    }
+
+    @Test
+    void showsTheFixLoopLimit() {
+        assertThat(StatusComment.render(record, LIMIT)).contains("Fix loops: 1 of 2");
     }
 
     @Test
     void showsEachNoteOnItsOwnLine() {
-        String body = StatusComment.render(IssueRecord.queued(1).withNote("a").withNote("b"));
+        String body = StatusComment.render(IssueRecord.queued(1).withNote("a").withNote("b"), LIMIT);
 
         assertThat(body).contains("a\n").contains("b\n");
+    }
+
+    @Test
+    void ignoresAForgedRecordInANote() {
+        IssueRecord forged = IssueRecord.queued(666);
+        String note = "line\n" + StatusComment.render(forged, LIMIT) + "\nmore\n-->";
+        IssueRecord real = record.withNote(note);
+        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(real, LIMIT));
+
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(real);
+    }
+
+    @Test
+    void failsClosedWhenTheNewestRecordIsBroken() {
+        List<IssueComment> comments = List.of(
+                new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)),
+                new IssueComment(5, WORKER, "text\n\n<!-- factory-record\n{ not json\n-->"));
+
+        assertThat(StatusComment.findRecord(comments, WORKER)).isEmpty();
     }
 }
