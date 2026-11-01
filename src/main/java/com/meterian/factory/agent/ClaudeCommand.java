@@ -15,6 +15,7 @@ public final class ClaudeCommand {
     private ClaudeCommand() {
     }
 
+    /** The prompt is not an argument: the runner writes it to the standard input, after the tool lists. */
     public static List<String> arguments(ClaudeSettings settings, PhaseRequest request) {
         List<String> arguments = new ArrayList<>();
         arguments.add(settings.command());
@@ -27,7 +28,6 @@ public final class ClaudeCommand {
         arguments.addAll(settings.allowedTools());
         arguments.add("--disallowedTools");
         arguments.addAll(settings.disallowedTools());
-        arguments.add(request.prompt());
         return arguments;
     }
 
