@@ -106,7 +106,8 @@ class IssueWorkflowTest {
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty());
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
+                temporaryDirectory.resolve("live"));
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),

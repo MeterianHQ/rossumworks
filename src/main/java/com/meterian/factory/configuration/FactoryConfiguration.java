@@ -13,5 +13,6 @@ public record FactoryConfiguration(
         ClaudeSettings claude,
         Path workDirectory,
         Path gatekeeperDirectory,
-        Optional<Path> promptDirectory) {
+        Optional<Path> promptDirectory,
+        Path liveDirectory) {
 }

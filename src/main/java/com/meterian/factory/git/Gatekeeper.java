@@ -1,12 +1,10 @@
 package com.meterian.factory.git;
 
+import com.meterian.factory.file.AtomicFileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.util.Arrays;
 import java.util.List;
 
 /** The gatekeeper is a local bare repository. Its hooks accept only factory branches and forward them to GitHub. */
@@ -38,28 +36,13 @@ public final class Gatekeeper {
         }
     }
 
-    /**
-     * Writes the hook to a temporary file and moves it in place in one step, so that a push at the same time
-     * never sees a missing or a not executable hook. An up-to-date hook stays as it is.
-     */
+    /** Writes the hook in one step, so that a push at the same time never sees a missing or a not executable hook. */
     private static void writeHook(Path gatekeeperDirectory, String hookName) {
-        Path hooksDirectory = gatekeeperDirectory.resolve("hooks");
-        Path hookFile = hooksDirectory.resolve(hookName);
-        byte[] content = readHookResource(hookName);
-        if (isUpToDate(hookFile, content)) {
-            return;
-        }
-        Path temporaryFile = null;
+        Path hookFile = gatekeeperDirectory.resolve("hooks").resolve(hookName);
         try {
-            Files.createDirectories(hooksDirectory);
-            temporaryFile = Files.createTempFile(hooksDirectory, "." + hookName + "-", ".tmp");
-            Files.write(temporaryFile, content);
-            Files.setPosixFilePermissions(temporaryFile, PosixFilePermissions.fromString("rwxr-xr-x"));
-            Files.move(temporaryFile, hookFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            AtomicFileWriter.write(hookFile, readHookResource(hookName), "rwxr-xr-x");
         } catch (IOException exception) {
             throw new GitException("Cannot write the hook " + hookFile, exception);
-        } finally {
-            deleteIfPresent(temporaryFile);
         }
     }
 
@@ -71,30 +54,6 @@ public final class Gatekeeper {
             return source.readAllBytes();
         } catch (IOException exception) {
             throw new GitException("Cannot read the resource of the hook " + hookName, exception);
-        }
-    }
-
-    private static boolean isUpToDate(Path hookFile, byte[] content) {
-        try {
-            return Files.isRegularFile(hookFile) && Files.isExecutable(hookFile)
-                    && Arrays.equals(Files.readAllBytes(hookFile), content);
-        } catch (IOException exception) {
-            return false;
-        }
-    }
-
-    /**
-     * After a successful move the temporary file is gone, so this deletes only what a failure leaves. A file
-     * that stays does no harm: git runs only the hooks with the exact names.
-     */
-    private static void deleteIfPresent(Path temporaryFile) {
-        if (temporaryFile == null) {
-            return;
-        }
-        try {
-            Files.deleteIfExists(temporaryFile);
-        } catch (IOException ignored) {
-            // The first failure is the one to report, so this one stays quiet.
         }
     }
 }

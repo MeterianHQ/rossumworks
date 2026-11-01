@@ -25,3 +25,4 @@ claude:                 # optional
 work-directory: /home/bbossola/.claude-ai-factory/work
 gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git
 # prompts-directory: /path/to/prompts   # optional
+# live-directory: /path/to/live         # optional, default: <work-directory>/live
