@@ -100,15 +100,15 @@ class IssueRecordTest {
     }
 
     @Test
-    void countsTheFailedForwardChecksOfOneCommit() {
+    void countsTheFailedForwardChecksOfOneTree() {
         IssueRecord twice = queued.withFailedForwardCheck("aaa").withFailedForwardCheck("aaa");
-        IssueRecord otherCommit = twice.withFailedForwardCheck("bbb");
+        IssueRecord otherTree = twice.withFailedForwardCheck("bbb");
 
         assertThat(twice.failedForwardChecks()).isEqualTo(2);
-        assertThat(otherCommit.failedForwardChecks()).isEqualTo(1);
-        assertThat(otherCommit.failedForwardCommit()).contains("bbb");
-        assertThat(otherCommit.withoutFailedForwardChecks().failedForwardChecks()).isZero();
-        assertThat(otherCommit.withoutFailedForwardChecks().failedForwardCommit()).isEmpty();
+        assertThat(otherTree.failedForwardChecks()).isEqualTo(1);
+        assertThat(otherTree.failedForwardTree()).contains("bbb");
+        assertThat(otherTree.withoutFailedForwardChecks().failedForwardChecks()).isZero();
+        assertThat(otherTree.withoutFailedForwardChecks().failedForwardTree()).isEmpty();
     }
 
     @Test

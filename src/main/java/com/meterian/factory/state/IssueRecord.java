@@ -29,7 +29,7 @@ public record IssueRecord(
         Optional<String> issueTextHash,
         Optional<String> reviewedHeadCommit,
         int failedForwardChecks,
-        Optional<String> failedForwardCommit) {
+        Optional<String> failedForwardTree) {
 
     /** A record from before a new field reads the field as empty. */
     public IssueRecord {
@@ -38,7 +38,7 @@ public record IssueRecord(
         conflictedPaths = conflictedPaths == null ? List.of() : List.copyOf(conflictedPaths);
         issueTextHash = issueTextHash == null ? Optional.empty() : issueTextHash;
         reviewedHeadCommit = reviewedHeadCommit == null ? Optional.empty() : reviewedHeadCommit;
-        failedForwardCommit = failedForwardCommit == null ? Optional.empty() : failedForwardCommit;
+        failedForwardTree = failedForwardTree == null ? Optional.empty() : failedForwardTree;
     }
 
     public static IssueRecord queued(int issueNumber) {
@@ -53,21 +53,21 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, newSessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, false, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withFailedReviewRound() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds + 1, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutFailedReviewRounds() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, 0, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     /** Keeps the paths with a conflict while the merge is open. The check of the markers reads them. */
@@ -75,7 +75,7 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, newConflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutConflictedPaths() {
@@ -86,21 +86,21 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, true, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withStatus(IssueStatus newStatus) {
         return new IssueRecord(issueNumber, sessionId, newStatus, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withPhase(Phase newPhase) {
         return new IssueRecord(issueNumber, sessionId, status, newPhase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withReview(ReviewKind kind, Verdict verdict) {
@@ -109,21 +109,21 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, newReviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutReviews() {
         return new IssueRecord(issueNumber, sessionId, status, phase, Map.of(), fixLoops, risk, small,
                 Optional.empty(), Optional.empty(), builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, Optional.empty(), failedForwardChecks, failedForwardCommit);
+                issueTextHash, Optional.empty(), failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withFixLoop() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops + 1, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withRisk(RiskLevel newRisk, boolean newSmall) {
@@ -131,35 +131,35 @@ public record IssueRecord(
                 Optional.of(newRisk), newSmall, reviewedTreeHash, reviewedPatchId, builtTreeHash,
                 waitReason, pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds,
                 conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutRisk() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, Optional.empty(), false,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutBuiltTree() {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, Optional.empty(), waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withReviewedTree(String treeHash, String patchId) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 Optional.of(treeHash), Optional.of(patchId), builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withBuiltTree(String treeHash) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, Optional.of(treeHash), waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withWaitReason(WaitReason newWaitReason) {
@@ -167,7 +167,7 @@ public record IssueRecord(
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.of(newWaitReason),
                 pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
                 issueTextHash, reviewedHeadCommit,
-                failedForwardChecks, failedForwardCommit);
+                failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withoutWaitReason() {
@@ -175,21 +175,21 @@ public record IssueRecord(
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.empty(),
                 pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
                 issueTextHash, reviewedHeadCommit,
-                failedForwardChecks, failedForwardCommit);
+                failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withPullRequest(int number) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, Optional.of(number),
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     public IssueRecord withStatusComment(long commentId) {
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 Optional.of(commentId), notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     /** The hash of the issue text that the owner accepted: at the intake, or with the label factory:approve. */
@@ -197,7 +197,7 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                Optional.of(newIssueTextHash), reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                Optional.of(newIssueTextHash), reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 
     /** The commit that the four reviews approved. A merge step that does not end goes back to it. */
@@ -205,16 +205,19 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths, issueTextHash,
-                Optional.of(commit), failedForwardChecks, failedForwardCommit);
+                Optional.of(commit), failedForwardChecks, failedForwardTree);
     }
 
-    /** Counts a check that did not find the pushed commit on GitHub. A new commit starts the count again. */
-    public IssueRecord withFailedForwardCheck(String pushedCommit) {
-        boolean isSameCommit = failedForwardCommit.equals(Optional.of(pushedCommit));
+    /**
+     * Counts a check that did not find the pushed commit on GitHub. The key is the tree, because each rebase
+     * makes a new commit of the same change. A new tree starts the count again.
+     */
+    public IssueRecord withFailedForwardCheck(String pushedTree) {
+        boolean isSameTree = failedForwardTree.equals(Optional.of(pushedTree));
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths, issueTextHash,
-                reviewedHeadCommit, isSameCommit ? failedForwardChecks + 1 : 1, Optional.of(pushedCommit));
+                reviewedHeadCommit, isSameTree ? failedForwardChecks + 1 : 1, Optional.of(pushedTree));
     }
 
     public IssueRecord withoutFailedForwardChecks() {
@@ -233,6 +236,6 @@ public record IssueRecord(
         return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, newNotes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardCommit);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree);
     }
 }

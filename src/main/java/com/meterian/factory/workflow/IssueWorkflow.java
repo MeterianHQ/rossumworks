@@ -198,7 +198,7 @@ public final class IssueWorkflow {
         }
         String headCommit = git.headCommit(worktree);
         String treeHash = git.treeHashOf(worktree, headCommit);
-        if (!isBuiltWithALostForward(record, headCommit, treeHash)) {
+        if (!isBuiltWithALostForward(record, treeHash)) {
             BuildOutcome outcome = buildRunner.run(worktree, configuration.target());
             if (outcome.stopped()) {
                 return record;
@@ -214,14 +214,14 @@ public final class IssueWorkflow {
         PullRequestPublisher.PublishedBranch published = pullRequestPublisher.publish(issue, worktree, headCommit);
         IssueRecord built = record.withBuiltTree(treeHash).withPullRequest(published.pullRequest().number());
         if (!published.isOnGitHub()) {
-            return forwardCheckFailure.count(issue, record, built, headCommit);
+            return forwardCheckFailure.count(issue, record, built, headCommit, treeHash);
         }
         return built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.REVIEW);
     }
 
-    /** The build passed for this commit and only the forward failed, so the build does not run again. */
-    private static boolean isBuiltWithALostForward(IssueRecord record, String headCommit, String treeHash) {
-        return record.failedForwardCommit().equals(Optional.of(headCommit))
+    /** The build passed for this tree and only the forward failed, so the build does not run again. */
+    private static boolean isBuiltWithALostForward(IssueRecord record, String treeHash) {
+        return record.failedForwardTree().equals(Optional.of(treeHash))
                 && record.builtTreeHash().equals(Optional.of(treeHash));
     }
 
@@ -293,7 +293,8 @@ public final class IssueWorkflow {
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> record;
             case MergeResult.NotForwarded notForwarded ->
-                    forwardCheckFailure.count(issue, record, record, notForwarded.pushedCommit());
+                    forwardCheckFailure.count(issue, record, record, notForwarded.pushedCommit(),
+                            notForwarded.pushedTree());
         };
     }
 

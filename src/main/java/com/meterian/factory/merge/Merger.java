@@ -59,7 +59,12 @@ public final class Merger {
 
     /** A result that is not final, or a transient failure, leaves the worktree on the reviewed commit. */
     private MergeResult mergeOrRestore(Path worktree, IssueRecord record, int pullRequestNumber) {
-        String commitBeforeTheMerge = git.headCommit(worktree);
+        String commitBeforeTheMerge;
+        try {
+            commitBeforeTheMerge = perform("The read of the head commit", () -> git.headCommit(worktree));
+        } catch (StepFailedException exception) {
+            return new MergeResult.Failed(exception.getMessage());
+        }
         try {
             MergeResult result = mergeOnAStableBase(worktree, record, pullRequestNumber);
             if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded) {
@@ -172,7 +177,7 @@ public final class Merger {
             return null;
         });
         if (!pushedCommitCheck.isOnGitHub(pullRequestNumber, headCommit, branch)) {
-            return new MergeResult.NotForwarded(headCommit);
+            return new MergeResult.NotForwarded(headCommit, builtTreeHash);
         }
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);

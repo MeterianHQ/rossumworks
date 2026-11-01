@@ -102,7 +102,7 @@ class MergeGateTest {
                 record.reviewedPatchId(), record.builtTreeHash(), record.waitReason(), record.pullRequestNumber(),
                 record.statusCommentId(), record.notes(), record.agentSessionStarted(),
                 record.failedReviewRounds(), record.conflictedPaths(), record.issueTextHash(),
-                record.reviewedHeadCommit(), record.failedForwardChecks(), record.failedForwardCommit());
+                record.reviewedHeadCommit(), record.failedForwardChecks(), record.failedForwardTree());
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false);
 

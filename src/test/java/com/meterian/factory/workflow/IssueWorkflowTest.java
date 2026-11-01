@@ -662,6 +662,30 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void blocksAtTheThirdPollWhenAForwardInTheMergeFailsForGoodAfterABaseMove() throws Exception {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        Files.delete(temporaryDirectory.resolve("builds.txt"));
+        moveTheBase("c.txt", "base\n");
+        breakTheForward();
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
+        assertThat(readRecordFromGitHub().failedForwardChecks()).isEqualTo(2);
+
+        IssueRecord record = workflow.advance(readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.notes()).anySatisfy(note -> assertThat(note)
+                .startsWith("GitHub does not show the pushed commit ")
+                .endsWith(" on factory/issue-7 after 3 tries."));
+        assertThat(readRecordFromGitHub().status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(buildCount()).isEqualTo(3);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
     void reviewsAndMergesWhenGitHubShowsTheOldHeadForAWhile() throws ApiKeyDetectedException {
         gitHub.answerAnOldPullRequestHeadOnce();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);

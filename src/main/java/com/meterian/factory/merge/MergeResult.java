@@ -29,7 +29,7 @@ public sealed interface MergeResult {
     }
 
     /** GitHub does not show the pushed commit, also after a new forward from the gatekeeper. */
-    record NotForwarded(String pushedCommit) implements MergeResult {
+    record NotForwarded(String pushedCommit, String pushedTree) implements MergeResult {
     }
 
     /** A step failed. The change does not merge. */

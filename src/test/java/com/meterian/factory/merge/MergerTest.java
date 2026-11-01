@@ -357,7 +357,7 @@ class MergerTest {
 
         MergeResult result = merger.merge(worktree, record);
 
-        assertThat(result).isEqualTo(new MergeResult.NotForwarded(git.headCommit(worktree)));
+        assertThat(result).isEqualTo(new MergeResult.NotForwarded(git.headCommit(worktree), git.treeHash(worktree)));
         assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 

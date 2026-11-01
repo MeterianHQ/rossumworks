@@ -21,8 +21,8 @@ final class ForwardCheckFailure {
      * Below the limit, publishes the counted record and throws a GitHubException. The loop of the issue then
      * ends, and the next poll runs the step again with the count.
      */
-    IssueRecord count(Issue issue, IssueRecord before, IssueRecord after, String pushedCommit) {
-        IssueRecord counted = after.withFailedForwardCheck(pushedCommit);
+    IssueRecord count(Issue issue, IssueRecord before, IssueRecord after, String pushedCommit, String pushedTree) {
+        IssueRecord counted = after.withFailedForwardCheck(pushedTree);
         if (counted.failedForwardChecks() >= LIMIT) {
             return counted.withStatus(IssueStatus.BLOCKED)
                     .withWaitReason(WaitReason.FAILURE)
