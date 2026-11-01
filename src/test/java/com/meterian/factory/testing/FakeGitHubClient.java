@@ -41,6 +41,9 @@ public final class FakeGitHubClient implements GitHubClient {
     private boolean failsTheNextCommentEdit;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
+    private boolean failsTheRemoveLabelAfterTheMerge;
+    private boolean failsTheNextRemoveLabel;
+    private boolean failsTheNextIssueList;
     private Runnable squashMergeAction = () -> { };
     private String commentEditTrigger;
     private Runnable commentEditAction = () -> { };
@@ -126,6 +129,16 @@ public final class FakeGitHubClient implements GitHubClient {
         commentEditAction = action;
     }
 
+    /** The first removeLabel after a successful squash merge throws a GitHubException. */
+    public synchronized void failTheRemoveLabelAfterTheMerge() {
+        failsTheRemoveLabelAfterTheMerge = true;
+    }
+
+    /** The next openIssuesWithLabel throws an IllegalStateException, as an unexpected defect does. */
+    public synchronized void failTheNextIssueList() {
+        failsTheNextIssueList = true;
+    }
+
     /** The comments of the issue throw an IllegalStateException, as an unexpected defect does. */
     public synchronized void failTheCommentsOf(int issueNumber) {
         issuesWithFailingComments.add(issueNumber);
@@ -138,6 +151,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized List<Issue> openIssuesWithLabel(String label) {
+        if (failsTheNextIssueList) {
+            failsTheNextIssueList = false;
+            throw new IllegalStateException("A defect in the list of the issues");
+        }
         return issues.keySet().stream().filter(number -> labels.get(number).contains(label)).map(this::issue).toList();
     }
 
@@ -198,6 +215,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void removeLabel(int issueNumber, String label) {
+        if (failsTheNextRemoveLabel) {
+            failsTheNextRemoveLabel = false;
+            throw new GitHubException("GitHub answered 502 for DELETE /issues/" + issueNumber + "/labels/" + label);
+        }
         labels.get(issueNumber).remove(label);
     }
 
@@ -237,6 +258,8 @@ public final class FakeGitHubClient implements GitHubClient {
             mergedPullRequests.add(pullRequestNumber);
             failsTheNextCommentEdit = failsTheNextCommentEdit || failsTheCommentEditAfterTheMerge;
             failsTheCommentEditAfterTheMerge = false;
+            failsTheNextRemoveLabel = failsTheNextRemoveLabel || failsTheRemoveLabelAfterTheMerge;
+            failsTheRemoveLabelAfterTheMerge = false;
         }
         return outcome;
     }

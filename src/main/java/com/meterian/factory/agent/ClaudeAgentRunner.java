@@ -20,6 +20,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
     private static final String STOPPED_TEXT = "The phase was stopped.";
+    private static final String STOPPING_TEXT = "The factory is stopping.";
     private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
 
@@ -28,6 +29,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
     private final Map<String, String> parentEnvironment;
     private final IntConsumer afterRegistration;
     private final Map<Integer, Run> runs = new ConcurrentHashMap<>();
+    private volatile boolean refusesNewPhases;
 
     public ClaudeAgentRunner(ClaudeSettings settings, Clock clock) {
         this(settings, clock, System.getenv(), issueNumber -> { });
@@ -48,6 +50,10 @@ public final class ClaudeAgentRunner implements AgentRunner {
             throw new AgentException("A phase already runs for the issue " + request.issueNumber() + ".");
         }
         try {
+            // The check after the registration: a stopPhase after refuseNewPhases always sees this run.
+            if (refusesNewPhases) {
+                throw new AgentException(STOPPING_TEXT);
+            }
             afterRegistration.accept(request.issueNumber());
             run.attach(startProcess(request));
             return readSession(request, run);
@@ -63,6 +69,11 @@ public final class ClaudeAgentRunner implements AgentRunner {
         if (run != null) {
             run.requestStop();
         }
+    }
+
+    @Override
+    public void refuseNewPhases() {
+        refusesNewPhases = true;
     }
 
     private Process startProcess(PhaseRequest request) throws AgentException {

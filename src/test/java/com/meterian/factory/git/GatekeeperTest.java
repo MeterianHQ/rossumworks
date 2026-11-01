@@ -10,7 +10,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -87,6 +89,35 @@ class GatekeeperTest {
 
         assertThat(run(github, "for-each-ref")).isEmpty();
         assertThat(run(gatekeeper, "for-each-ref")).isEmpty();
+    }
+
+    @Test
+    void leavesAnUpToDateHookUnchanged() throws IOException {
+        Path hook = gatekeeper.resolve("hooks").resolve("pre-receive");
+        Object inodeBefore = Files.getAttribute(hook, "unix:ino");
+        FileTime modifiedBefore = FileTime.fromMillis(0);
+        Files.setLastModifiedTime(hook, modifiedBefore);
+
+        Gatekeeper.ensure(gatekeeper, github.toString());
+
+        assertThat(Files.getAttribute(hook, "unix:ino")).isEqualTo(inodeBefore);
+        assertThat(Files.getLastModifiedTime(hook)).isEqualTo(modifiedBefore);
+    }
+
+    @Test
+    void replacesAHookWithANewFileAndLeavesNoTemporaryFile() throws IOException {
+        Path hook = gatekeeper.resolve("hooks").resolve("pre-receive");
+        Files.writeString(hook, "#!/bin/sh\nexit 0\n");
+        Object inodeBefore = Files.getAttribute(hook, "unix:ino");
+
+        Gatekeeper.ensure(gatekeeper, github.toString());
+
+        assertThat(Files.getAttribute(hook, "unix:ino")).isNotEqualTo(inodeBefore);
+        assertThat(hook).isExecutable();
+        assertThat(Files.readAllBytes(hook)).isEqualTo(readResource("/gatekeeper/pre-receive"));
+        try (Stream<Path> files = Files.list(gatekeeper.resolve("hooks"))) {
+            assertThat(files.map(file -> file.getFileName().toString())).noneMatch(name -> name.endsWith(".tmp"));
+        }
     }
 
     @Test

@@ -44,6 +44,7 @@ public final class FakeAgentRunner implements AgentRunner {
     private final List<Integer> stoppedIssues = new CopyOnWriteArrayList<>();
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final AtomicInteger waitingPhases = new AtomicInteger();
+    private volatile boolean refusesNewPhases;
     private int changeCount;
 
     public synchronized FakeAgentRunner then(Action action) {
@@ -143,6 +144,9 @@ public final class FakeAgentRunner implements AgentRunner {
 
     @Override
     public synchronized SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
+        if (refusesNewPhases) {
+            throw new AgentException("The factory is stopping.");
+        }
         requests.add(request);
         ScriptedPhase phase = phases.poll();
         if (phase == null) {
@@ -154,6 +158,12 @@ public final class FakeAgentRunner implements AgentRunner {
             throw new UncheckedIOException(exception);
         }
         return phase.report();
+    }
+
+    /** Not synchronized: a waiting phase holds the lock of the runner. */
+    @Override
+    public void refuseNewPhases() {
+        refusesNewPhases = true;
     }
 
     /** Not synchronized: a waiting phase holds the lock of the runner. */

@@ -41,6 +41,7 @@ public final class Worker {
     private static final String ENTER_LABEL = "factory:enter";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
+    private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
     private static final Set<Phase> PHASES_WITH_A_WORKTREE =
             EnumSet.of(Phase.IMPLEMENT, Phase.BUILD, Phase.REVIEW, Phase.RISK, Phase.MERGE);
 
@@ -87,6 +88,8 @@ public final class Worker {
             startable.forEach(this::startIssue);
         } catch (GitHubException exception) {
             logGitHubFailure("The poll", exception);
+        } catch (RuntimeException exception) {
+            LOGGER.log(System.Logger.Level.ERROR, "The poll failed.", exception);
         }
     }
 
@@ -116,6 +119,7 @@ public final class Worker {
      */
     public boolean shutDown(Duration timeout) {
         stopSignal.countDown();
+        agentRunner.refuseNewPhases();
         stopPhasesInWork();
         executor.shutdown();
         try {
@@ -285,7 +289,7 @@ public final class Worker {
         try {
             while (mayContinue(issueNumber)) {
                 IssueRecord next = workflow.advance(kept);
-                if (!mayContinue(issueNumber) && !keepsTheMerge(issueNumber, next)) {
+                if (!mayContinue(issueNumber) && next.phase() != Phase.DONE) {
                     interruptedResult = Optional.of(next);
                     break;
                 }
@@ -293,6 +297,7 @@ public final class Worker {
                     break;
                 }
                 kept = next;
+                withdrawBlockOfAMergedIssue(issueNumber, kept);
                 if (workflow.isWaiting(kept)) {
                     break;
                 }
@@ -315,18 +320,19 @@ public final class Worker {
         return !isStopped() && !blockedIssues.contains(issueNumber);
     }
 
-    /** A merged change cannot be blocked: the issue continues to DONE and the block request goes away. */
-    private boolean keepsTheMerge(int issueNumber, IssueRecord result) {
-        if (result.phase() != Phase.DONE) {
-            return false;
+    /**
+     * A DONE record is final: a merged change cannot be blocked, so the block request goes away and the issue
+     * continues to the status DONE. The caller keeps the DONE record before this call, so a GitHub failure here
+     * cannot lose it.
+     */
+    private void withdrawBlockOfAMergedIssue(int issueNumber, IssueRecord kept) {
+        if (kept.phase() != Phase.DONE || !isBlockInProgress(issueNumber)) {
+            return;
         }
-        if (isBlockInProgress(issueNumber)) {
-            gitHub.removeLabel(issueNumber, BLOCK_LABEL);
-            synchronized (this) {
-                blockedIssues.remove(issueNumber);
-            }
+        gitHub.removeLabel(issueNumber, BLOCK_LABEL);
+        synchronized (this) {
+            blockedIssues.remove(issueNumber);
         }
-        return true;
     }
 
     /** Exactly one of requestBlock and releaseIssue sees the other, so the block is written once. */
@@ -365,6 +371,10 @@ public final class Worker {
                              Optional<IssueRecord> interruptedResult) {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
+            if (onGitHub.filter(record -> record.phase() == Phase.DONE).isPresent()) {
+                noteBlockWithoutEffect(onGitHub.get());
+                return;
+            }
             Optional<IssueRecord> laterRecord = interruptedResult.or(() -> onGitHub);
             IssueRecord base = keptByLoop.map(kept -> keepFacts(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
@@ -378,6 +388,13 @@ public final class Worker {
                 blockedIssues.remove(issueNumber);
             }
         }
+    }
+
+    /** A DONE record is final. The block only gets a note, and its label goes away. */
+    private void noteBlockWithoutEffect(IssueRecord done) {
+        int issueNumber = done.issueNumber();
+        statusPublisher.publish(gitHub.issue(issueNumber), done, done.withNote(DONE_BLOCK_NOTE));
+        gitHub.removeLabel(issueNumber, BLOCK_LABEL);
     }
 
     /** The stop came during a step, so the record from before the step goes back to GitHub. */
@@ -435,6 +452,7 @@ public final class Worker {
                 exception.getMessage());
         apiKeyFound = true;
         stopSignal.countDown();
+        agentRunner.refuseNewPhases();
         stopPhasesInWork();
     }
 

@@ -63,6 +63,7 @@ class WorkerTest {
             "The label factory from mallory is ignored: the account is not in accounts.allowed.";
     private static final String MALLORY_BLOCK_NOTE =
             "The label factory:block from mallory is ignored: the account is not in accounts.allowed.";
+    private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
@@ -307,6 +308,82 @@ class WorkerTest {
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aFailedLabelRemovalAfterTheMergeKeepsTheIssueDone() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        Worker worker = createWorker(agent, 2);
+        gitHub.failTheRemoveLabelAfterTheMerge();
+        gitHub.whenSquashMerging(() -> {
+            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            worker.pollOnce();
+        });
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).isEmpty();
+        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aBlockOnADoneIssueKeepsItDone() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        gitHub.addLabelBy(ISSUE, FACTORY_LABEL, "bbossola");
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+    }
+
+    @Test
+    void shutDownRefusesNewPhases() throws InterruptedException {
+        addLabeledIssue(8);
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenWaitForStop().thatFails().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> List.of(7, 8).stream().allMatch(issueNumber -> readRecord(issueNumber)
+                .filter(IssueRecord::agentSessionStarted).isPresent()));
+
+        worker.shutDown(TIME_BOUND);
+
+        assertThat(agent.requests()).hasSize(1);
+        for (int issueNumber : List.of(7, 8)) {
+            IssueRecord record = readRecord(issueNumber).orElseThrow();
+            assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+            assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+            assertThat(record.notes()).isEmpty();
+        }
+    }
+
+    @Test
+    void keepsRunningAfterAFailureOfTheIssueList() {
+        gitHub.failTheNextIssueList();
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+        worker.pollOnce();
+
+        assertThat(worker.isStopped()).isFalse();
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
     }
 
     @Test

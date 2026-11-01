@@ -123,6 +123,17 @@ class ClaudeAgentRunnerTest {
     }
 
     @Test
+    void refusesNewPhasesAfterTheStop() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("success.jsonl", "", "0");
+
+        runner.refuseNewPhases();
+
+        assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
+                .isInstanceOf(AgentException.class)
+                .hasMessage("The factory is stopping.");
+    }
+
+    @Test
     void refusesASecondRunOfTheSameIssue() throws Exception {
         ClaudeAgentRunner runner = runnerFor("success.jsonl", Map.of("FAKE_CLAUDE_SLEEP", "30"), System.getenv());
         CompletableFuture<SessionReport> first = startInBackground(runner, 7);
