@@ -2,6 +2,10 @@
 # Test double of the claude command. See the FAKE_CLAUDE_* variables.
 printf '%s\n' "$@" > "$FAKE_CLAUDE_ARGUMENTS"
 env > "$FAKE_CLAUDE_ENVIRONMENT"
+if [ "$FAKE_CLAUDE_BACKGROUND_CHILD" = 1 ]; then
+  sleep 30 &
+  echo $! > "$FAKE_CLAUDE_CHILD_PID_FILE"
+fi
 first_line=true
 while IFS= read -r line; do
   printf '%s\n' "$line"

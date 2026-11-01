@@ -43,7 +43,8 @@ class ClaudeCommandTest {
     void removesTheCredentialVariables() {
         Map<String, String> parent = Map.of(
                 "ANTHROPIC_API_KEY", "a", "ANTHROPIC_AUTH_TOKEN", "b", "GH_TOKEN", "c",
-                "GITHUB_TOKEN", "d", "FACTORY_GITHUB_TOKEN", "e", "PATH", "/bin");
+                "GITHUB_TOKEN", "d", "FACTORY_GITHUB_TOKEN", "e", "PATH", "/bin",
+                "ANTHROPIC_BASE_URL", "f", "CLAUDE_CODE_USE_BEDROCK", "g");
 
         assertThat(ClaudeCommand.environment(parent)).containsOnlyKeys("PATH");
     }

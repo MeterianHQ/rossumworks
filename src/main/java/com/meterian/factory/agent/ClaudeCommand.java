@@ -9,8 +9,8 @@ import java.util.Set;
 
 public final class ClaudeCommand {
 
-    private static final Set<String> CREDENTIAL_VARIABLES = Set.of(
-            "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "FACTORY_GITHUB_TOKEN");
+    private static final List<String> REMOVED_PREFIXES = List.of("ANTHROPIC_", "CLAUDE_CODE_USE_");
+    private static final Set<String> REMOVED_NAMES = Set.of("GH_TOKEN", "GITHUB_TOKEN", "FACTORY_GITHUB_TOKEN");
 
     private ClaudeCommand() {
     }
@@ -33,7 +33,11 @@ public final class ClaudeCommand {
 
     public static Map<String, String> environment(Map<String, String> parent) {
         Map<String, String> environment = new LinkedHashMap<>(parent);
-        environment.keySet().removeAll(CREDENTIAL_VARIABLES);
+        environment.keySet().removeIf(ClaudeCommand::isRemoved);
         return environment;
+    }
+
+    private static boolean isRemoved(String name) {
+        return REMOVED_NAMES.contains(name) || REMOVED_PREFIXES.stream().anyMatch(name::startsWith);
     }
 }

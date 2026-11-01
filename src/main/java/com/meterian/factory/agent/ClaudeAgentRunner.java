@@ -2,6 +2,7 @@ package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -9,44 +10,56 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntConsumer;
 
 public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
+    private static final String STOPPED_TEXT = "The phase was stopped.";
     private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
 
     private final ClaudeSettings settings;
     private final Clock clock;
-    private final Map<Integer, Process> runningProcesses = new ConcurrentHashMap<>();
-    private final Map<Integer, Boolean> stoppedIssues = new ConcurrentHashMap<>();
+    private final Map<String, String> parentEnvironment;
+    private final IntConsumer afterRegistration;
+    private final Map<Integer, Run> runs = new ConcurrentHashMap<>();
 
     public ClaudeAgentRunner(ClaudeSettings settings, Clock clock) {
+        this(settings, clock, System.getenv(), issueNumber -> { });
+    }
+
+    ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Map<String, String> parentEnvironment,
+            IntConsumer afterRegistration) {
         this.settings = settings;
         this.clock = clock;
+        this.parentEnvironment = parentEnvironment;
+        this.afterRegistration = afterRegistration;
     }
 
     @Override
     public SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
-        Process process = startProcess(request);
-        runningProcesses.put(request.issueNumber(), process);
-        stoppedIssues.remove(request.issueNumber());
+        Run run = new Run();
+        if (runs.putIfAbsent(request.issueNumber(), run) != null) {
+            throw new AgentException("A phase already runs for the issue " + request.issueNumber() + ".");
+        }
         try {
-            return readSession(request, process);
+            afterRegistration.accept(request.issueNumber());
+            run.attach(startProcess(request));
+            return readSession(request, run);
         } finally {
-            runningProcesses.remove(request.issueNumber());
-            stoppedIssues.remove(request.issueNumber());
-            endProcessTree(process);
+            runs.remove(request.issueNumber());
+            run.end();
         }
     }
 
     @Override
     public void stopPhase(int issueNumber) {
-        Process process = runningProcesses.get(issueNumber);
-        if (process != null) {
-            stoppedIssues.put(issueNumber, true);
-            endProcessTree(process);
+        Run run = runs.get(issueNumber);
+        if (run != null) {
+            run.requestStop();
         }
     }
 
@@ -54,8 +67,8 @@ public final class ClaudeAgentRunner implements AgentRunner {
         ProcessBuilder builder = new ProcessBuilder(ClaudeCommand.arguments(settings, request));
         builder.directory(request.workingDirectory().toFile());
         builder.environment().clear();
-        builder.environment().putAll(ClaudeCommand.environment(System.getenv()));
-        builder.redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")));
+        builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
+        builder.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
         try {
             Process process = builder.start();
             logStandardError(process, request.issueNumber());
@@ -65,18 +78,22 @@ public final class ClaudeAgentRunner implements AgentRunner {
         }
     }
 
-    private SessionReport readSession(PhaseRequest request, Process process)
+    private SessionReport readSession(PhaseRequest request, Run run)
             throws AgentException, ApiKeyDetectedException {
         StreamEventParser parser = new StreamEventParser(clock);
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                new InputStreamReader(run.process().getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 parser.accept(line);
-                verifyNoApiKey(parser, process);
+                run.rememberDescendants();
+                verifyNoApiKey(parser, run);
             }
-            return buildReport(request, process, parser);
+            return buildReport(run, parser);
         } catch (IOException exception) {
+            if (run.isStopRequested()) {
+                return new SessionReport(false, STOPPED_TEXT, Optional.empty(), Optional.empty(), List.of());
+            }
             throw new AgentException("The claude output cannot be read: " + exception.getMessage(), exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -84,23 +101,22 @@ public final class ClaudeAgentRunner implements AgentRunner {
         }
     }
 
-    private void verifyNoApiKey(StreamEventParser parser, Process process) throws ApiKeyDetectedException {
+    private void verifyNoApiKey(StreamEventParser parser, Run run) throws ApiKeyDetectedException {
         Optional<String> source = parser.apiKeySource();
         if (source.isPresent() && !NO_API_KEY.equals(source.get())) {
-            endProcessTree(process);
+            run.end();
             throw new ApiKeyDetectedException("The session uses the credential source: " + source.get());
         }
     }
 
-    private SessionReport buildReport(PhaseRequest request, Process process, StreamEventParser parser)
+    private SessionReport buildReport(Run run, StreamEventParser parser)
             throws InterruptedException, ApiKeyDetectedException {
-        int exitCode = process.waitFor();
+        int exitCode = run.process().waitFor();
         SessionReport report = parser.report();
         if (report.success() && report.apiKeySource().isEmpty()) {
             throw new ApiKeyDetectedException(UNKNOWN_SOURCE_MESSAGE);
         }
-        boolean stopped = stoppedIssues.containsKey(request.issueNumber());
-        if (report.success() && (exitCode != 0 || stopped)) {
+                if (report.success() && (exitCode != 0 || run.isStopRequested())) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),
                     report.contextUsage(), report.usageWindows());
         }
@@ -118,9 +134,46 @@ public final class ClaudeAgentRunner implements AgentRunner {
         });
     }
 
-    private void endProcessTree(Process process) {
-        List<ProcessHandle> descendants = process.descendants().toList();
-        descendants.forEach(ProcessHandle::destroyForcibly);
-        process.destroyForcibly();
+    private static final class Run {
+
+        private final Set<ProcessHandle> knownDescendants = ConcurrentHashMap.newKeySet();
+        private volatile Process process;
+        private volatile boolean stopRequested;
+
+        synchronized void attach(Process startedProcess) {
+            process = startedProcess;
+            if (stopRequested) {
+                end();
+            }
+        }
+
+        synchronized void requestStop() {
+            stopRequested = true;
+            if (process != null) {
+                end();
+            }
+        }
+
+        Process process() {
+            return process;
+        }
+
+        boolean isStopRequested() {
+            return stopRequested;
+        }
+
+        void rememberDescendants() {
+            process.descendants().forEach(knownDescendants::add);
+        }
+
+        void end() {
+            Process endedProcess = process;
+            if (endedProcess == null) {
+                return;
+            }
+            endedProcess.descendants().forEach(knownDescendants::add);
+            knownDescendants.forEach(ProcessHandle::destroyForcibly);
+            endedProcess.destroyForcibly();
+        }
     }
 }
