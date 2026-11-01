@@ -350,7 +350,11 @@ until it ends. Then the worker:
    "Fix #N" --settings <hook file> --plugin-dir <factory plugin>`. The
    filter of the variables is the same as for the auto mode, so the
    environment of the tmux server adds no credential variable.
-4. Starts the script in a tmux session, in the worktree of the target.
+4. Starts the script in a tmux session, in the worktree of the target. The
+   factory uses its own tmux server (`tmux -L claude-ai-factory`), never the
+   default server of the owner. So the token of the worker never goes into
+   the environment of the server of the owner. To see a session: `tmux -L
+   claude-ai-factory attach -t factory-issue-<n>`.
 5. Writes the Remote Control link in a comment of the issue. The status
    comment shows the line "Live conversation: <link>".
 

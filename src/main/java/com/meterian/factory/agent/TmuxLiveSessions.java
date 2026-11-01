@@ -12,7 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Opens the session of the agent in charge in tmux, with Remote Control.
+ * Opens the session of the agent in charge in tmux, with Remote Control, on the tmux server of the factory.
  * The worker answers the trust prompt on the tmux screen and reads the Remote Control link there.
  */
 public final class TmuxLiveSessions implements LiveSessions {
@@ -61,7 +61,9 @@ public final class TmuxLiveSessions implements LiveSessions {
     public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
         clearContinueRequest(issueNumber);
         killSession(issueNumber);
-        Path launchScript = liveFiles.writeLaunchScript(issueNumber, createLaunchScript(issueNumber, sessionId));
+        Path settingsFile = liveFiles.writeSettingsFile(issueNumber);
+        Path launchScript = liveFiles.writeLaunchScript(issueNumber,
+                createLaunchScript(issueNumber, sessionId, settingsFile));
         try {
             startSession(issueNumber, worktree, launchScript);
             return waitForTheLink(issueNumber);
@@ -222,11 +224,11 @@ public final class TmuxLiveSessions implements LiveSessions {
         }
     }
 
-    private String createLaunchScript(int issueNumber, UUID sessionId) {
+    private String createLaunchScript(int issueNumber, UUID sessionId, Path settingsFile) {
         List<String> words = new ArrayList<>();
         words.addAll(List.of("exec", "env", "-i"));
         words.addAll(createEnvironmentAssignments());
-        words.addAll(createClaudeArguments(issueNumber, sessionId));
+        words.addAll(createClaudeArguments(issueNumber, sessionId, settingsFile));
         return "#!/bin/bash\n" + ShellQuoting.join(words) + "\n";
     }
 
@@ -242,12 +244,12 @@ public final class TmuxLiveSessions implements LiveSessions {
         return assignments;
     }
 
-    private List<String> createClaudeArguments(int issueNumber, UUID sessionId) {
+    private List<String> createClaudeArguments(int issueNumber, UUID sessionId, Path settingsFile) {
         List<String> arguments = new ArrayList<>();
         arguments.add(settings.command());
         arguments.addAll(List.of("--resume", sessionId.toString()));
         arguments.addAll(List.of("--remote-control", "Fix #" + issueNumber));
-        arguments.addAll(List.of("--settings", liveFiles.settingsFile(issueNumber).toString()));
+        arguments.addAll(List.of("--settings", settingsFile.toString()));
         arguments.addAll(List.of("--plugin-dir", liveFiles.pluginDirectory().toString()));
         arguments.add("--allowedTools");
         arguments.addAll(settings.allowedTools());

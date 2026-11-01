@@ -11,6 +11,9 @@ import java.util.concurrent.TimeUnit;
 /** Runs tmux commands on one tmux server. Each command has a time limit of 10 seconds. */
 final class TmuxCommand {
 
+    /** The socket name of the tmux server of the factory. The default server of the owner never gets a command. */
+    static final String FACTORY_SERVER = "claude-ai-factory";
+
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     private record CompletedCommand(int exitCode, String output, String error) {
@@ -21,10 +24,9 @@ final class TmuxCommand {
     private final String program;
     private final List<String> serverOptions;
 
-    /** Uses the default tmux server of the user. */
+    /** Uses the tmux server of the factory, so the token of the worker never reaches the server of the owner. */
     TmuxCommand() {
-        this.program = TMUX_PROGRAM;
-        this.serverOptions = List.of();
+        this(TMUX_PROGRAM, FACTORY_SERVER);
     }
 
     /** Uses the private tmux server with this socket name. */

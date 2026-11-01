@@ -125,11 +125,12 @@ public final class FakeGitHubClient implements GitHubClient {
         return List.copyOf(squashMergeShas);
     }
 
-    /** The next editComment throws a GitHubException, as a lost connection does. */
+    /** The next createComment throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextCommentCreate() {
         failsTheNextCommentCreate = true;
     }
 
+    /** The next editComment throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextCommentEdit() {
         failsTheNextCommentEdit = true;
     }

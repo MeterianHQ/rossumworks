@@ -160,7 +160,7 @@ public final class LiveFiles {
     }
 
     /** Writes the settings file of the issue and returns its path. */
-    public Path settingsFile(int issueNumber) {
+    public Path writeSettingsFile(int issueNumber) {
         Path file = liveDirectory.resolve("issue-" + issueNumber + ".settings.json");
         write(file, createSettings(issueNumber), FILE_PERMISSIONS);
         return file;

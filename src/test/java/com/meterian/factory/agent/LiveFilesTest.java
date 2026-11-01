@@ -255,7 +255,7 @@ class LiveFilesTest {
 
     @Test
     void theSettingsFileNamesTheHookAndTheMarkerOfTheIssue() throws IOException {
-        Path settingsFile = liveFiles.settingsFile(ISSUE_NUMBER);
+        Path settingsFile = liveFiles.writeSettingsFile(ISSUE_NUMBER);
 
         JsonNode settings = new ObjectMapper().readTree(settingsFile.toFile());
         JsonNode hook = settings.at("/hooks/UserPromptSubmit/0/hooks/0");
@@ -270,7 +270,7 @@ class LiveFilesTest {
     void theHookCommandOfTheSettingsWorksInADirectoryWithASpace() throws Exception {
         LiveFiles spacedLiveFiles = new LiveFiles(temporaryDirectory.resolve("live files"));
         spacedLiveFiles.install();
-        JsonNode settings = new ObjectMapper().readTree(spacedLiveFiles.settingsFile(ISSUE_NUMBER).toFile());
+        JsonNode settings = new ObjectMapper().readTree(spacedLiveFiles.writeSettingsFile(ISSUE_NUMBER).toFile());
         String hookCommand = settings.at("/hooks/UserPromptSubmit/0/hooks/0/command").asText();
 
         int exitCode = runInShell(hookCommand, "{\"prompt\":\"/factory:continue\"}");

@@ -48,6 +48,10 @@ sets the status "Waits for you", and starts the session in tmux. The session use
 the agent: `claude --resume <uuid> --remote-control "Fix #<n>"`. The worker answers the trust prompt on
 the tmux screen. It never edits `~/.claude.json`.
 
+The factory uses its own tmux server, never your default tmux server. So the token of the worker never goes
+into the environment of your tmux server. To see a session, run
+`tmux -L claude-ai-factory attach -t factory-issue-<n>`.
+
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no phase for the issue.
 
