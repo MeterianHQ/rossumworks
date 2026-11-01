@@ -18,11 +18,14 @@ public final class Gatekeeper {
     }
 
     public static void ensure(Path gatekeeperDirectory, String githubUrl) {
+        ProcessGit git = new ProcessGit();
         if (!Files.isDirectory(gatekeeperDirectory)) {
             createParentDirectory(gatekeeperDirectory);
-            ProcessGit.run(gatekeeperDirectory.getParent(), "init", "-q", "--bare", gatekeeperDirectory.toString());
+            git.run(gatekeeperDirectory.getParent(), "init", "-q", "--bare", gatekeeperDirectory.toString());
         }
-        new ProcessGit().setRemote(gatekeeperDirectory, GITHUB_REMOTE, githubUrl);
+        git.setRemote(gatekeeperDirectory, GITHUB_REMOTE, githubUrl);
+        Path hooksDirectory = gatekeeperDirectory.toAbsolutePath().resolve("hooks");
+        git.run(gatekeeperDirectory, "config", "core.hooksPath", hooksDirectory.toString());
         HOOK_NAMES.forEach(hookName -> writeHook(gatekeeperDirectory, hookName));
     }
 

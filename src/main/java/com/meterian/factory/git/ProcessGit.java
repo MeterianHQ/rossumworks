@@ -6,10 +6,31 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public final class ProcessGit implements Git {
 
     private static final String FACTORY_FOLDER_PATTERN = ".factory/";
+
+    private static final String FACTORY_BRANCH_PREFIX = "factory/";
+    private static final List<String> FIXED_IDENTITY = List.of(
+            "-c", "user.name=claude-ai-factory",
+            "-c", "user.email=claude-ai-factory@users.noreply.github.com");
+    private static final Map<String, String> ISOLATION = Map.of(
+            "GIT_CONFIG_GLOBAL", "/dev/null",
+            "GIT_CONFIG_NOSYSTEM", "1",
+            "GIT_TERMINAL_PROMPT", "0");
+
+    private final Map<String, String> extraEnvironment;
+
+    public ProcessGit() {
+        this(Map.of());
+    }
+
+    /** The isolation entries always win over the extra entries. */
+    ProcessGit(Map<String, String> extraEnvironment) {
+        this.extraEnvironment = Map.copyOf(extraEnvironment);
+    }
 
     private record Result(int exitCode, String output, String errorOutput) {
     }
@@ -21,7 +42,7 @@ public final class ProcessGit implements Git {
 
     @Override
     public void addWorktree(Path clone, Path worktree, String branch, String startPoint) {
-        run(clone, "worktree", "add", "-b", branch, worktree.toString(), startPoint);
+        run(clone, "worktree", "add", "-B", branch, worktree.toString(), startPoint);
     }
 
     @Override
@@ -50,13 +71,13 @@ public final class ProcessGit implements Git {
     @Override
     public void commitAll(Path worktree, String message) {
         run(worktree, "add", "-A");
-        run(worktree, "commit", "-q", "-m", message);
+        run(worktree, withIdentity("commit", "-q", "-m", message));
     }
 
     @Override
     public RebaseOutcome rebase(Path worktree, String upstream) {
         String headBefore = run(worktree, "rev-parse", "HEAD").trim();
-        Result result = execute(worktree, null, "rebase", upstream);
+        Result result = execute(worktree, null, withIdentity("rebase", upstream));
         if (result.exitCode() == 0) {
             String headAfter = run(worktree, "rev-parse", "HEAD").trim();
             return headBefore.equals(headAfter) ? RebaseOutcome.UP_TO_DATE : RebaseOutcome.REBASED;
@@ -70,6 +91,10 @@ public final class ProcessGit implements Git {
 
     @Override
     public void push(Path worktree, String remote, String branch) {
+        if (!branch.startsWith(FACTORY_BRANCH_PREFIX)) {
+            throw new GitException("git push refused: the branch " + branch + " does not start with "
+                    + FACTORY_BRANCH_PREFIX);
+        }
         run(worktree, "push", "--force", remote, "HEAD:refs/heads/" + branch);
     }
 
@@ -93,11 +118,11 @@ public final class ProcessGit implements Git {
         run(repository, "remote", exists ? "set-url" : "add", name, url);
     }
 
-    static String run(Path directory, String... arguments) {
+    String run(Path directory, String... arguments) {
         return runWithInput(directory, null, arguments);
     }
 
-    private static String runWithInput(Path directory, String input, String... arguments) {
+    private String runWithInput(Path directory, String input, String... arguments) {
         Result result = execute(directory, input, arguments);
         if (result.exitCode() != 0) {
             throw failure(List.of(arguments), result);
@@ -105,12 +130,18 @@ public final class ProcessGit implements Git {
         return result.output();
     }
 
-    private static boolean isRebaseInProgress(Path worktree) {
+    private boolean isRebaseInProgress(Path worktree) {
         return isGitPathPresent(worktree, "rebase-merge") || isGitPathPresent(worktree, "rebase-apply");
     }
 
-    private static boolean isGitPathPresent(Path worktree, String name) {
+    private boolean isGitPathPresent(Path worktree, String name) {
         return Files.exists(worktree.resolve(run(worktree, "rev-parse", "--git-path", name).trim()));
+    }
+
+    private static String[] withIdentity(String... arguments) {
+        List<String> all = new ArrayList<>(FIXED_IDENTITY);
+        all.addAll(List.of(arguments));
+        return all.toArray(String[]::new);
     }
 
     private static GitException failure(List<String> arguments, Result result) {
@@ -118,7 +149,7 @@ public final class ProcessGit implements Git {
                 + result.exitCode() + ": " + result.errorOutput().trim());
     }
 
-    private static Result execute(Path directory, String input, String... arguments) {
+    private Result execute(Path directory, String input, String... arguments) {
         List<String> command = new ArrayList<>(List.of("git"));
         command.addAll(List.of(arguments));
         Path errorFile = null;
@@ -127,7 +158,8 @@ public final class ProcessGit implements Git {
             ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(directory.toFile())
                     .redirectError(errorFile.toFile());
-            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
+            builder.environment().putAll(extraEnvironment);
+            builder.environment().putAll(ISOLATION);
             Process process = builder.start();
             try (var stdin = process.getOutputStream()) {
                 if (input != null) {

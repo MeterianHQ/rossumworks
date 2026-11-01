@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -100,5 +101,43 @@ class ProcessGitTest {
         git.setRemote(clone, "gatekeeper", "/second/url");
 
         assertThat(run(clone, "remote", "get-url", "gatekeeper")).isEqualTo("/second/url");
+    }
+
+    @Test
+    void addWorktreeResetsAnExistingBranchToTheStartPoint() {
+        run(clone, "branch", "factory/issue-1");
+        commitFile(clone, "b.txt", "second\n", "Second commit");
+        Path worktree = temporaryDirectory.resolve("worktree");
+
+        git.addWorktree(clone, worktree, "factory/issue-1", "main");
+
+        assertThat(run(worktree, "rev-parse", "HEAD")).isEqualTo(run(clone, "rev-parse", "main"));
+    }
+
+    @Test
+    void pushRefusesABranchOutsideFactory() {
+        assertThatThrownBy(() -> git.push(clone, "origin", "main"))
+                .isInstanceOf(GitException.class)
+                .hasMessageContaining("factory/");
+    }
+
+    @Test
+    void ignoresTheGlobalConfigurationOfTheMachine() throws IOException {
+        Path hostileConfiguration = temporaryDirectory.resolve("hostile.gitconfig");
+        Files.writeString(hostileConfiguration, "[status]\n\tshowUntrackedFiles = no\n");
+        Git hostileGit = new ProcessGit(Map.of("GIT_CONFIG_GLOBAL", hostileConfiguration.toString()));
+        Files.writeString(clone.resolve("untracked.txt"), "new\n");
+
+        assertThat(hostileGit.hasUncommittedChanges(clone)).isTrue();
+    }
+
+    @Test
+    void commitsWithTheFixedIdentity() throws IOException {
+        Files.writeString(clone.resolve("fix.txt"), "fix\n");
+
+        git.commitAll(clone, "Fix the issue");
+
+        assertThat(run(clone, "log", "-1", "--format=%an <%ae>"))
+                .isEqualTo("claude-ai-factory <claude-ai-factory@users.noreply.github.com>");
     }
 }

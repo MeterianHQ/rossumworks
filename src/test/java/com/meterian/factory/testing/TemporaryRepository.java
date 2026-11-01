@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** Makes local git repositories for tests. It never uses the global git identity. */
 public final class TemporaryRepository {
@@ -40,13 +41,21 @@ public final class TemporaryRepository {
     }
 
     public static String run(Path directory, String... arguments) {
+        return runWithEnvironment(Map.of(), directory, arguments);
+    }
+
+    /** Runs git with the isolation of the global configuration, then adds the given entries. */
+    public static String runWithEnvironment(Map<String, String> environment, Path directory, String... arguments) {
         List<String> command = new ArrayList<>(List.of("git"));
         command.addAll(List.of(arguments));
         try {
-            Process process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(directory.toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            builder.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+            builder.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+            builder.environment().putAll(environment);
+            Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes());
             if (process.waitFor() != 0) {
                 throw new GitException(String.join(" ", command) + " failed: " + output);
