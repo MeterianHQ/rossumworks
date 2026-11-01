@@ -36,6 +36,7 @@ public final class HttpGitHubClient implements GitHubClient {
     private final HttpClient httpClient;
     private final Duration requestTimeout;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final GitHubRequestCounter requestCounter;
 
     public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
         this(apiBase, token, target, httpClient, REQUEST_TIMEOUT);
@@ -48,6 +49,16 @@ public final class HttpGitHubClient implements GitHubClient {
         this.repositoryPath = "/repos/" + target.fullName();
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
+        this.requestCounter = new GitHubRequestCounter(repositoryPath);
+    }
+
+    /** The number of requests since the start or the last reset, by method and path template. */
+    public Map<String, Integer> requestCounts() {
+        return requestCounter.counts();
+    }
+
+    public void resetRequestCounts() {
+        requestCounter.reset();
     }
 
     @Override
@@ -272,6 +283,7 @@ public final class HttpGitHubClient implements GitHubClient {
                     .header("Content-Type", "application/json")
                     .header("X-GitHub-Api-Version", API_VERSION)
                     .build();
+            requestCounter.count(method, uri);
             return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();

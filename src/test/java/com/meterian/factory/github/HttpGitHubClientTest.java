@@ -411,6 +411,34 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void countsEachRequestByMethodAndPathTemplate() {
+        responder = request -> {
+            boolean firstEventPage = request.target().contains("/events") && !request.target().contains("page=2");
+            String link = firstEventPage ? "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"" : null;
+            return new Answer(200, request.target().contains("/events") ? "[]" : issueJson(), link);
+        };
+
+        client.issue(4);
+        client.issue(12);
+        client.lastLabelActor(4, "factory:approve");
+
+        assertThat(client.requestCounts()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "GET /repos/{o}/{r}/issues/{n}", 2,
+                "GET /repos/{o}/{r}/issues/{n}/events", 2));
+    }
+
+    @Test
+    void resetsTheRequestCounts() {
+        responder = request -> new Answer(200, issueJson());
+        client.issue(4);
+
+        client.resetRequestCounts();
+        client.issue(4);
+
+        assertThat(client.requestCounts()).containsExactlyEntriesOf(Map.of("GET /repos/{o}/{r}/issues/{n}", 1));
+    }
+
+    @Test
     void neverPutsTheTokenInAnyError() {
         responder = request -> new Answer(404, "{\"message\":\"Not Found\"}");
         assertThatThrownBy(() -> client.issue(9)).isInstanceOf(GitHubException.class)

@@ -25,7 +25,8 @@ import java.util.stream.Collectors;
 /** An in-memory GitHub for the workflow tests. All methods are thread safe. */
 public final class FakeGitHubClient implements GitHubClient {
 
-    private record LabelEvent(int issueNumber, String label, String actor) {
+    /** One "labeled" event of an issue, in the order of the events. */
+    public record LabelEvent(int issueNumber, String label, String actor) {
     }
 
     private final Map<Integer, Issue> issues = new TreeMap<>();
@@ -107,6 +108,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     public synchronized Set<String> labelsOf(int issueNumber) {
         return Set.copyOf(labels.get(issueNumber));
+    }
+
+    public synchronized List<LabelEvent> labelEventsOf(int issueNumber) {
+        return labelEvents.stream().filter(event -> event.issueNumber() == issueNumber).toList();
     }
 
     public synchronized List<PullRequest> pullRequests() {
