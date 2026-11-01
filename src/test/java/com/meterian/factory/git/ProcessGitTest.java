@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,65 @@ class ProcessGitTest {
         Files.writeString(clone.resolve("untracked.txt"), "new\n");
 
         assertThat(hostileGit.hasUncommittedChanges(clone)).isTrue();
+    }
+
+    @Test
+    void givesEachGitCommandSshOptionsThatNeverWaitForAnAnswer() {
+        ProcessGit processGit = new ProcessGit();
+
+        String environment = processGit.run(clone, "-c", "alias.environment=!env", "environment");
+
+        assertThat(environment.lines()).contains("GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=30"
+                + " -o ServerAliveInterval=15 -o ServerAliveCountMax=4");
+    }
+
+    @Test
+    void removesTheInheritedVariablesThatRedirectGitOrAskForACredential() {
+        Path otherRepository = createBare(temporaryDirectory.resolve("other.git"));
+        ProcessGit hostileGit = new ProcessGit(Map.of(
+                "GIT_DIR", otherRepository.toString(),
+                "GIT_WORK_TREE", temporaryDirectory.toString(),
+                "GIT_INDEX_FILE", temporaryDirectory.resolve("other.index").toString(),
+                "GIT_ASKPASS", "/bin/echo",
+                "SSH_ASKPASS", "/bin/echo"));
+
+        String environment = hostileGit.run(clone, "-c", "alias.environment=!env", "environment");
+
+        assertThat(hostileGit.headCommit(clone)).isEqualTo(run(clone, "rev-parse", "HEAD"));
+        assertThat(environment.lines()).noneMatch(line -> line.startsWith("GIT_ASKPASS=")
+                || line.startsWith("SSH_ASKPASS=") || line.startsWith("GIT_INDEX_FILE=")
+                || line.startsWith("GIT_WORK_TREE=") || line.startsWith("GIT_DIR=" + otherRepository));
+    }
+
+    @Test
+    void endsAFetchThatDoesNotEndInTheTimeout() {
+        run(clone, "config", "remote.slow.url", temporaryDirectory.resolve("origin.git").toString());
+        run(clone, "config", "remote.slow.uploadpack", "sleep 30; git-upload-pack");
+        Git impatientGit = new ProcessGit(Map.of(), Duration.ofSeconds(1));
+        long start = System.nanoTime();
+
+        assertThatThrownBy(() -> impatientGit.fetch(clone, "slow", "main"))
+                .isInstanceOf(GitException.class)
+                .hasMessage("git fetch did not end in 1 second.");
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(15));
+    }
+
+    @Test
+    void endsAPushThatDoesNotEndInTheTimeout() {
+        run(clone, "config", "remote.slow.url", temporaryDirectory.resolve("origin.git").toString());
+        run(clone, "config", "remote.slow.receivepack", "sleep 30; git-receive-pack");
+        Git impatientGit = new ProcessGit(Map.of(), Duration.ofSeconds(1));
+        long start = System.nanoTime();
+
+        assertThatThrownBy(() -> impatientGit.pushCommit(clone, "slow", "HEAD", "factory/issue-1"))
+                .isInstanceOf(GitException.class)
+                .hasMessage("git push did not end in 1 second.");
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(15));
+    }
+
+    @Test
+    void usesANetworkTimeoutOfFiveMinutes() {
+        assertThat(ProcessGit.NETWORK_TIMEOUT).isEqualTo(Duration.ofMinutes(5));
     }
 
     @Test

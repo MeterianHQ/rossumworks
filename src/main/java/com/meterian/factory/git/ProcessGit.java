@@ -6,11 +6,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public final class ProcessGit implements Git {
 
@@ -20,12 +22,11 @@ public final class ProcessGit implements Git {
     private static final List<String> FIXED_IDENTITY = List.of(
             "-c", "user.name=claude-ai-factory",
             "-c", "user.email=claude-ai-factory@users.noreply.github.com");
-    private static final Map<String, String> ISOLATION = Map.of(
-            "GIT_CONFIG_GLOBAL", "/dev/null",
-            "GIT_CONFIG_NOSYSTEM", "1",
-            "GIT_TERMINAL_PROMPT", "0");
+    /** A fetch or a push that does not end in this time ends, so that a lost network never stops the worker. */
+    static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(5);
 
-    private final Map<String, String> extraEnvironment;
+    private final GitProcess process;
+    private final Duration networkTimeout;
 
     public ProcessGit() {
         this(Map.of());
@@ -33,15 +34,17 @@ public final class ProcessGit implements Git {
 
     /** The isolation entries always win over the extra entries. */
     ProcessGit(Map<String, String> extraEnvironment) {
-        this.extraEnvironment = Map.copyOf(extraEnvironment);
+        this(extraEnvironment, NETWORK_TIMEOUT);
     }
 
-    private record Result(int exitCode, String output, String errorOutput) {
+    ProcessGit(Map<String, String> extraEnvironment, Duration networkTimeout) {
+        this.process = new GitProcess(extraEnvironment);
+        this.networkTimeout = networkTimeout;
     }
 
     @Override
     public void fetch(Path repository, String remote, String branch) {
-        run(repository, "fetch", remote, branch);
+        runOverTheNetwork(repository, "fetch", remote, branch);
     }
 
     @Override
@@ -123,7 +126,7 @@ public final class ProcessGit implements Git {
             return RebaseOutcome.UP_TO_DATE;
         }
         String headBefore = run(worktree, "rev-parse", "HEAD").trim();
-        Result result = execute(worktree, null, withIdentity("rebase", upstream));
+        GitProcess.Result result = execute(worktree, withIdentity("rebase", upstream));
         if (result.exitCode() == 0) {
             String headAfter = run(worktree, "rev-parse", "HEAD").trim();
             return headBefore.equals(headAfter) ? RebaseOutcome.UP_TO_DATE : RebaseOutcome.REBASED;
@@ -132,15 +135,15 @@ public final class ProcessGit implements Git {
             run(worktree, "rebase", "--abort");
             return RebaseOutcome.CONFLICT;
         }
-        throw failure(List.of("rebase", upstream), result);
+        throw createFailure(List.of("rebase", upstream), result);
     }
 
     @Override
     public List<String> mergeWithoutCommit(Path worktree, String upstream) {
-        Result result = execute(worktree, null, withIdentity("merge", "--no-commit", "--no-ff", upstream));
+        GitProcess.Result result = execute(worktree, withIdentity("merge", "--no-commit", "--no-ff", upstream));
         List<String> conflictedPaths = conflictedPaths(worktree);
         if (result.exitCode() != 0 && conflictedPaths.isEmpty()) {
-            throw failure(List.of("merge", "--no-commit", "--no-ff", upstream), result);
+            throw createFailure(List.of("merge", "--no-commit", "--no-ff", upstream), result);
         }
         return conflictedPaths;
     }
@@ -164,7 +167,7 @@ public final class ProcessGit implements Git {
 
     @Override
     public boolean isAncestor(Path worktree, String ancestor, String commit) {
-        return execute(worktree, null, "merge-base", "--is-ancestor", ancestor, commit).exitCode() == 0;
+        return execute(worktree, "merge-base", "--is-ancestor", ancestor, commit).exitCode() == 0;
     }
 
     @Override
@@ -183,7 +186,7 @@ public final class ProcessGit implements Git {
             throw new GitException("git push refused: the branch " + branch + " does not start with "
                     + FACTORY_BRANCH_PREFIX);
         }
-        run(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
+        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
     }
 
     @Override
@@ -202,20 +205,27 @@ public final class ProcessGit implements Git {
 
     @Override
     public void setRemote(Path repository, String name, String url) {
-        boolean exists = execute(repository, null, "remote", "get-url", name).exitCode() == 0;
+        boolean exists = execute(repository, "remote", "get-url", name).exitCode() == 0;
         run(repository, "remote", exists ? "set-url" : "add", name, url);
     }
 
     String run(Path directory, String... arguments) {
-        return runWithInput(directory, null, arguments);
+        return requireSuccess(arguments, execute(directory, arguments)).outputText();
     }
 
-    private String runWithInput(Path directory, String input, String... arguments) {
-        Result result = execute(directory, input, arguments);
+    private void runOverTheNetwork(Path directory, String... arguments) {
+        requireSuccess(arguments, process.execute(directory, Optional.of(networkTimeout), List.of(arguments)));
+    }
+
+    private GitProcess.Result execute(Path directory, String... arguments) {
+        return process.execute(directory, Optional.empty(), List.of(arguments));
+    }
+
+    private static GitProcess.Result requireSuccess(String[] arguments, GitProcess.Result result) {
         if (result.exitCode() != 0) {
-            throw failure(List.of(arguments), result);
+            throw createFailure(List.of(arguments), result);
         }
-        return result.output();
+        return result;
     }
 
     private boolean isRebaseInProgress(Path worktree) {
@@ -232,48 +242,8 @@ public final class ProcessGit implements Git {
         return all.toArray(String[]::new);
     }
 
-    private static GitException failure(List<String> arguments, Result result) {
+    private static GitException createFailure(List<String> arguments, GitProcess.Result result) {
         return new GitException("git " + String.join(" ", arguments) + " failed with exit code "
                 + result.exitCode() + ": " + result.errorOutput().trim());
-    }
-
-    private Result execute(Path directory, String input, String... arguments) {
-        List<String> command = new ArrayList<>(List.of("git"));
-        command.addAll(List.of(arguments));
-        Path errorFile = null;
-        try {
-            errorFile = Files.createTempFile("factory-git", ".err");
-            ProcessBuilder builder = new ProcessBuilder(command)
-                    .directory(directory.toFile())
-                    .redirectError(errorFile.toFile());
-            builder.environment().putAll(extraEnvironment);
-            builder.environment().putAll(ISOLATION);
-            Process process = builder.start();
-            try (var stdin = process.getOutputStream()) {
-                if (input != null) {
-                    stdin.write(input.getBytes(StandardCharsets.UTF_8));
-                }
-            }
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            int exitCode = process.waitFor();
-            return new Result(exitCode, output, Files.readString(errorFile));
-        } catch (IOException exception) {
-            throw new GitException("git " + String.join(" ", arguments) + " cannot run", exception);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new GitException("git " + String.join(" ", arguments) + " was interrupted", exception);
-        } finally {
-            deleteQuietly(errorFile);
-        }
-    }
-
-    private static void deleteQuietly(Path file) {
-        try {
-            if (file != null) {
-                Files.deleteIfExists(file);
-            }
-        } catch (IOException ignored) {
-            // The file is in the temporary folder.
-        }
     }
 }
