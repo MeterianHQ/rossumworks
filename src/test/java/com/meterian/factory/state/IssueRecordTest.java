@@ -2,6 +2,7 @@ package com.meterian.factory.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -65,5 +66,13 @@ class IssueRecordTest {
 
         assertThat(failedTwice.failedReviewRounds()).isEqualTo(2);
         assertThat(failedTwice.withoutFailedReviewRounds().failedReviewRounds()).isZero();
+    }
+
+    @Test
+    void keepsAndClearsTheConflictedPaths() {
+        IssueRecord withConflict = queued.withConflictedPaths(List.of("a.txt", "café.txt"));
+
+        assertThat(withConflict.conflictedPaths()).containsExactly("a.txt", "café.txt");
+        assertThat(withConflict.withoutConflictedPaths().conflictedPaths()).isEmpty();
     }
 }

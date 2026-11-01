@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +113,8 @@ public final class ProcessGit implements Git {
 
     @Override
     public RebaseOutcome rebase(Path worktree, String upstream) {
-        if (containsCommit(worktree, upstream)) {
+        // A merge commit can contain the upstream. A rebase then replays old commits, so it must not run.
+        if (isAncestor(worktree, upstream, "HEAD")) {
             return RebaseOutcome.UP_TO_DATE;
         }
         String headBefore = run(worktree, "rev-parse", "HEAD").trim();
@@ -145,19 +147,24 @@ public final class ProcessGit implements Git {
 
     @Override
     public List<String> conflictedPaths(Path worktree) {
-        return run(worktree, "diff", "--name-only", "--diff-filter=U").lines()
-                .filter(line -> !line.isBlank())
-                .toList();
+        String output = run(worktree, "-c", "core.quotePath=false", "diff", "--name-only", "-z", "--diff-filter=U");
+        return Arrays.stream(output.split("\0")).filter(path -> !path.isEmpty()).toList();
+    }
+
+    @Override
+    public List<String> parentsOf(Path worktree, String commit) {
+        String[] hashes = run(worktree, "rev-list", "--parents", "-n", "1", commit).trim().split(" ");
+        return Arrays.asList(hashes).subList(1, hashes.length);
+    }
+
+    @Override
+    public boolean isAncestor(Path worktree, String ancestor, String commit) {
+        return execute(worktree, null, "merge-base", "--is-ancestor", ancestor, commit).exitCode() == 0;
     }
 
     @Override
     public void resetSoft(Path worktree, String commit) {
         run(worktree, "reset", "-q", "--soft", commit);
-    }
-
-    /** A merge commit can contain the upstream. A rebase then replays old commits, so it must not run. */
-    private boolean containsCommit(Path worktree, String commit) {
-        return execute(worktree, null, "merge-base", "--is-ancestor", commit, "HEAD").exitCode() == 0;
     }
 
     @Override

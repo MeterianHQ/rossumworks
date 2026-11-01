@@ -124,6 +124,10 @@ public final class IssueWorkflow {
 
     private IssueRecord implement(Issue issue, IssueRecord record, Path worktree)
             throws AgentException, ApiKeyDetectedException {
+        if (conflictResolution.hasUnfinishedMergeCommit(worktree)) {
+            conflictResolution.finishMergeCommit(worktree, describeChange(issue));
+            return record.withoutConflictedPaths().withPhase(Phase.BUILD);
+        }
         if (!phaseRunner.mayStartPhase()) {
             return record;
         }
@@ -155,12 +159,13 @@ public final class IssueWorkflow {
     }
 
     private IssueRecord commitSolvedConflict(Issue issue, IssueRecord record, Path worktree) {
-        Optional<Finding> remainingMarkers = conflictResolution.findRemainingMarkers(worktree);
+        Optional<Finding> remainingMarkers =
+                conflictResolution.findRemainingMarkers(worktree, record.conflictedPaths());
         if (remainingMarkers.isPresent()) {
             return startFixLoop(record, worktree, List.of(remainingMarkers.get()));
         }
         conflictResolution.commitAsOneCommit(worktree, describeChange(issue));
-        return record.withPhase(Phase.BUILD);
+        return record.withoutConflictedPaths().withPhase(Phase.BUILD);
     }
 
     private IssueRecord build(Issue issue, IssueRecord record, Path worktree) {
@@ -244,8 +249,7 @@ public final class IssueWorkflow {
         return switch (result) {
             case MergeResult.Merged merged -> record.withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
             case MergeResult.NeedsNewReviews needsNewReviews -> record.withoutReviews().withPhase(Phase.BUILD);
-            case MergeResult.NeedsFix needsFix ->
-                    startFixLoop(record, worktree, List.of(conflictResolution.describeMergeFix(worktree, needsFix)));
+            case MergeResult.NeedsFix needsFix -> startMergeFix(record, worktree, needsFix);
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
         };
     }
@@ -265,6 +269,12 @@ public final class IssueWorkflow {
         new FactoryFolder(worktree).writeFixPrompt(prompts.fix(findings));
         ownerApproval.withdraw(counted.issueNumber());
         return counted.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
+    }
+
+    private IssueRecord startMergeFix(IssueRecord record, Path worktree, MergeResult.NeedsFix needsFix) {
+        ConflictResolution.OpenedMerge openedMerge = conflictResolution.openMerge(worktree, needsFix);
+        IssueRecord withConflict = record.withConflictedPaths(openedMerge.conflictedPaths());
+        return startFixLoop(withConflict, worktree, List.of(openedMerge.finding()));
     }
 
     /** A failed review session is not a defect of the code, so the round runs again and no fix loop starts. */

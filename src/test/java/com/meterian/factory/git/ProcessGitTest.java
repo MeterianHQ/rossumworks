@@ -272,6 +272,17 @@ class ProcessGitTest {
         assertThat(git.hasOpenMerge(clone)).isFalse();
     }
 
+    @Test
+    void conflictedPathsReadsANonAsciiName() {
+        run(clone, "checkout", "-q", "-b", "feature");
+        commitFile(clone, "größe.txt", "feature\n", "Feature change");
+        run(clone, "checkout", "-q", "main");
+        commitFile(clone, "größe.txt", "main\n", "Main change");
+        run(clone, "checkout", "-q", "feature");
+
+        assertThat(git.mergeWithoutCommit(clone, "main")).containsExactly("größe.txt");
+    }
+
     private void createConflictBetweenFeatureAndMain() {
         run(clone, "checkout", "-q", "-b", "feature");
         commitFile(clone, "a.txt", "feature\n", "Feature change");

@@ -449,6 +449,7 @@ class IssueWorkflowTest {
 
         assertThat(record.phase()).isEqualTo(Phase.DONE);
         assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(record.conflictedPaths()).isEmpty();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
         assertThat(run(worktree(), "rev-list", "--count", "origin/main..HEAD")).isEqualTo("1");
         assertThat(run(worktree(), "rev-list", "--merges", "origin/main..HEAD")).isEmpty();
@@ -466,6 +467,8 @@ class IssueWorkflowTest {
 
         IssueRecord record = workflow.advance(inFixLoop);
 
+        assertThat(inFixLoop.conflictedPaths()).containsExactly("a.txt");
+        assertThat(record.conflictedPaths()).containsExactly("a.txt");
         assertThat(record.fixLoops()).isEqualTo(2);
         assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
         assertThat(Files.readString(worktree().resolve(".factory/fix-prompt.md")))
@@ -534,5 +537,55 @@ class IssueWorkflowTest {
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.notes()).contains("The findings of the fix loop are missing.");
         assertThat(agent.requests()).hasSize(1);
+    }
+
+    @Test
+    void theConflictFixDoesNotRevertTheChangeOfAnotherIssue() throws ApiKeyDetectedException {
+        moveTheBase("z.txt", "original\n");
+        gitHub.addIssue(8, "Change z", "Change the file z.");
+        gitHub.addLabelBy(8, "factory", "bbossola");
+        agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
+                .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("a.txt", "main\n");
+        String mergedUpstream = run(clone, "rev-parse", "main");
+        IssueRecord inFixLoop = workflow.advance(beforeMerge);
+        // Issue 8 is merged on main, and its PREPARE fetches in the same clone: origin/main moves.
+        moveTheBase("z.txt", "issue 8\n");
+        workflow.advance(IssueRecord.queued(8));
+
+        IssueRecord fixed = workflow.advance(inFixLoop);
+
+        assertThat(fixed.phase()).isEqualTo(Phase.BUILD);
+        assertThat(run(worktree(), "rev-parse", "HEAD^")).isEqualTo(mergedUpstream);
+        assertThat(run(worktree(), "diff", "--name-only", mergedUpstream + "..HEAD")).isEqualTo("a.txt");
+        assertThat(run(worktree(), "show", "HEAD:z.txt")).isEqualTo("original");
+        IssueRecord merged = advanceUntilPhase(workflow, fixed, Phase.DONE);
+        assertThat(merged.phase()).isEqualTo(Phase.DONE);
+        assertThat(run(worktree(), "show", "HEAD:z.txt")).isEqualTo("issue 8");
+        assertThat(run(worktree(), "diff", "--name-only", "origin/main..HEAD")).isEqualTo("a.txt");
+    }
+
+    @Test
+    void finishesAConflictMergeCommitAfterACrash() throws ApiKeyDetectedException, IOException {
+        agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("a.txt", "main\n");
+        String mergedUpstream = run(clone, "rev-parse", "main");
+        IssueRecord inFixLoop = workflow.advance(beforeMerge);
+        // The worker made the merge commit and stopped before the reset.
+        Files.writeString(worktree().resolve("a.txt"), "agent and main\n");
+        git.commitAll(worktree(), "Fix #7: Change the greeting");
+
+        IssueRecord record = workflow.advance(inFixLoop);
+
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.conflictedPaths()).isEmpty();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(run(worktree(), "rev-parse", "HEAD^")).isEqualTo(mergedUpstream);
+        assertThat(run(worktree(), "rev-list", "--merges", mergedUpstream + "..HEAD")).isEmpty();
+        assertThat(run(worktree(), "show", "HEAD:a.txt")).isEqualTo("agent and main");
     }
 }

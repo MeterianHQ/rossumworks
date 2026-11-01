@@ -43,6 +43,12 @@ public interface Git {
     /** Returns the paths that have a conflict in the index. */
     List<String> conflictedPaths(Path worktree);
 
+    /** Returns the hashes of the parents of the commit, the first parent first. */
+    List<String> parentsOf(Path worktree, String commit);
+
+    /** True when the history of the commit contains the ancestor. */
+    boolean isAncestor(Path worktree, String ancestor, String commit);
+
     /** Moves HEAD to the commit and keeps the index and the files. */
     void resetSoft(Path worktree, String commit);
 

@@ -15,6 +15,13 @@ import java.util.Optional;
 /** A conflict with the merge target: the open merge, the check of the markers, and the one commit at the end. */
 final class ConflictResolution {
 
+    /** The second parent of a merge commit is the upstream commit that the merge used. */
+    private static final String MERGED_UPSTREAM = "HEAD^2";
+
+    /** The finding for the agent, and the paths that have a conflict. */
+    record OpenedMerge(Finding finding, List<String> conflictedPaths) {
+    }
+
     private final Git git;
     private final String mergeTargetBranch;
     private final String mergeTargetReference;
@@ -26,8 +33,44 @@ final class ConflictResolution {
     }
 
     /** Opens a merge in the worktree, so that the agent solves the conflict in the files. */
-    Finding describeMergeFix(Path worktree, MergeResult.NeedsFix needsFix) {
+    OpenedMerge openMerge(Path worktree, MergeResult.NeedsFix needsFix) {
         List<String> conflictedPaths = git.mergeWithoutCommit(worktree, mergeTargetReference);
+        return new OpenedMerge(describeMergeFix(worktree, needsFix, conflictedPaths), conflictedPaths);
+    }
+
+    /** Returns a finding when a file of the conflict still holds a conflict marker. */
+    Optional<Finding> findRemainingMarkers(Path worktree, List<String> conflictedPaths) {
+        List<String> pathsWithMarkers = conflictedPaths.stream()
+                .filter(path -> holdsConflictMarkers(worktree.resolve(path)))
+                .toList();
+        if (pathsWithMarkers.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new Finding("The files still hold conflict markers: " + String.join(", ", pathsWithMarkers)
+                + ".", "Remove each conflict marker and keep the intent of both sides."));
+    }
+
+    /** Commits the merge, then makes it one commit on the upstream commit that the merge used. */
+    void commitAsOneCommit(Path worktree, String message) {
+        git.commitAll(worktree, message);
+        finishMergeCommit(worktree, message);
+    }
+
+    /** True when HEAD is a merge commit of the factory that is not one commit yet, for example after a crash. */
+    boolean hasUnfinishedMergeCommit(Path worktree) {
+        List<String> parents = git.parentsOf(worktree, "HEAD");
+        return parents.size() == 2
+                && !git.isAncestor(worktree, parents.get(1), parents.get(0))
+                && !git.isAncestor(worktree, "HEAD", mergeTargetReference);
+    }
+
+    /** Replaces the merge commit at HEAD with one commit on its second parent. Never uses the moving merge target. */
+    void finishMergeCommit(Path worktree, String message) {
+        git.resetSoft(worktree, MERGED_UPSTREAM);
+        git.commitAll(worktree, message);
+    }
+
+    private Finding describeMergeFix(Path worktree, MergeResult.NeedsFix needsFix, List<String> conflictedPaths) {
         if (!conflictedPaths.isEmpty()) {
             return new Finding("The branch has a conflict with " + mergeTargetBranch + " in these files: "
                     + String.join(", ", conflictedPaths) + ".",
@@ -39,25 +82,6 @@ final class ConflictResolution {
                     "Check that the change still fits " + mergeTargetBranch + ". The factory commits the merge.");
         }
         return new Finding("The merge needs a fix", needsFix.findings());
-    }
-
-    /** Returns a finding when a file with a conflict still holds a conflict marker. */
-    Optional<Finding> findRemainingMarkers(Path worktree) {
-        List<String> pathsWithMarkers = git.conflictedPaths(worktree).stream()
-                .filter(path -> holdsConflictMarkers(worktree.resolve(path)))
-                .toList();
-        if (pathsWithMarkers.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(new Finding("The files still hold conflict markers: " + String.join(", ", pathsWithMarkers)
-                + ".", "Remove each conflict marker and keep the intent of both sides."));
-    }
-
-    /** Commits the merge, then makes it one commit on the merge target, so that a later rebase replays no conflict. */
-    void commitAsOneCommit(Path worktree, String message) {
-        git.commitAll(worktree, message);
-        git.resetSoft(worktree, mergeTargetReference);
-        git.commitAll(worktree, message);
     }
 
     private static boolean holdsConflictMarkers(Path file) {
