@@ -267,6 +267,7 @@ public final class IssueWorkflow {
         if (outcome.sessionFailed()) {
             return retryReviewRound(record);
         }
+        pullRequestPublisher.publishReviewNotes(issue, outcome.notes());
         IssueRecord reviewed = outcome.record().withoutFailedReviewRounds();
         if (!outcome.allApprove()) {
             return fixLoop.start(reviewed, worktree, outcome.findings());

@@ -331,6 +331,25 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void aReviewNoteStartsNoFixLoopAndReachesThePullRequest() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello."))
+                .thenApproveReviewWithNote("Info", "Fixes #12 can come later.")
+                .thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenAssessRisk("low", true);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(gitHub.pullRequests().getFirst().body())
+                .isEqualTo("Fixes #7\n\n## The change\n\nThe greeting says hello.\n\n"
+                        + "The factory made this change for the issue #7.\n\n"
+                        + "## Notes of the reviews\n\n"
+                        + "- correctness: Info: Fixes issue 12 can come later.");
+    }
+
+    @Test
     void editsNoPullRequestBodyWhenTheDescriptionStaysTheSame() throws ApiKeyDetectedException {
         agent.then(changeFileAndDescribe("The same description."))
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()

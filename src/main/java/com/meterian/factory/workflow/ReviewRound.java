@@ -20,11 +20,14 @@ import java.util.Optional;
 /** Runs the four reviews of one tree, each in a new session. A result for another tree is a reject. */
 final class ReviewRound {
 
-    /** The record with the four verdicts and the findings of the rejecting reviews, or a failed session. */
-    record Outcome(IssueRecord record, List<Finding> findings, boolean sessionFailed) {
+    /**
+     * The record with the four verdicts, the findings of the rejecting reviews, and the notes of all reviews, or a
+     * failed session.
+     */
+    record Outcome(IssueRecord record, List<Finding> findings, List<ReviewNote> notes, boolean sessionFailed) {
 
         static Outcome failedSession(IssueRecord record) {
-            return new Outcome(record, List.of(), true);
+            return new Outcome(record, List.of(), List.of(), true);
         }
 
         boolean allApprove() {
@@ -45,6 +48,7 @@ final class ReviewRound {
             throws AgentException, ApiKeyDetectedException {
         IssueRecord reviewed = record.withoutReviews();
         List<Finding> findings = new ArrayList<>();
+        List<ReviewNote> notes = new ArrayList<>();
         for (ReviewKind kind : ReviewKind.values()) {
             Optional<ReviewResult> completed = runReview(issue, kind, worktree, treeHash);
             if (completed.isEmpty()) {
@@ -53,11 +57,12 @@ final class ReviewRound {
             ReviewResult result = completed.get();
             Verdict verdict = judge(result, treeHash);
             reviewed = reviewed.withReview(kind, verdict);
+            result.notes().forEach(note -> notes.add(new ReviewNote(kind, note)));
             if (verdict == Verdict.REJECT) {
                 findings.addAll(describeRejection(kind, result, treeHash));
             }
         }
-        return new Outcome(reviewed, findings, false);
+        return new Outcome(reviewed, findings, notes, false);
     }
 
     /** Returns empty when the session does not end with success. */

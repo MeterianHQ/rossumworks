@@ -92,6 +92,13 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    public synchronized FakeAgentRunner thenApproveReviewWithNote(String noteTitle, String noteDetail) {
+        then(request -> writeResult(request, "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request)
+                + "\", \"findings\": [], \"notes\": [{\"title\": \"" + noteTitle + "\", \"detail\": \""
+                + noteDetail + "\"}]}"));
+        return this;
+    }
+
     public synchronized FakeAgentRunner thenApproveAllReviews() {
         for (int review = 0; review < 4; review++) {
             thenApproveReview();
