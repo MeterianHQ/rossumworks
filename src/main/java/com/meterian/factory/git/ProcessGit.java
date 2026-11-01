@@ -54,6 +54,11 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public void pruneWorktrees(Path clone) {
+        run(clone, "worktree", "prune");
+    }
+
+    @Override
     public String treeHash(Path worktree) {
         return run(worktree, "rev-parse", "HEAD^{tree}").trim();
     }
@@ -107,6 +112,9 @@ public final class ProcessGit implements Git {
 
     @Override
     public RebaseOutcome rebase(Path worktree, String upstream) {
+        if (containsCommit(worktree, upstream)) {
+            return RebaseOutcome.UP_TO_DATE;
+        }
         String headBefore = run(worktree, "rev-parse", "HEAD").trim();
         Result result = execute(worktree, null, withIdentity("rebase", upstream));
         if (result.exitCode() == 0) {
@@ -118,6 +126,23 @@ public final class ProcessGit implements Git {
             return RebaseOutcome.CONFLICT;
         }
         throw failure(List.of("rebase", upstream), result);
+    }
+
+    @Override
+    public List<String> mergeWithoutCommit(Path worktree, String upstream) {
+        Result result = execute(worktree, null, withIdentity("merge", "--no-commit", "--no-ff", upstream));
+        List<String> conflictedPaths = run(worktree, "diff", "--name-only", "--diff-filter=U").lines()
+                .filter(line -> !line.isBlank())
+                .toList();
+        if (result.exitCode() != 0 && conflictedPaths.isEmpty()) {
+            throw failure(List.of("merge", "--no-commit", "--no-ff", upstream), result);
+        }
+        return conflictedPaths;
+    }
+
+    /** A merge commit can contain the upstream. A rebase then replays old commits, so it must not run. */
+    private boolean containsCommit(Path worktree, String commit) {
+        return execute(worktree, null, "merge-base", "--is-ancestor", commit, "HEAD").exitCode() == 0;
     }
 
     @Override

@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 public final class StatusComment {
 
+    private static final String HEADLINE_START = "**Factory status:**";
     private static final String RECORD_START = "<!-- factory-record";
     private static final String RECORD_END = "-->";
     private static final String NOT_SET = "—";
@@ -32,20 +33,37 @@ public final class StatusComment {
         return body.toString();
     }
 
+    /** Reads the record of the newest status comment of the worker. Other comments of the worker do not count. */
     public static Optional<IssueRecord> findRecord(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin).flatMap(comment -> readRecord(comment.body()));
+    }
+
+    /** True when the newest status comment of the worker has a record that does not parse. */
+    public static boolean hasBrokenRecord(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin)
+                .filter(comment -> readRecord(comment.body()).isEmpty())
+                .isPresent();
+    }
+
+    /** Changes the HTML comment markers, so that a text cannot open or close a hidden block. */
+    public static String neutralizeCommentMarkers(String text) {
+        return text.replace("<!--", "<! --").replace("-->", "-- >");
+    }
+
+    private static Optional<IssueComment> findNewestStatusComment(List<IssueComment> comments, String workerLogin) {
         return comments.stream()
                 .filter(comment -> workerLogin.equals(comment.authorLogin()))
+                .filter(comment -> comment.body().startsWith(HEADLINE_START))
                 .filter(comment -> comment.body().contains(RECORD_START))
-                .max(Comparator.comparingLong(IssueComment::id))
-                .flatMap(comment -> readRecord(comment.body()));
+                .max(Comparator.comparingLong(IssueComment::id));
     }
 
     private static String sanitizeNote(String note) {
-        return note.replaceAll("\\R", " ").replace("<!--", "<! --").replace("-->", "-- >");
+        return neutralizeCommentMarkers(note.replaceAll("\\R", " "));
     }
 
     private static String renderHeadline(IssueRecord record) {
-        String headline = "**Factory status:** " + record.status().displayName() + " — phase " + record.phase();
+        String headline = HEADLINE_START + " " + record.status().displayName() + " — phase " + record.phase();
         return record.waitReason()
                 .map(reason -> headline + "\n" + reason.sentence())
                 .orElse(headline);

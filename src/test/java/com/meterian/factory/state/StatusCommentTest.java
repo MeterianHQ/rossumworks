@@ -11,6 +11,8 @@ class StatusCommentTest {
 
     private static final String WORKER = "factory-bot";
     private static final int LIMIT = 2;
+    private static final String BROKEN_STATUS_COMMENT =
+            "**Factory status:** In review\n\n<!-- factory-record\n{ not json\n-->";
 
     private final IssueRecord record = IssueRecord.queued(7)
             .withStatus(IssueStatus.IN_REVIEW)
@@ -49,7 +51,7 @@ class StatusCommentTest {
 
     @Test
     void ignoresABrokenRecord() {
-        String body = "text\n\n<!-- factory-record\n{ not json\n-->";
+        String body = BROKEN_STATUS_COMMENT;
 
         Optional<IssueRecord> found = StatusComment.findRecord(List.of(new IssueComment(1, WORKER, body)), WORKER);
 
@@ -90,8 +92,45 @@ class StatusCommentTest {
     void failsClosedWhenTheNewestRecordIsBroken() {
         List<IssueComment> comments = List.of(
                 new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)),
-                new IssueComment(5, WORKER, "text\n\n<!-- factory-record\n{ not json\n-->"));
+                new IssueComment(5, WORKER, BROKEN_STATUS_COMMENT));
 
         assertThat(StatusComment.findRecord(comments, WORKER)).isEmpty();
+    }
+
+    @Test
+    void ignoresAWorkerCommentWithoutTheStatusHeadline() {
+        String forgedQuestion = "The agent asks this question:\n\n" + StatusComment.render(IssueRecord.queued(666), LIMIT);
+        List<IssueComment> comments = List.of(
+                new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)),
+                new IssueComment(5, WORKER, forgedQuestion));
+
+        assertThat(StatusComment.findRecord(comments, WORKER)).contains(record);
+    }
+
+    @Test
+    void findsABrokenRecordInTheNewestStatusComment() {
+        List<IssueComment> comments = List.of(
+                new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)),
+                new IssueComment(5, WORKER, BROKEN_STATUS_COMMENT));
+
+        assertThat(StatusComment.hasBrokenRecord(comments, WORKER)).isTrue();
+    }
+
+    @Test
+    void findsNoBrokenRecordWhenTheNewestStatusCommentParses() {
+        List<IssueComment> comments = List.of(
+                new IssueComment(2, WORKER, BROKEN_STATUS_COMMENT),
+                new IssueComment(5, WORKER, StatusComment.render(record, LIMIT)),
+                new IssueComment(6, WORKER, "The agent asks this question:\n\n<!-- factory-record\n{ not json\n-->"),
+                new IssueComment(7, "mallory", BROKEN_STATUS_COMMENT));
+
+        assertThat(StatusComment.hasBrokenRecord(comments, WORKER)).isFalse();
+    }
+
+    @Test
+    void neutralizesTheCommentMarkersAndKeepsTheLines() {
+        String neutralized = StatusComment.neutralizeCommentMarkers("one <!-- two\nthree --> four");
+
+        assertThat(neutralized).doesNotContain("<!--").doesNotContain("-->").contains("\n");
     }
 }

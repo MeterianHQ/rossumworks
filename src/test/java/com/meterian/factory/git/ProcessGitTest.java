@@ -10,7 +10,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -198,5 +201,63 @@ class ProcessGitTest {
         commitFile(clone, "b.txt", "second\n", "Second");
 
         assertThat(git.treeHashOf(clone, first)).isEqualTo(firstTree);
+    }
+
+    @Test
+    void mergeWithoutCommitReturnsTheConflictedPaths() {
+        createConflictBetweenFeatureAndMain();
+
+        List<String> conflictedPaths = git.mergeWithoutCommit(clone, "main");
+
+        assertThat(conflictedPaths).containsExactly("a.txt");
+        assertThat(clone.resolve(".git/MERGE_HEAD")).exists();
+    }
+
+    @Test
+    void mergeWithoutCommitReturnsNoPathWhenTheBranchContainsTheUpstream() {
+        run(clone, "checkout", "-q", "-b", "feature");
+        commitFile(clone, "b.txt", "feature\n", "Feature commit");
+
+        assertThat(git.mergeWithoutCommit(clone, "main")).isEmpty();
+        assertThat(clone.resolve(".git/MERGE_HEAD")).doesNotExist();
+    }
+
+    @Test
+    void commitAllAfterASolvedConflictMakesARebaseUpToDate() throws IOException {
+        createConflictBetweenFeatureAndMain();
+        git.mergeWithoutCommit(clone, "main");
+        Files.writeString(clone.resolve("a.txt"), "feature and main\n");
+
+        git.commitAll(clone, "Solve the conflict");
+
+        assertThat(run(clone, "rev-list", "--parents", "-n", "1", "HEAD").split(" ")).hasSize(3);
+        assertThat(git.rebase(clone, "main")).isEqualTo(RebaseOutcome.UP_TO_DATE);
+    }
+
+    @Test
+    void pruneWorktreesForgetsADeletedWorktree() throws IOException {
+        Path worktree = temporaryDirectory.resolve("worktree");
+        git.addWorktree(clone, worktree, "factory/issue-1", "main");
+        deleteRecursively(worktree);
+
+        git.pruneWorktrees(clone);
+
+        assertThat(run(clone, "worktree", "list")).doesNotContain(worktree.toString());
+    }
+
+    private void createConflictBetweenFeatureAndMain() {
+        run(clone, "checkout", "-q", "-b", "feature");
+        commitFile(clone, "a.txt", "feature\n", "Feature change");
+        run(clone, "checkout", "-q", "main");
+        commitFile(clone, "a.txt", "main\n", "Main change");
+        run(clone, "checkout", "-q", "feature");
+    }
+
+    private static void deleteRecursively(Path directory) throws IOException {
+        try (Stream<Path> paths = Files.walk(directory)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        }
     }
 }

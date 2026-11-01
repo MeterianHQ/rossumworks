@@ -188,6 +188,22 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void readsTheMergedFieldOfThePullRequest() {
+        responder = request -> new Answer(200, "{\"number\":5,\"merged\":true}");
+
+        assertThat(client.isMerged(5)).isTrue();
+        assertThat(requests.get(0).method()).isEqualTo("GET");
+        assertThat(requests.get(0).target()).isEqualTo("/repos/o/r/pulls/5");
+    }
+
+    @Test
+    void readsAPullRequestWithoutTheMergedFieldAsNotMerged() {
+        responder = request -> new Answer(200, "{\"number\":5}");
+
+        assertThat(client.isMerged(5)).isFalse();
+    }
+
+    @Test
     void reportsAChangedHeadOnA409() {
         responder = request -> new Answer(409, "{\"message\":\"Head branch was modified\"}");
 

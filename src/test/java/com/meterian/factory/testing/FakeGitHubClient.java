@@ -37,6 +37,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
+    private boolean failsTheNextCommentEdit;
+    private boolean failsTheCommentEditAfterTheMerge;
 
     public synchronized void setAuthenticatedLogin(String login) {
         authenticatedLogin = login;
@@ -88,6 +90,16 @@ public final class FakeGitHubClient implements GitHubClient {
         return List.copyOf(squashMergeShas);
     }
 
+    /** The next editComment throws a GitHubException, as a lost connection does. */
+    public synchronized void failTheNextCommentEdit() {
+        failsTheNextCommentEdit = true;
+    }
+
+    /** The first editComment after a successful squash merge throws a GitHubException. */
+    public synchronized void failTheCommentEditAfterTheMerge() {
+        failsTheCommentEditAfterTheMerge = true;
+    }
+
     @Override
     public synchronized String authenticatedLogin() {
         return authenticatedLogin;
@@ -119,6 +131,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void editComment(long commentId, String body) {
+        if (failsTheNextCommentEdit) {
+            failsTheNextCommentEdit = false;
+            throw new GitHubException("GitHub answered 502 for PATCH /issues/comments/" + commentId);
+        }
         for (List<IssueComment> comments : commentsByIssue.values()) {
             comments.replaceAll(comment -> comment.id() == commentId
                     ? new IssueComment(commentId, comment.authorLogin(), body) : comment);
@@ -176,7 +192,14 @@ public final class FakeGitHubClient implements GitHubClient {
         MergeOutcome outcome = mergeOutcomes.isEmpty() ? MergeOutcome.MERGED : mergeOutcomes.poll();
         if (outcome == MergeOutcome.MERGED) {
             mergedPullRequests.add(pullRequestNumber);
+            failsTheNextCommentEdit = failsTheNextCommentEdit || failsTheCommentEditAfterTheMerge;
+            failsTheCommentEditAfterTheMerge = false;
         }
         return outcome;
+    }
+
+    @Override
+    public synchronized boolean isMerged(int pullRequestNumber) {
+        return mergedPullRequests.contains(pullRequestNumber);
     }
 }

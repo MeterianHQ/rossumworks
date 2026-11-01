@@ -50,4 +50,12 @@ class IssueRecordTest {
 
         assertThat(queued.withSessionId(session).sessionId()).isEqualTo(session);
     }
+
+    @Test
+    void withSessionIdForgetsThatTheAgentSessionStarted() {
+        IssueRecord started = queued.withAgentSessionStarted();
+
+        assertThat(started.agentSessionStarted()).isTrue();
+        assertThat(started.withSessionId(UUID.randomUUID()).agentSessionStarted()).isFalse();
+    }
 }

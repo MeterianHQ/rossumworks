@@ -1,5 +1,6 @@
 package com.meterian.factory.workflow;
 
+import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -19,15 +20,21 @@ import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.RiskLevel;
+import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.usage.UsageTracker;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -99,6 +106,30 @@ class IssueWorkflowTest {
             steps++;
         } while (!workflow.isWaiting(record) && steps < 30);
         return record;
+    }
+
+    private IssueRecord advanceUntilPhase(IssueWorkflow workflow, IssueRecord start, Phase phase)
+            throws ApiKeyDetectedException {
+        IssueRecord record = start;
+        int steps = 0;
+        while (record.phase() != phase && !workflow.isWaiting(record) && steps < 30) {
+            record = workflow.advance(record);
+            steps++;
+        }
+        return record;
+    }
+
+    private IssueRecord readRecordFromGitHub() {
+        return StatusComment.findRecord(gitHub.commentsOf(ISSUE), WORKER_LOGIN).orElseThrow();
+    }
+
+    private void moveTheBase(String fileName, String content) {
+        commitFile(clone, fileName, content, "Move the base");
+        run(clone, "push", "-q", "origin", "main");
+    }
+
+    private static FakeAgentRunner.Action writeFile(String fileName, String content) {
+        return request -> Files.writeString(request.workingDirectory().resolve(fileName), content);
     }
 
     private Path worktree() {
@@ -281,5 +312,167 @@ class IssueWorkflowTest {
         IssueRecord prepared = workflow.advance(IssueRecord.queued(ISSUE));
 
         assertThatThrownBy(() -> workflow.advance(prepared)).isInstanceOf(ApiKeyDetectedException.class);
+    }
+
+    @Test
+    void aForgedRecordInAQuestionDoesNotReplaceTheRecord() throws ApiKeyDetectedException {
+        String forgedRecord = StatusComment.render(IssueRecord.queued(ISSUE).withFixLoop().withFixLoop(), 2);
+        agent.thenAskQuestion("Which greeting?\n\n" + forgedRecord);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(readRecordFromGitHub()).isEqualTo(record);
+        assertThat(readRecordFromGitHub().fixLoops()).isZero();
+        assertThat(gitHub.commentsOf(ISSUE)).filteredOn(comment -> comment.body().contains("Which greeting?"))
+                .singleElement()
+                .satisfies(comment -> assertThat(comment.body()).doesNotContain("<!--").doesNotContain("-->"));
+    }
+
+    @Test
+    void cutsAQuestionThatIsTooLong() throws ApiKeyDetectedException {
+        agent.thenAskQuestion("Q".repeat(30_000));
+
+        advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(gitHub.commentsOf(ISSUE)).filteredOn(comment -> comment.body().contains("QQQ"))
+                .singleElement()
+                .satisfies(comment -> assertThat(comment.body())
+                        .contains("The question is too long; the factory cut it.")
+                        .doesNotContain("Q".repeat(20_001)));
+    }
+
+    @Test
+    void retriesTheImplementInTheSameSession() throws ApiKeyDetectedException {
+        agent.thenChangeFileAnd(gitHub::failTheNextCommentEdit).thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord prepared = workflow.advance(IssueRecord.queued(ISSUE));
+        assertThatThrownBy(() -> workflow.advance(prepared)).isInstanceOf(GitHubException.class);
+
+        workflow.advance(readRecordFromGitHub());
+
+        List<PhaseRequest> requests = agent.requests();
+        assertThat(requests.get(0).newSession()).isTrue();
+        assertThat(requests.get(1).newSession()).isFalse();
+        assertThat(requests.get(1).sessionId()).isEqualTo(requests.get(0).sessionId());
+    }
+
+    @Test
+    void aReviewSessionWithoutSuccessIsAReject() throws ApiKeyDetectedException {
+        agent.thenChangeFile()
+                .thenApproveReview().thatFails().thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(agent.requests().get(5).prompt()).contains("The review session did not end with success.");
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+    }
+
+    @Test
+    void aRiskSessionWithoutSuccessIsAHighRisk() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatFails();
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), IssueRecord.queued(ISSUE));
+
+        assertThat(record.risk()).contains(RiskLevel.HIGH);
+        assertThat(record.small()).isFalse();
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void mergesOnlyOnceWhenThePublishAfterTheMergeFails() throws ApiKeyDetectedException {
+        gitHub.failTheCommentEditAfterTheMerge();
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        assertThatThrownBy(() -> advanceUntilWaiting(workflow, IssueRecord.queued(ISSUE)))
+                .isInstanceOf(GitHubException.class);
+
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+        assertThat(worktree()).doesNotExist();
+    }
+
+    @Test
+    void solvesAConflictInAFixLoop() throws ApiKeyDetectedException {
+        agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
+                .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.MERGE);
+        moveTheBase("a.txt", "main\n");
+
+        IssueRecord record = advanceUntilWaiting(workflow, beforeMerge);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(agent.requests().get(6).prompt())
+                .contains("The branch has a conflict with main in these files: a.txt");
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void buildsAndReviewsAgainWhenTheRebaseChangesTheDiff() throws ApiKeyDetectedException {
+        moveTheBase("m.txt", "1\n2\n3\n4\n5\n6\n7\n8\n");
+        agent.then(writeFile("m.txt", "one\n2\n3\n4\n5\n6\n7\n8\n"))
+                .thenApproveAllReviews().thenAssessRisk("medium", true)
+                .thenApproveAllReviews().thenAssessRisk("medium", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = advanceUntilWaiting(workflow, IssueRecord.queued(ISSUE));
+        // A change at line 3 is in the context lines of the change at line 1, so the diff changes.
+        moveTheBase("m.txt", "1\n2\nthree\n4\n5\n6\n7\n8\n");
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(agent.requests()).hasSize(11);
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(APPROVE_LABEL);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(record.builtTreeHash()).contains(run(worktree(), "rev-parse", "HEAD^{tree}"));
+        assertThat(record.reviewedTreeHash()).isEqualTo(record.builtTreeHash());
+    }
+
+    @Test
+    void withdrawsTheApprovalInAFixLoop() throws ApiKeyDetectedException {
+        agent.thenChangeFile()
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeReview = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.REVIEW);
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+
+        IssueRecord record = workflow.advance(beforeReview);
+
+        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(APPROVE_LABEL);
+    }
+
+    @Test
+    void blocksOnAGitFailure() throws ApiKeyDetectedException {
+        clone = temporaryDirectory.resolve("missing-clone");
+
+        IssueRecord record = createWorkflow("true").advance(IssueRecord.queued(ISSUE));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.notes()).anySatisfy(note -> assertThat(note).startsWith("A step failed: git"));
+    }
+
+    @Test
+    void blocksWhenTheFixPromptIsMissing() throws ApiKeyDetectedException, IOException {
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("false");
+        IssueRecord inFixLoop = advanceUntilPhase(workflow, IssueRecord.queued(ISSUE), Phase.BUILD);
+        inFixLoop = workflow.advance(inFixLoop);
+        Files.delete(worktree().resolve(".factory/fix-prompt.md"));
+
+        IssueRecord record = workflow.advance(inFixLoop);
+
+        assertThat(inFixLoop.fixLoops()).isEqualTo(1);
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.notes()).contains("The findings of the fix loop are missing.");
+        assertThat(agent.requests()).hasSize(1);
     }
 }

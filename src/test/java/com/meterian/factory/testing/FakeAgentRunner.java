@@ -29,24 +29,48 @@ public final class FakeAgentRunner implements AgentRunner {
     private static final Pattern RESULT_FILE = Pattern.compile("\\.factory/((review-\\w+|risk)\\.json)");
     private static final SessionReport SUCCESS = new SessionReport(true, "done", Optional.of("none"),
             Optional.empty(), List.of());
+    private static final SessionReport FAILURE = new SessionReport(false, "stopped", Optional.of("none"),
+            Optional.empty(), List.of());
 
-    private final Deque<Action> actions = new ArrayDeque<>();
+    private record ScriptedPhase(Action action, SessionReport report) {
+    }
+
+    private final Deque<ScriptedPhase> phases = new ArrayDeque<>();
     private final List<PhaseRequest> requests = new ArrayList<>();
     private int changeCount;
 
-    public synchronized FakeAgentRunner thenChangeFile() {
-        actions.add(request -> writeFile(request, "work.txt", "change " + ++changeCount + "\n"));
+    public synchronized FakeAgentRunner then(Action action) {
+        phases.add(new ScriptedPhase(action, SUCCESS));
         return this;
     }
 
+    /** The last scripted phase does its action, but its session does not end with success. */
+    public synchronized FakeAgentRunner thatFails() {
+        ScriptedPhase last = phases.removeLast();
+        phases.add(new ScriptedPhase(last.action(), FAILURE));
+        return this;
+    }
+
+    public synchronized FakeAgentRunner thenChangeFile() {
+        return then(this::changeWorkFile);
+    }
+
+    /** Changes a file, then runs the side effect, for example a GitHub failure. */
+    public synchronized FakeAgentRunner thenChangeFileAnd(Runnable sideEffect) {
+        return then(request -> {
+            changeWorkFile(request);
+            sideEffect.run();
+        });
+    }
+
     public synchronized FakeAgentRunner thenChangeNothing() {
-        actions.add(request -> {
+        then(request -> {
         });
         return this;
     }
 
     public synchronized FakeAgentRunner thenAskQuestion(String question) {
-        actions.add(request -> {
+        then(request -> {
             writeFile(request, "work.txt", "half done\n");
             writeFile(request, ".factory/question.md", question);
         });
@@ -54,7 +78,7 @@ public final class FakeAgentRunner implements AgentRunner {
     }
 
     public synchronized FakeAgentRunner thenApproveReview() {
-        actions.add(request -> writeResult(request,
+        then(request -> writeResult(request,
                 "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request) + "\", \"findings\": []}"));
         return this;
     }
@@ -67,25 +91,25 @@ public final class FakeAgentRunner implements AgentRunner {
     }
 
     public synchronized FakeAgentRunner thenApproveReviewOfTree(String treeHash) {
-        actions.add(request -> writeResult(request,
+        then(request -> writeResult(request,
                 "{\"verdict\": \"approve\", \"tree\": \"" + treeHash + "\", \"findings\": []}"));
         return this;
     }
 
     public synchronized FakeAgentRunner thenRejectReview(String findingTitle) {
-        actions.add(request -> writeResult(request, "{\"verdict\": \"reject\", \"tree\": \"" + currentTree(request)
+        then(request -> writeResult(request, "{\"verdict\": \"reject\", \"tree\": \"" + currentTree(request)
                 + "\", \"findings\": [{\"title\": \"" + findingTitle + "\", \"detail\": \"Fix it.\"}]}"));
         return this;
     }
 
     public synchronized FakeAgentRunner thenAssessRisk(String risk, boolean small) {
-        actions.add(request -> writeResult(request,
+        then(request -> writeResult(request,
                 "{\"risk\": \"" + risk + "\", \"small\": " + small + ", \"reasons\": [\"scripted\"]}"));
         return this;
     }
 
     public synchronized FakeAgentRunner thenDetectAnApiKey() {
-        actions.add(request -> {
+        then(request -> {
             throw new ApiKeyDetectedException("The session uses the API key source ANTHROPIC_API_KEY.");
         });
         return this;
@@ -98,20 +122,24 @@ public final class FakeAgentRunner implements AgentRunner {
     @Override
     public synchronized SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
         requests.add(request);
-        Action action = actions.poll();
-        if (action == null) {
+        ScriptedPhase phase = phases.poll();
+        if (phase == null) {
             throw new IllegalStateException("The test has no scripted action for the phase " + requests.size());
         }
         try {
-            action.perform(request);
+            phase.action().perform(request);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }
-        return SUCCESS;
+        return phase.report();
     }
 
     @Override
     public void stopPhase(int issueNumber) {
+    }
+
+    private synchronized void changeWorkFile(PhaseRequest request) throws IOException {
+        writeFile(request, "work.txt", "change " + ++changeCount + "\n");
     }
 
     private static void writeResult(PhaseRequest request, String json) throws IOException {

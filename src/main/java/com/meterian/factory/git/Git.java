@@ -1,6 +1,7 @@
 package com.meterian.factory.git;
 
 import java.nio.file.Path;
+import java.util.List;
 
 public interface Git {
 
@@ -9,6 +10,9 @@ public interface Git {
     void addWorktree(Path clone, Path worktree, String branch, String startPoint);
 
     void removeWorktree(Path clone, Path worktree);
+
+    /** Forgets the worktrees whose folder does not exist. */
+    void pruneWorktrees(Path clone);
 
     /** Returns the hash of the tree of HEAD. */
     String treeHash(Path worktree);
@@ -27,8 +31,11 @@ public interface Git {
     /** Adds all changes, except the folder .factory, and commits them. */
     void commitAll(Path worktree, String message);
 
-    /** Rebases onto the upstream. On a conflict it aborts the rebase. */
+    /** Rebases onto the upstream. It is up to date when HEAD contains the upstream. On a conflict it aborts. */
     RebaseOutcome rebase(Path worktree, String upstream);
+
+    /** Merges the upstream and does not commit. Returns the paths with a conflict; the merge stays open. */
+    List<String> mergeWithoutCommit(Path worktree, String upstream);
 
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);

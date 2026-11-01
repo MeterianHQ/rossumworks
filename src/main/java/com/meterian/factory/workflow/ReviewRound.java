@@ -2,6 +2,7 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
@@ -26,6 +27,9 @@ final class ReviewRound {
                     && record.reviews().size() == ReviewKind.values().length;
         }
     }
+
+    private static final Finding SESSION_FAILED = new Finding("The review session did not end with success.",
+            "The session failed or the factory stopped it. The review runs again after the fix.");
 
     private final PhaseRunner phaseRunner;
     private final PromptLibrary prompts;
@@ -53,7 +57,10 @@ final class ReviewRound {
     private ReviewResult runReview(Issue issue, ReviewKind kind, Path worktree, String treeHash)
             throws AgentException, ApiKeyDetectedException {
         new FactoryFolder(worktree).deleteReviewResult(kind);
-        phaseRunner.runInNewSession(issue.number(), worktree, prompts.review(kind, issue, treeHash));
+        SessionReport report = phaseRunner.runInNewSession(issue.number(), worktree, prompts.review(kind, issue, treeHash));
+        if (!report.success()) {
+            return new ReviewResult(Verdict.REJECT, treeHash, List.of(SESSION_FAILED));
+        }
         return ReviewResultReader.read(worktree, kind);
     }
 

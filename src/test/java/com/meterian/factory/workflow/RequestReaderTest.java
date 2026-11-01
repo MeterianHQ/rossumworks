@@ -28,4 +28,27 @@ class RequestReaderTest {
     void refusesALabelWithNoEvent() {
         assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isFalse();
     }
+
+    @Test
+    void refusesALabelFromAnotherAccount() {
+        gitHub.addLabelBy(7, "factory:approve", "mallory");
+
+        assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isFalse();
+    }
+
+    @Test
+    void readsOnlyTheNewestEvent() {
+        gitHub.addLabelBy(7, "factory:approve", "bbossola");
+        gitHub.removeLabel(7, "factory:approve");
+        gitHub.addLabelBy(7, "factory:approve", "mallory");
+
+        assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isFalse();
+    }
+
+    @Test
+    void comparesTheAccountsWithoutCase() {
+        gitHub.addLabelBy(7, "factory:approve", "BBossola");
+
+        assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isTrue();
+    }
 }
