@@ -103,11 +103,23 @@ class LiveFilesTest {
         JsonNode settings = new ObjectMapper().readTree(settingsFile.toFile());
         JsonNode hook = settings.at("/hooks/UserPromptSubmit/0/hooks/0");
         assertThat(hook.get("type").asText()).isEqualTo("command");
-        assertThat(hook.get("command").asText())
-                .startsWith(temporaryDirectory.resolve("live/continue-hook.sh").toString())
-                .endsWith(" " + liveFiles.continueMarker(ISSUE_NUMBER));
+        assertThat(hook.get("command").asText()).isEqualTo("'" + temporaryDirectory.resolve("live/continue-hook.sh")
+                + "' '" + liveFiles.continueMarker(ISSUE_NUMBER) + "'");
         assertThat(liveFiles.continueMarker(ISSUE_NUMBER).getFileName().toString())
                 .isEqualTo("issue-7.continue");
+    }
+
+    @Test
+    void theHookCommandOfTheSettingsWorksInADirectoryWithASpace() throws Exception {
+        LiveFiles spacedLiveFiles = new LiveFiles(temporaryDirectory.resolve("live files"));
+        spacedLiveFiles.install();
+        JsonNode settings = new ObjectMapper().readTree(spacedLiveFiles.settingsFile(ISSUE_NUMBER).toFile());
+        String hookCommand = settings.at("/hooks/UserPromptSubmit/0/hooks/0/command").asText();
+
+        int exitCode = runInShell(hookCommand, "{\"prompt\":\"/factory:continue\"}");
+
+        assertThat(exitCode).isEqualTo(2);
+        assertThat(spacedLiveFiles.isContinueRequested(ISSUE_NUMBER)).isTrue();
     }
 
     @Test
@@ -120,11 +132,17 @@ class LiveFilesTest {
     }
 
     private int runHook(String standardInput) throws Exception {
-        Process process = new ProcessBuilder("bash",
+        return runProcess(new ProcessBuilder("bash",
                 temporaryDirectory.resolve("live/continue-hook.sh").toString(),
-                liveFiles.continueMarker(ISSUE_NUMBER).toString())
-                .redirectErrorStream(true)
-                .start();
+                liveFiles.continueMarker(ISSUE_NUMBER).toString()), standardInput);
+    }
+
+    private int runInShell(String command, String standardInput) throws Exception {
+        return runProcess(new ProcessBuilder("sh", "-c", command), standardInput);
+    }
+
+    private int runProcess(ProcessBuilder builder, String standardInput) throws Exception {
+        Process process = builder.redirectErrorStream(true).start();
         process.getOutputStream().write(standardInput.getBytes(StandardCharsets.UTF_8));
         process.getOutputStream().close();
         process.getInputStream().readAllBytes();

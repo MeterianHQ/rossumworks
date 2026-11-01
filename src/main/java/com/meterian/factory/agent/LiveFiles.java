@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /** The files of live mode: the factory plugin, the continue hook, and the settings and marker of each issue. */
 public final class LiveFiles {
@@ -65,7 +66,7 @@ public final class LiveFiles {
         ObjectMapper mapper = new ObjectMapper();
         ObjectNode hook = mapper.createObjectNode();
         hook.put("type", "command");
-        hook.put("command", hookFile() + " " + continueMarker(issueNumber));
+        hook.put("command", ShellQuoting.join(List.of(hookFile().toString(), continueMarker(issueNumber).toString())));
         ObjectNode group = mapper.createObjectNode();
         group.set("hooks", mapper.createArrayNode().add(hook));
         ArrayNode groups = mapper.createArrayNode().add(group);
