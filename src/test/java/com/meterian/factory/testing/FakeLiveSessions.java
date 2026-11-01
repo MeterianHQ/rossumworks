@@ -77,6 +77,7 @@ public final class FakeLiveSessions implements LiveSessions {
     }
 
     /** Acts as the hook: the owner gives /factory:continue in the live session. */
+    @Override
     public void requestContinue(int issueNumber) {
         continueRequests.add(issueNumber);
     }

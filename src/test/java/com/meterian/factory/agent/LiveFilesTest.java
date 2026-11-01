@@ -206,6 +206,15 @@ class LiveFilesTest {
     }
 
     @Test
+    void requestContinueWritesTheMarkerOfTheHook() throws IOException {
+        liveFiles.requestContinue(ISSUE_NUMBER);
+
+        assertThat(liveFiles.isContinueRequested(ISSUE_NUMBER)).isTrue();
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(liveFiles.continueMarker(ISSUE_NUMBER))))
+                .isEqualTo("rw-------");
+    }
+
+    @Test
     void theHookWritesTheMarkerAndBlocksTheContinueCommand() throws Exception {
         int exitCode = runHook("{\"prompt\":\"/factory:continue\"}");
 

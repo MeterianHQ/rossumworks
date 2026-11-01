@@ -21,6 +21,7 @@ import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.File;
@@ -230,7 +231,8 @@ public final class Main {
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
-        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
+        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts(), workerLogin,
+                new PageRequests(Clock.systemUTC()));
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);

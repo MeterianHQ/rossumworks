@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.LocalDate;
 import java.util.List;
 
 /** The files of live mode: the factory plugin, the continue hook, and the settings and marker of each issue. */
@@ -26,6 +27,7 @@ public final class LiveFiles {
     private static final int GROUP_WRITE_BIT = 0020;
     private static final int OTHERS_WRITE_BIT = 0002;
     private static final int ROOT_USER_ID = 0;
+    private static final String PRIVATE_FILE_PERMISSIONS = "rw-------";
     private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
     private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
 
@@ -180,6 +182,12 @@ public final class LiveFiles {
 
     public boolean isContinueRequested(int issueNumber) {
         return Files.exists(continueMarker(issueNumber));
+    }
+
+    /** Writes the marker that the hook writes. Only the owner can read it. */
+    public void requestContinue(int issueNumber) {
+        write(continueMarker(issueNumber), LocalDate.now().toString().getBytes(StandardCharsets.UTF_8),
+                PRIVATE_FILE_PERMISSIONS);
     }
 
     public void clearContinueRequest(int issueNumber) {

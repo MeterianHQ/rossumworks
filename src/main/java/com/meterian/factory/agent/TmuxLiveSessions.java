@@ -101,6 +101,11 @@ public final class TmuxLiveSessions implements LiveSessions {
         liveFiles.clearContinueRequest(issueNumber);
     }
 
+    @Override
+    public void requestContinue(int issueNumber) {
+        liveFiles.requestContinue(issueNumber);
+    }
+
     /** The argument form runs bash directly: the shell of the user and the length limit of tmux do not apply. */
     private void startSession(int issueNumber, Path worktree, Path launchScript) throws LiveSessionException {
         tmux.run("new-session", "-d", "-s", sessionName(issueNumber), "-x", SCREEN_WIDTH, "-y", SCREEN_HEIGHT,

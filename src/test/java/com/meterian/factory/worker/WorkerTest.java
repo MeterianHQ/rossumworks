@@ -32,6 +32,7 @@ import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.nio.file.Files;
@@ -85,6 +86,8 @@ class WorkerTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
 
     private final Git git = new ProcessGit();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
@@ -152,7 +155,8 @@ class WorkerTest {
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration) {
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
+        RequestReader requests =
+                new RequestReader(gitHub, configuration.allowedAccounts(), WORKER_LOGIN, pageRequests);
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
@@ -608,6 +612,37 @@ class WorkerTest {
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void anApproveFromThePageMergesTheIssue() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        pageRequests.remember(ISSUE, APPROVE_LABEL);
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, WORKER_LOGIN);
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void aPageLabelAfterARestartIsIgnoredWithANote() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, WORKER_LOGIN);
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
+                .anyMatch(body -> body.contains("from " + WORKER_LOGIN + " is ignored"));
     }
 
     @Test
