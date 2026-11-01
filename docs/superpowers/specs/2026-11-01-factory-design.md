@@ -1,0 +1,520 @@
+# Software factory: design
+
+Date: 2026-11-01. Status: approved by the owner on 2026-11-01.
+
+## 1. Intent
+
+The owner wants to move development into "factory mode". In this mode,
+agents fix the GitHub issues of a repository with little human work. When
+an issue is complex, the owner enters the conversation with the agent in
+charge. The owner and the agent then discuss and brainstorm, and the
+factory continues.
+
+A first experiment used Fabro (report: branch `factory-main-fabro`, file
+`factory/fabro/REPORT.md` in `MeterianHQ/heidi-fix`). Fabro merged 8 of 10
+issues without a human. But Fabro lets the owner give only one answer at a
+fixed gate. It does not let the owner talk with the agent. This factory
+keeps the unattended work and adds the live conversation.
+
+## 2. Goals, non-goals, and anti-goals
+
+Goals:
+
+- The factory fixes labeled issues without a human for most issues.
+- The owner can enter the conversation of any issue, discuss with the
+  agent, and give the issue back with one command.
+- The owner sees the state of the factory on one web page, also on the
+  phone.
+- The factory uses only the Claude subscription of the owner.
+
+Non-goals for the first version:
+
+- More than one primary target for each factory.
+- Releases. The factory never creates a release or pushes a tag.
+- Its own CI. The local build replaces CI.
+
+Anti-goal (the owner's words: "did not produce working or decent code"):
+
+- A merged change that does not work, or that is not decent code, is a
+  failure. It is a failure even when every phase passes. Section 7.3 gives
+  the quality review that prevents it.
+
+## 3. Constraints
+
+These constraints come from the owner. They are not open to change.
+
+1. **Subscription only.** The factory runs the unmodified `claude` CLI
+   with the login of the owner. It never uses an API key. It never uses
+   the Claude Agent SDK, or an ACP adapter for Claude
+   (`@zed-industries/claude-code-acp`, `@agentclientprotocol/claude-agent-acp`).
+   These adapters run on the Agent SDK, and the Anthropic policy forbids
+   the Agent SDK with subscription credentials.
+2. **No API key in the sessions.** The worker removes `ANTHROPIC_API_KEY`
+   and `ANTHROPIC_AUTH_TOKEN` from the environment of each `claude`
+   process. The `init` event of stream-json has the field `apiKeySource`.
+   If its value is not `"none"`, the worker stops the session and stops
+   the factory (fail closed).
+3. **No internal endpoints.** The worker never calls an Anthropic endpoint
+   with the login token from `~/.claude`. It gets the usage data only from
+   the output of the CLI.
+4. **GitHub is the backend.** The factory has no database and no server of
+   its own for the state. The worker keeps no state that it cannot read
+   again from GitHub.
+5. **Java.** Java 21, Maven. The factory is in its own repository, not in
+   Heidi Fix.
+6. **Fail closed.** When a check cannot give a clear result, the factory
+   stops the issue and does not merge.
+7. **No push to a protected place.** The factory never pushes directly to
+   the merge target branch, to another branch outside `factory/`, or to a
+   tag. It pushes only branches that start with `factory/`. Changes reach
+   the merge target branch only as a merged pull request. The merge
+   target branch is configurable. It can be `main`.
+
+## 4. Terms
+
+- **Worker:** the Java program that runs on the machine of the owner. It
+  reads GitHub, runs the `claude` sessions, and serves the web page.
+- **Target:** the primary repository of a factory, for example
+  `MeterianHQ/heidi-fix`.
+- **Related repository:** a repository that an issue of the target can
+  also change, for example a `lib-*` library. The configuration lists
+  them.
+- **Session:** one `claude` conversation, with a UUID.
+- **Agent in charge:** the session that implements the issue. It is the
+  session that the owner enters.
+- **Phase:** one step of the work on an issue, for example "implement" or
+  "review: security".
+- **Auto mode:** the worker drives a session with `claude -p --resume`.
+- **Live mode:** the worker opens the same session with
+  `claude --resume <uuid> --remote-control`. The owner talks with the
+  agent in claude.ai/code or in the Claude phone app.
+- **Status:** a single-select field of a GitHub Project. It holds the
+  state of each issue.
+
+## 5. Architecture
+
+```
+GitHub (issues, labels, Project "Status", pull requests)
+        ^   |
+        |   v
+     Worker (Java, this machine) ---- serves ---> web page (view only)
+        |
+        +-- auto mode: claude -p --resume <uuid> --output-format stream-json
+        +-- live mode: tmux: claude --resume <uuid> --remote-control "Fix #N"
+                              |
+                              v
+                 claude.ai/code or the phone app (owner)
+```
+
+- GitHub holds all the state. The owner can use the GitHub web page, the
+  GitHub phone app, and `gh` as clients. The web page of the worker is a
+  better view of the same state.
+- The worker checks GitHub at a fixed interval (configurable, default 60
+  seconds). This interval is the delay of each reaction.
+- The worker uses one GitHub token. The token stays in the worker. It
+  never goes to the browser or to an agent session.
+- The worker can stop and start again at any time. At start, it reads the
+  state from GitHub and continues. A phase that ran when the worker
+  stopped runs again from its start.
+
+### 5.1 Where the state is
+
+| Data | Place |
+|---|---|
+| Which issues go into the factory | The label `factory` on the issue |
+| The state of an issue | The "Status" field of the factory Project |
+| A request to enter | The label `factory:enter` |
+| A merge approval | The label `factory:approve` |
+| A request to block | The label `factory:block` |
+| The session UUIDs, the phase, the review results, the fix-loop count, the risk | A hidden JSON block in the status comment of the worker |
+| A question of the agent | A comment of the worker |
+| The changes | The branches `factory/issue-N` and their pull requests |
+
+The **status comment** is one comment that the worker writes on the issue
+and then edits in place. It shows the progress to a human, and it holds a
+hidden JSON block for the worker (in an HTML comment). The worker reads
+the block only from a comment that its own account wrote. It ignores a
+block in any other comment.
+
+Labels need "triage" access on GitHub, but comments do not. For this
+reason, a request from the owner is always a label, never a comment.
+
+### 5.2 Status values
+
+| Status | Meaning |
+|---|---|
+| Queued | The issue has the label `factory`. No work started. |
+| In progress | The agent in charge implements or fixes. |
+| In review | The four reviews and the risk check run. |
+| Waits for you | The factory needs the owner. The status comment gives the reason. |
+| Blocked | The factory cannot continue, for example after the fix-loop limit. |
+| Done | The pull request is merged. The card shows the date. |
+
+An issue in "Waits for you" or "Blocked" counts as "not in work" for the
+parallel limit.
+
+## 6. The life of an issue
+
+1. **Intake.** The owner adds the label `factory`. At its next check, the
+   worker sets "Queued" and adds the issue to the Project. The worker
+   takes the "Queued" issues in the order of their issue number, up to
+   the parallel limit (configurable, default 2).
+2. **Prepare.** The worker creates one git worktree for each repository
+   that the issue can change. Each worktree has the branch
+   `factory/issue-N`. The base is the merge target branch.
+3. **Implement.** The worker starts the agent in charge with a new session
+   UUID and the implement prompt. The prompt contains the issue text
+   inside a fence, as data and not as instructions.
+4. **Build.** The worker runs the build command of each changed
+   repository. The worker runs the build, not the agent. A failed build
+   goes back to the agent in charge (a fix loop).
+5. **Review.** Four reviews run, each in a new session, so that no review
+   is anchored on the agent in charge: correctness, security,
+   architecture, and quality.
+6. **Fix loop.** If a review is negative, the worker gives all the
+   findings to the agent in charge, in its own session. Then steps 4 and 5
+   run again. The fix-loop limit is configurable (default 2). After the
+   limit, the issue goes to "Blocked".
+7. **Risk.** A risk session reads the change and gives a risk level: low,
+   medium, or high. It also says if the change is small.
+8. **Merge.** The worker merges automatically only when all these are
+   true: the four reviews are positive, the risk is low, the change is
+   small, the change touches only the target, and the build passed on the
+   same git tree. Otherwise, the issue goes to "Waits for you" with the
+   reason "merge needs approval". The owner adds `factory:approve`, or
+   enters the conversation.
+9. **Done.** The worker merges the pull request (squash) into the merge
+   target branch. It sets "Done", deletes the worktrees, and removes the
+   label `factory`. My decision on the issue: the pull request text has
+   "Fixes #N". GitHub then closes the issue when the merge target branch
+   is the default branch. For another merge target branch, the issue stays
+   open, because the fix is not in the default branch yet.
+
+The worker does not wait for GitHub Actions checks. The local build
+replaces CI (owner decision).
+
+### 6.0 Who can give a request (my decision)
+
+The configuration has a list of GitHub accounts that can give requests.
+The default list has only the owner. For each label `factory`,
+`factory:enter`, `factory:approve`, and `factory:block`, the worker reads the timeline
+event of the issue and checks who added the label. If the account is not
+in the list, the worker ignores the label and writes this in the status
+comment (fail closed). The reason: `factory:approve` causes a merge, and
+`factory` sends the issue text to an agent that runs commands.
+
+### 6.1 Proofs before a merge
+
+The merge step checks these proofs and fails closed when one is missing.
+The checks come from `factory/fabro/bin/merge-pr.sh` of the Fabro
+experiment:
+
+- Four positive reviews, each for the same git tree hash as the pull
+  request head. The tree hash, not the commit, because the commit can
+  change without a change of the files.
+- A passed build for the same tree hash.
+- No open question.
+- The pull request is mergeable. After a rebase, GitHub can answer "not
+  mergeable" for some seconds, so the check tries again 3 times.
+
+My decision on a moved base, the same rule as `merge-pr.sh`: when the
+merge target branch moves, the worker rebases the branch. If the
+`git patch-id` of the diff does not change, the reviews stay valid. The
+worker runs the build again and records the new tree hash. If the
+patch-id changes, the four reviews and the risk check run again. A rebase
+conflict goes back to the agent in charge as a fix loop.
+
+### 6.2 Changes across repositories
+
+An issue of the target can also change a related repository.
+
+- The agent in charge changes all the repositories in the same session.
+  It builds and installs the library locally, and then builds the target
+  against the local version.
+- The worker opens one pull request in each changed repository. Each pull
+  request links to the others and to the issue.
+- Such a change always goes to "Waits for you", because the library needs
+  a release before the target can use it. The factory does not release.
+  The owner merges the library, releases it, and then approves the
+  target. The target change must then use the released version. My guess
+  at this flow is in section 12, point 3.
+
+## 7. Agents
+
+### 7.1 Sessions and permissions
+
+- Each phase is one `claude -p` run with `--output-format stream-json
+  --verbose`. The agent in charge uses `--session-id <uuid>` the first
+  time and `--resume <uuid>` after that.
+- The working directory is the worktree of the target. The worktrees of
+  the related repositories are added with `--add-dir`.
+- The agent can edit files, run the build, and commit. It cannot push and
+  it cannot use `gh`. Only the worker pushes.
+
+### 7.1.1 Isolation mode (owner decision)
+
+The configuration value `isolation.mode` sets how strong the push guard
+is. The first version builds only `same-user`. The code must keep the
+mode as one place of change, so that `separate-user` can come later.
+
+| Mode | Agents run as | Guard | Stops |
+|---|---|---|---|
+| `same-user` (first version, default) | `bbossola` | The gatekeeper, a fixed list of allowed tools (`--allowedTools`), denied tools (`--disallowedTools` for `git push`, `gh`, and `ssh`), and no GitHub token in the environment | A confused agent |
+| `separate-user` (later) | A separate Linux user, for example `factory`, with no SSH key, no GitHub login, its own `claude` login, and its own JDK and Maven | The operating system | Also a hostile agent |
+
+In `same-user` mode, the agents never use
+`--dangerously-skip-permissions`. A hostile agent can still read the SSH
+key of the owner and push directly to GitHub. The owner accepts this risk
+for the first version. The status of the worker and the page header show
+the active mode.
+- The worker reads each line of the stream. It keeps the context in use
+  (section 9.2), the usage data (section 9.3), and the result.
+
+### 7.2 Questions
+
+The prompts tell the agent: "If you must ask the owner, write the question
+to `.factory/question.md` and stop." The rules for a question come from
+the Fabro experiment and from the owner:
+
+- Write in Simplified Technical English (ASD-STE100).
+- Make the question complete. The owner must not need to read other
+  material.
+- Give only the context that is necessary for this question. Do not tell
+  the history.
+- Give numbered options with names, and a recommendation.
+
+When the file exists after a phase, the worker posts the question as a
+comment, sets "Waits for you" with the reason "question", and opens live
+mode (section 8). The comment mentions the owner and contains the Remote
+Control link.
+
+### 7.3 The four reviews
+
+The prompts of the Fabro experiment are the start for correctness,
+security, and architecture. The new **quality** review reads the
+`CLAUDE.md` of each changed repository and checks the change against its
+rules. For Heidi Fix, these rules include clean code, full names, small
+methods, the code comments, the architecture document in step with the
+code, and tests that check real behavior. A violation makes the review
+negative.
+
+Each review writes a result file with: positive or negative, the tree
+hash that it reviewed, and the findings. The worker checks the tree hash.
+
+### 7.4 Usage limits
+
+All sessions share the 5-hour and the weekly windows of the subscription.
+The worker does not start a new phase when a window is above a threshold
+(configurable, default 90%), or when the last `rate_limit_event` has a
+status that is not `allowed`. It starts again after the reset time of the
+window.
+
+## 8. Live mode
+
+### 8.1 Enter
+
+There are two ways to enter:
+
+- The agent has a question (section 7.2).
+- The owner adds the label `factory:enter`.
+
+The worker never stops a phase in the middle, because a stopped phase can
+leave changes that are not complete. If a phase runs, the worker waits
+until it ends. Then the worker:
+
+1. Removes the label `factory:enter`. This shows the owner that the worker
+   took the request.
+2. Sets "Waits for you" with the reason "live conversation".
+3. Starts in a tmux session: `claude --resume <uuid> --remote-control
+   "Fix #N"`, in the worktree of the target.
+4. Writes the Remote Control link in a comment and on the card.
+
+Only one of the worker and the owner talks to a session at a time. While
+the tmux session runs, the worker starts no phase for this issue.
+
+### 8.2 Continue
+
+The owner types `/continue` in the conversation. The owner never changes
+the "Status" by hand.
+
+My decision on the mechanism: the worker starts the live session with
+`--settings <file>`. This file adds a `UserPromptSubmit` hook. The hook
+sees `/continue`, writes the marker file `.factory/continue`, and blocks
+the prompt. The worker sees the marker, ends the tmux session, and
+continues in auto mode with the same session UUID. The conversation has
+the full discussion, so the agent continues with what the owner agreed.
+
+My decisions on the next phase after `/continue`:
+
+- `/continue` is never a merge approval. Only `factory:approve` approves
+  a merge.
+- If the files changed in live mode, the build, the four reviews, and the
+  risk check run again. A live conversation cannot take a change past the
+  reviews.
+- If the files did not change, the issue goes back to the phase where it
+  stopped.
+- The fix-loop count does not go back to 0.
+
+### 8.3 Known limits of Remote Control
+
+From the research of 2026-11-01:
+
+- A Remote Control session reconnects only in about 4 hours.
+- The session exits after about 10 minutes without network.
+
+When the tmux session exits without `/continue`, the worker keeps "Waits
+for you" and writes this in the status comment. A new `factory:enter`
+opens a new live session.
+
+## 9. Web page
+
+The worker serves the page. The page shows the state and has four action
+buttons (section 9.4).
+
+### 9.1 Content
+
+- **Header:** the worker health and the usage. The health shows that the
+  worker runs, the time of its last GitHub check, and the issues in work
+  against the limit, for example "2 of 2". The usage shows each limit
+  window that the CLI reported, with its percent and the time of the
+  value.
+- **Kanban board:** one column for each status (section 5.2). The cards
+  in "Done" show the date of the merge.
+- **Card:** the issue number and title, and the current phase. The card
+  also shows the four review results (positive or negative), the fix-loop
+  count, the risk level, and a context bar (for example "62%"). It has
+  links to the issue and to the pull requests.
+- **"Waits for you" first:** a card that waits for the owner has a clear
+  color and stays at the top of its column. It shows the reason in one
+  line and the Remote Control link.
+- **Automatic refresh:** the page updates itself when the state changes.
+  My decision: Server-Sent Events from the worker.
+
+### 9.2 Context bar
+
+Each assistant turn in stream-json reports `input_tokens`,
+`cache_read_input_tokens`, and `cache_creation_input_tokens`. The
+`result` event reports `modelUsage.<model>.contextWindow`. The context in
+use is the sum of the three counts of the last turn. The bar shows this
+sum as a percent of the context window. In live mode, the worker reads
+the same counts from the local session file. Verified on `claude`
+2.1.316: a short run gave 26,262 tokens of 1,000,000.
+
+### 9.3 Usage
+
+The stream-json output has a `rate_limit_event` with
+`rate_limit_info.unifiedWindows`. Each window has `utilization` (0 to 1),
+`resetsAt`, and `status`. Verified on `claude` 2.1.316: a run gave only
+the `seven_day` window, at 0.37. The worker keeps the last value of each
+window, with its time. The page shows no dollar cost, because the
+subscription has no cost for each run.
+
+### 9.4 Actions (owner decision)
+
+The page has four action buttons. The Java worker does the work of each
+button. Each button has a label with the same effect, so that the owner
+can also use the GitHub phone app. The worker treats a button and a label
+the same way.
+
+| Button | Label | Effect |
+|---|---|---|
+| Continue | (none; also `/continue` in the conversation) | Ends live mode and continues in auto mode (section 8.2). |
+| Enter | `factory:enter` | Opens live mode (section 8.1). |
+| Approve | `factory:approve` | Approves a merge that waits for the owner. |
+| Block | `factory:block` | Takes the issue out of the factory and sets "Blocked". |
+
+My decisions on "Block":
+
+- Block does not wait for the phase to end. It stops the running `claude`
+  process at once, because the owner can use Block to stop a wrong
+  change. The worktree keeps the files as they are. A blocked issue never
+  merges, so a phase that is not complete does no harm.
+- To start a blocked issue again, the owner clicks "Enter", discusses with
+  the agent, and then clicks "Continue".
+
+A button shows only when its action is possible, for example "Approve"
+only for the reason "merge needs approval".
+
+### 9.5 Access
+
+- The worker listens on `127.0.0.1` by default. A configuration value
+  opens it to the LAN.
+- The action buttons need a login (section 9.6).
+
+### 9.6 Login (owner decision: password)
+
+The page asks for a password once on each device. The code keeps the
+login in one place, so that another method can replace it later.
+
+My decisions on the details:
+
+- The configuration holds a hash of the password (PBKDF2), never the
+  password. A command of the worker makes the hash.
+- After a correct password, the worker sets a random session cookie with
+  `HttpOnly` and `SameSite=Strict`, valid for 30 days.
+- The page itself also needs the login, because it shows repository data.
+- Each action is a `POST` request. With `SameSite=Strict`, another site
+  cannot send an action in the name of the owner.
+- After 5 wrong passwords, the worker refuses new attempts for 15
+  minutes.
+- Known limit: on the LAN the traffic is plain HTTP. Another device on
+  the LAN can read the password and the cookie. The owner accepts this
+  for the first version.
+
+## 10. Configuration
+
+One file for each factory. My decision: YAML, read with Jackson. It holds:
+
+- The target repository, its local clone, and its build command, for
+  example `LANG=C.utf8 ./mvnw verify` with `JAVA_HOME` for Heidi Fix.
+- The related repositories, each with its clone and its build and install
+  command.
+- The merge target branch.
+- The isolation mode (section 7.1.1) and the list of accounts that can
+  give requests (section 6.0).
+- The GitHub Project of the factory.
+- The parallel limit, the fix-loop limit, the poll interval, and the
+  usage threshold.
+- The web page address and port, and the hash of the login password.
+- The place of the prompts.
+
+## 11. Reuse from the Fabro experiment
+
+These parts are on the branch `factory-main-fabro` of
+`MeterianHQ/heidi-fix`, in `factory/fabro/`. They are the start, not a
+copy to keep as it is:
+
+- `bin/merge-pr.sh`: the proofs of section 6.1.
+- `bin/open-pr.sh`: the pull request text.
+- `bin/setup-gatekeeper.sh`, `bin/guard-pre-push`, `bin/install-guard.sh`:
+  the push guard. A local bare repository with a `pre-receive` hook
+  accepts only `refs/heads/factory/*`. The worker pushes through it. A
+  `--no-verify` cannot pass this guard.
+- `bin/run-issue.sh`: the fence around the issue text.
+- `workflows/fix-issue/`: the prompts for implement, the reviews, and the
+  risk.
+- `test/`: the tests of these scripts.
+
+## 12. Left to the builder
+
+1. The Java structure of the worker, inside the clean-code rules of the
+   factory repository.
+2. The GitHub API calls (REST or GraphQL). The Project fields need
+   GraphQL.
+3. The exact flow for a change across repositories after the library
+   release, as long as it keeps the owner gate.
+4. The prompt texts, as long as they keep the rules of sections 7.2
+   and 7.3.
+
+## 13. First task: the spike
+
+Before the build, a throwaway spike of 1 or 2 days must prove three
+points:
+
+1. A tmux session that a script starts with `claude --resume <uuid>
+   --remote-control "Fix #N"` shows in the Claude phone app, and the
+   worker can get its link.
+2. The context survives the change from `-p` to live mode and back.
+3. The `UserPromptSubmit` hook of section 8.2 sees `/continue`.
+
+If a point fails, the design comes back to the owner before the build.
