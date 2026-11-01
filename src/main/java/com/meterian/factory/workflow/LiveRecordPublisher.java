@@ -33,7 +33,7 @@ final class LiveRecordPublisher {
             return statusPublisher.publish(issue, before, after);
         } catch (RuntimeException exception) {
             if (opensASession(before, after)) {
-                liveSessions.close(after.issueNumber());
+                LiveSessionClosing.closeAfterAFailure(liveSessions, after.issueNumber(), exception);
             }
             throw exception;
         }

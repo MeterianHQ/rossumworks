@@ -21,6 +21,7 @@ public final class FakeLiveSessions implements LiveSessions {
     private final Set<Integer> openIssues = ConcurrentHashMap.newKeySet();
     private final Set<Integer> continueRequests = ConcurrentHashMap.newKeySet();
     private volatile boolean failsTheNextOpen;
+    private volatile boolean failsTheNextClose;
 
     @Override
     public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
@@ -43,6 +44,10 @@ public final class FakeLiveSessions implements LiveSessions {
     @Override
     public void close(int issueNumber) {
         closeCalls.add(issueNumber);
+        if (failsTheNextClose) {
+            failsTheNextClose = false;
+            throw new IllegalStateException("tmux cannot close the session of issue " + issueNumber);
+        }
         openIssues.remove(issueNumber);
     }
 
@@ -76,5 +81,9 @@ public final class FakeLiveSessions implements LiveSessions {
 
     public void failTheNextOpen() {
         failsTheNextOpen = true;
+    }
+
+    public void failTheNextClose() {
+        failsTheNextClose = true;
     }
 }

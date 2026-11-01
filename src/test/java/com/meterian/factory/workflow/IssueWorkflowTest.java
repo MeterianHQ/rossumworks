@@ -1133,6 +1133,13 @@ class IssueWorkflowTest {
         Files.delete(gitDirectory.resolve("index.lock"));
     }
 
+    /** The file .git of a worktree names its folder in the clone; that folder has the file HEAD. */
+    private static void breakTheHeadOf(Path worktree) throws IOException {
+        String gitFile = Files.readString(worktree.resolve(".git")).trim();
+        Path gitDirectory = worktree.resolve(gitFile.substring("gitdir: ".length()));
+        Files.writeString(gitDirectory.resolve("HEAD"), "not a reference\n");
+    }
+
     @Test
     void aQuestionOpensTheLiveConversation() throws ApiKeyDetectedException {
         agent.thenAskQuestion("Which greeting do you want?");
@@ -1327,5 +1334,79 @@ class IssueWorkflowTest {
         assertThat(continued.live()).isEmpty();
         assertThat(continued.phase()).isEqualTo(Phase.BUILD);
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
+    }
+
+    @Test
+    void aFixLoopAfterAConversationGetsTheFindings() throws ApiKeyDetectedException {
+        agent.thenAskQuestion("Which greeting do you want?")
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
+        liveSessions.requestContinue(ISSUE);
+        IssueRecord continued = workflow.advance(live);
+        IssueRecord liveAgain = workflow.enterLiveMode(continued);
+        commitFile(worktree(), "agreed.txt", "agreed in the conversation\n", "A change of the conversation");
+        liveSessions.requestContinue(ISSUE);
+
+        IssueRecord built = workflow.advance(liveAgain);
+        IssueRecord record = built;
+        for (int step = 0; step < 10 && agent.requests().size() < 6; step++) {
+            record = workflow.advance(record);
+        }
+
+        assertThat(built.phase()).isEqualTo(Phase.BUILD);
+        assertThat(built.afterConversation()).isFalse();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(agent.requests().get(5).prompt()).contains("Missing input check")
+                .isNotEqualTo(new PromptLibrary(Optional.empty(), "main").continueAfterConversation());
+    }
+
+    @Test
+    void aStaleApprovalDoesNotMergeAChangeOfTheConversation() throws ApiKeyDetectedException, IOException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        IssueRecord live = workflow.enterLiveMode(waiting);
+        Files.writeString(worktree().resolve("agreed.txt"), "agreed in the conversation\n");
+        liveSessions.requestContinue(ISSUE);
+        agent.thenApproveAllReviews().thenAssessRisk("medium", true);
+
+        IssueRecord record = advanceUntilWaiting(workflow, workflow.advance(live));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(APPROVE_LABEL);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void aGitFailureAtTheEnterAfterAQuestionKeepsTheQuestionWaiting() throws ApiKeyDetectedException {
+        agent.then(request -> {
+            Files.createDirectories(request.workingDirectory().resolve(".factory"));
+            Files.writeString(request.workingDirectory().resolve(".factory/question.md"), "Which greeting?");
+            breakTheHeadOf(request.workingDirectory());
+        });
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.QUESTION);
+        assertThat(record.live()).isEmpty();
+        assertThat(record.notes()).anySatisfy(note -> assertThat(note).startsWith("The live conversation did not open: "));
+        assertThat(liveSessions.openCalls()).isEmpty();
+    }
+
+    @Test
+    void aCloseFailureDoesNotHideTheFailureOfThePublish() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        gitHub.failTheNextCommentEdit();
+        liveSessions.failTheNextClose();
+
+        assertThatThrownBy(() -> workflow.enterLiveMode(waiting))
+                .isInstanceOf(GitHubException.class)
+                .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement()
+                        .isInstanceOf(IllegalStateException.class));
     }
 }

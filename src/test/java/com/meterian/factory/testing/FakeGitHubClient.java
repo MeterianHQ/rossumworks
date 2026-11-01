@@ -47,6 +47,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private long nextCommentId = 1000;
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
+    private boolean failsTheNextCommentCreate;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
@@ -125,6 +126,10 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     /** The next editComment throws a GitHubException, as a lost connection does. */
+    public synchronized void failTheNextCommentCreate() {
+        failsTheNextCommentCreate = true;
+    }
+
     public synchronized void failTheNextCommentEdit() {
         failsTheNextCommentEdit = true;
     }
@@ -233,6 +238,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized long createComment(int issueNumber, String body) {
+        if (failsTheNextCommentCreate) {
+            failsTheNextCommentCreate = false;
+            throw new GitHubException("GitHub answered 502 for POST /issues/" + issueNumber + "/comments");
+        }
         return addCommentBy(issueNumber, authenticatedLogin, body);
     }
 

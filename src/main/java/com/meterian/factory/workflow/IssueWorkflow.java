@@ -101,7 +101,7 @@ public final class IssueWorkflow {
 
     public IssueRecord enterLiveMode(IssueRecord record) {
         Issue issue = gitHub.issue(record.issueNumber());
-        IssueRecord next = liveMode.enter(issue, record, layout.worktree(record.issueNumber()));
+        IssueRecord next = liveMode.enter(record, layout.worktree(record.issueNumber()));
         return livePublisher.publish(issue, record, next);
     }
 
@@ -187,7 +187,7 @@ public final class IssueWorkflow {
         }
         IssueRecord ran = started.withoutAfterConversation();
         if (factoryFolder.hasQuestion()) {
-            return askOwner(issue, ran, factoryFolder.readQuestion(), worktree);
+            return askOwner(ran, factoryFolder.readQuestion(), worktree);
         }
         if (!report.success()) {
             return block(ran, "The agent session failed: " + report.resultText());
@@ -340,10 +340,10 @@ public final class IssueWorkflow {
     }
 
     /** The owner answers in the live conversation. When it does not open, the question waits with a note. */
-    private IssueRecord askOwner(Issue issue, IssueRecord record, String question, Path worktree) {
+    private IssueRecord askOwner(IssueRecord record, String question, Path worktree) {
         gitHub.createComment(record.issueNumber(), QuestionComment.render(question, configuration.allowedAccounts()));
         IssueRecord waiting = record.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.QUESTION);
-        return liveMode.enter(issue, waiting, worktree);
+        return liveMode.enter(waiting, worktree);
     }
 
     private IssueRecord block(IssueRecord record, String reason) {

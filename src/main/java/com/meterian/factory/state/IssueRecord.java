@@ -99,11 +99,13 @@ public record IssueRecord(
                 issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation);
     }
 
+    /** The continue prompt is only for the next implement step: another phase clears the flag. */
     public IssueRecord withPhase(Phase newPhase) {
         return new IssueRecord(issueNumber, sessionId, status, newPhase, reviews, fixLoops, risk, small,
                 reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
                 statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation);
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live,
+                afterConversation && newPhase == Phase.IMPLEMENT);
     }
 
     public IssueRecord withReview(ReviewKind kind, Verdict verdict) {

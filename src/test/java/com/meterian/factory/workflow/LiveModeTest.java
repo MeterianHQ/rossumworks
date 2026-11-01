@@ -4,11 +4,13 @@ import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
@@ -76,7 +78,7 @@ class LiveModeTest {
     void enterKeepsTheStateBeforeAndPostsTheComment() {
         IssueRecord waiting = waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL);
 
-        IssueRecord live = createLiveMode().enter(issue, waiting, worktree);
+        IssueRecord live = createLiveMode().enter(waiting, worktree);
 
         assertThat(live.live()).contains(new LiveSession(git.headCommit(worktree), IssueStatus.WAITS_FOR_YOU,
                 Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.of(LINK)));
@@ -90,9 +92,9 @@ class LiveModeTest {
     @Test
     void enterOnAnOpenSessionAddsANote() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = liveMode.enter(recordInPhase(Phase.REVIEW), worktree);
 
-        IssueRecord again = liveMode.enter(issue, live, worktree);
+        IssueRecord again = liveMode.enter(live, worktree);
 
         assertThat(again.notes()).contains("The live conversation is already open: " + LINK);
         assertThat(again.live()).isEqualTo(live.live());
@@ -103,11 +105,11 @@ class LiveModeTest {
     @Test
     void enterAfterAnEndedSessionKeepsTheStateBefore() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
+        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
         liveSessions.endSession(ISSUE);
         commitFile(worktree, "b.txt", "changed in the first conversation\n", "A change");
 
-        IssueRecord reopened = liveMode.enter(issue, live.withoutLiveLink(), worktree);
+        IssueRecord reopened = liveMode.enter(live.withoutLiveLink(), worktree);
 
         assertThat(reopened.live()).isEqualTo(live.live());
         assertThat(liveSessions.openCalls()).hasSize(2);
@@ -119,7 +121,7 @@ class LiveModeTest {
         liveSessions.failTheNextOpen();
         IssueRecord waiting = waitingRecord(WaitReason.QUESTION);
 
-        IssueRecord record = createLiveMode().enter(issue, waiting, worktree);
+        IssueRecord record = createLiveMode().enter(waiting, worktree);
 
         assertThat(record).isEqualTo(waiting.withNote("The live conversation did not open:"
                 + " The live session did not show a Remote Control link in 90 seconds."));
@@ -130,7 +132,7 @@ class LiveModeTest {
     void theLinkInTheCommentIsOneSafeLine() {
         LiveMode liveMode = createLiveMode(new ForgedLinkSessions(liveSessions, "https://example.com\n<!-- x -->"));
 
-        liveMode.enter(issue, recordInPhase(Phase.REVIEW), worktree);
+        liveMode.enter(recordInPhase(Phase.REVIEW), worktree);
 
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
                 .startsWith("The live conversation is open: https://example.com <! -- x -- >\n\n")
@@ -140,7 +142,7 @@ class LiveModeTest {
     @Test
     void continueAfterACommitInImplementBuildsAgain() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, recordInPhase(Phase.IMPLEMENT), worktree);
+        IssueRecord live = liveMode.enter(recordInPhase(Phase.IMPLEMENT), worktree);
         commitFile(worktree, "b.txt", "changed in the conversation\n", "A change");
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
@@ -156,7 +158,7 @@ class LiveModeTest {
     void continueInImplementWithWorkThatIsNotCommittedRunsTheAgentAgain() throws IOException {
         LiveMode liveMode = createLiveMode();
         writeUncommittedFile();
-        IssueRecord live = liveMode.enter(issue, waitingRecord(WaitReason.QUESTION).withPhase(Phase.IMPLEMENT),
+        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.QUESTION).withPhase(Phase.IMPLEMENT),
                 worktree);
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
@@ -172,7 +174,7 @@ class LiveModeTest {
     void continueWithChangesWithdrawsTheApproval() throws IOException {
         gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
+        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
         writeUncommittedFile();
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
@@ -185,7 +187,7 @@ class LiveModeTest {
     @Test
     void continueRestoresTheWaitForAChangedIssueText() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, waitingRecord(WaitReason.ISSUE_TEXT_CHANGED), worktree);
+        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.ISSUE_TEXT_CHANGED), worktree);
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
@@ -198,7 +200,7 @@ class LiveModeTest {
     @Test
     void continueInBuildWithoutChangesGoesBackToTheBuild() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(issue, recordInPhase(Phase.BUILD), worktree);
+        IssueRecord live = liveMode.enter(recordInPhase(Phase.BUILD), worktree);
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
@@ -206,6 +208,33 @@ class LiveModeTest {
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.waitReason()).isEmpty();
         assertThat(continued.afterConversation()).isFalse();
+    }
+
+    @Test
+    void aGitFailureBeforeTheOpenKeepsTheQuestionWaiting() throws IOException {
+        Path folderWithoutGit = Files.createDirectories(temporaryDirectory.resolve("no-git"));
+        IssueRecord waiting = waitingRecord(WaitReason.QUESTION).withPhase(Phase.IMPLEMENT);
+
+        IssueRecord record = createLiveMode().enter(waiting, folderWithoutGit);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.QUESTION);
+        assertThat(record.live()).isEmpty();
+        assertThat(record.notes()).singleElement()
+                .satisfies(note -> assertThat(note).startsWith("The live conversation did not open: "));
+        assertThat(liveSessions.openCalls()).isEmpty();
+    }
+
+    @Test
+    void aCloseFailureDoesNotHideTheFailureOfTheComment() {
+        gitHub.failTheNextCommentCreate();
+        liveSessions.failTheNextClose();
+
+        assertThatThrownBy(() -> createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree))
+                .isInstanceOf(GitHubException.class)
+                .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement()
+                        .isInstanceOf(IllegalStateException.class));
+        assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
     }
 
     /** Live sessions that show a forged link, as a confused screen of tmux can do. */

@@ -162,6 +162,14 @@ class IssueRecordTest {
     }
 
     @Test
+    void aPhaseOutsideImplementClearsTheAfterConversationFlag() {
+        IssueRecord afterConversation = queued.withPhase(Phase.IMPLEMENT).withAfterConversation();
+
+        assertThat(afterConversation.withPhase(Phase.IMPLEMENT).afterConversation()).isTrue();
+        assertThat(afterConversation.withPhase(Phase.BUILD).afterConversation()).isFalse();
+    }
+
+    @Test
     void theAfterConversationFlagSetsAndClears() {
         assertThat(queued.withAfterConversation().afterConversation()).isTrue();
         assertThat(queued.withAfterConversation().withoutAfterConversation().afterConversation()).isFalse();

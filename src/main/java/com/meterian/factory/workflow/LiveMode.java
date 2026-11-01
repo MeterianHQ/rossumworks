@@ -3,6 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.git.Git;
+import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
@@ -45,7 +46,7 @@ final class LiveMode {
     }
 
     /** A record that already has a live state keeps its state before: a new session never replaces it. */
-    IssueRecord enter(Issue issue, IssueRecord record, Path worktree) {
+    IssueRecord enter(IssueRecord record, Path worktree) {
         if (record.phase() == Phase.DONE) {
             return record.withNote(DONE_NOTE);
         }
@@ -56,14 +57,14 @@ final class LiveMode {
         if (openLink.isPresent()) {
             return record.withNote(ALREADY_OPEN_NOTE + openLink.get());
         }
-        // The head commit is read before the open: a failure of git never leaves a session that is open.
-        LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
         try {
+            // The head commit is read before the open: a failure of git never leaves a session that is open.
+            LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
             String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree);
             postOpenComment(record.issueNumber(), link);
             return record.withLive(stateBefore.withLink(link))
                     .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
-        } catch (LiveSessionException exception) {
+        } catch (LiveSessionException | GitException exception) {
             return record.withNote(NOT_OPEN_NOTE + exception.getMessage());
         }
     }
@@ -93,7 +94,7 @@ final class LiveMode {
         try {
             gitHub.createComment(issueNumber, renderOpenComment(link));
         } catch (RuntimeException exception) {
-            liveSessions.close(issueNumber);
+            LiveSessionClosing.closeAfterAFailure(liveSessions, issueNumber, exception);
             throw exception;
         }
     }
