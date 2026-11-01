@@ -162,6 +162,11 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public void editPullRequestBody(int pullRequestNumber, String body) {
+        send("PATCH", repositoryPath + "/pulls/" + pullRequestNumber, Map.of("body", body));
+    }
+
+    @Override
     public boolean isMerged(int pullRequestNumber) {
         return send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("merged").asBoolean(false);
     }
@@ -216,7 +221,7 @@ public final class HttpGitHubClient implements GitHubClient {
 
     private PullRequest toPullRequest(JsonNode item) {
         return new PullRequest(item.path("number").asInt(), item.path("html_url").asText(),
-                item.path("head").path("ref").asText());
+                item.path("head").path("ref").asText(), item.path("body").asText(""));
     }
 
     private List<JsonNode> readAllPages(String firstPath) {

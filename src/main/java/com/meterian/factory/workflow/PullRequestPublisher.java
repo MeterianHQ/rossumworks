@@ -29,13 +29,24 @@ final class PullRequestPublisher {
     PublishedBranch publish(Issue issue, Path worktree, String headCommit) {
         String branch = WorkspaceLayout.branch(issue.number());
         git.pushCommit(worktree, IssueWorkspace.GATEKEEPER_REMOTE, headCommit, branch);
-        PullRequest pullRequest = gitHub.openPullRequest(branch).orElseGet(() -> createPullRequest(issue, branch));
+        PullRequest pullRequest = gitHub.openPullRequest(branch)
+                .map(existing -> updateBody(existing, issue, worktree))
+                .orElseGet(() -> createPullRequest(issue, branch, worktree));
         return new PublishedBranch(pullRequest, pushedCommitCheck.isOnGitHub(pullRequest.number(), headCommit, branch));
     }
 
-    private PullRequest createPullRequest(Issue issue, String branch) {
-        String body = "Fixes #" + issue.number()
-                + "\n\nThe factory made this change for the issue #" + issue.number() + ".";
+    private PullRequest createPullRequest(Issue issue, String branch, Path worktree) {
+        String body = PullRequestDescription.bodyFor(issue.number(), worktree);
         return gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
+    }
+
+    /** A missing or empty description keeps the last description in the body. */
+    private PullRequest updateBody(PullRequest pullRequest, Issue issue, Path worktree) {
+        String body = PullRequestDescription.bodyIfDescribed(issue.number(), worktree).orElse(pullRequest.body());
+        if (pullRequest.body().equals(body)) {
+            return pullRequest;
+        }
+        gitHub.editPullRequestBody(pullRequest.number(), body);
+        return new PullRequest(pullRequest.number(), pullRequest.url(), pullRequest.headBranch(), body);
     }
 }

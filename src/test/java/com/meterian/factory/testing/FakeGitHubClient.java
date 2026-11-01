@@ -50,6 +50,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
+    private final List<String> editedPullRequestBodies = new ArrayList<>();
     private final List<String> removedLabels = new ArrayList<>();
     private RuntimeException removeLabelFailureAfterTheMerge;
     private RuntimeException nextRemoveLabelFailure;
@@ -167,6 +168,11 @@ public final class FakeGitHubClient implements GitHubClient {
     /** Each body that editComment wrote, in order. */
     public synchronized List<String> editedBodies() {
         return List.copyOf(editedBodies);
+    }
+
+    /** Each body that editPullRequestBody wrote, in order. */
+    public synchronized List<String> editedPullRequestBodies() {
+        return List.copyOf(editedPullRequestBodies);
     }
 
     /** Each label that removeLabel removed from an issue, in order. */
@@ -295,10 +301,18 @@ public final class FakeGitHubClient implements GitHubClient {
     public synchronized PullRequest createPullRequest(String headBranch, String baseBranch, String title,
                                                       String body) {
         int number = nextPullRequestNumber++;
-        PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch);
+        PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch, body);
         pullRequests.add(pullRequest);
         baseBranches.put(number, baseBranch);
         return pullRequest;
+    }
+
+    @Override
+    public synchronized void editPullRequestBody(int pullRequestNumber, String body) {
+        pullRequests.replaceAll(pullRequest -> pullRequest.number() == pullRequestNumber
+                ? new PullRequest(pullRequestNumber, pullRequest.url(), pullRequest.headBranch(), body)
+                : pullRequest);
+        editedPullRequestBodies.add(body);
     }
 
     @Override

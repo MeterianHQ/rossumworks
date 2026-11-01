@@ -275,6 +275,68 @@ class IssueWorkflowTest {
         assertThat(firstImplement.newSession()).isTrue();
     }
 
+    private static FakeAgentRunner.Action changeFileAndDescribe(String description) {
+        return request -> {
+            Files.writeString(request.workingDirectory().resolve("work.txt"), description + "\n");
+            Files.createDirectories(request.workingDirectory().resolve(".factory"));
+            Files.writeString(request.workingDirectory().resolve(".factory/description.md"), description);
+        };
+    }
+
+    @Test
+    void putsTheDescriptionOfTheAgentInThePullRequest() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello.")).thenApproveAllReviews()
+                .thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.pullRequests().getFirst().body())
+                .isEqualTo("Fixes #7\n\n## The change\n\nThe greeting says hello.\n\n"
+                        + "The factory made this change for the issue #7.");
+        assertThat(run(githubRepository, "ls-tree", "-r", "--name-only", "factory/issue-7"))
+                .contains("work.txt").doesNotContain("description.md");
+    }
+
+    @Test
+    void editsThePullRequestBodyAfterAFixLoopChangesTheDescription() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The first description."))
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .then(changeFileAndDescribe("The second description.")).thenApproveAllReviews()
+                .thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.editedPullRequestBodies()).hasSize(1);
+        assertThat(gitHub.pullRequests().getFirst().body()).contains("The second description.")
+                .doesNotContain("The first description.");
+    }
+
+    @Test
+    void keepsThePullRequestBodyWhenAFixLoopLeavesNoDescription() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The first description."))
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .then(request -> {
+                    Files.writeString(request.workingDirectory().resolve("work.txt"), "fixed\n");
+                    Files.delete(request.workingDirectory().resolve(".factory/description.md"));
+                }).thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.editedPullRequestBodies()).isEmpty();
+        assertThat(gitHub.pullRequests().getFirst().body()).contains("The first description.");
+    }
+
+    @Test
+    void editsNoPullRequestBodyWhenTheDescriptionStaysTheSame() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The same description."))
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.editedPullRequestBodies()).isEmpty();
+    }
+
     @Test
     void blocksAfterTheFixLoopLimit() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenChangeFile().thenChangeFile();

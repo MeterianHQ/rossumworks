@@ -47,6 +47,8 @@ public interface GitHubClient {
 
     PullRequest createPullRequest(String headBranch, String baseBranch, String title, String body);
 
+    void editPullRequestBody(int pullRequestNumber, String body);
+
     /** Tells if GitHub merged the pull request. */
     boolean isMerged(int pullRequestNumber);
 
