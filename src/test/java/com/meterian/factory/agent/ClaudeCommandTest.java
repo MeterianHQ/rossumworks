@@ -39,6 +39,15 @@ class ClaudeCommandTest {
     }
 
     @Test
+    void asksTheAgentToWriteToHumansInSimplifiedTechnicalEnglish() {
+        List<String> arguments = ClaudeCommand.arguments(settings, requestOf(true));
+
+        assertThat(arguments).containsSequence("--append-system-prompt", ClaudeCommand.HUMAN_LANGUAGE_RULE);
+        assertThat(ClaudeCommand.HUMAN_LANGUAGE_RULE).contains("Simplified Technical English (ASD-STE100)");
+        assertThat(arguments.indexOf("--append-system-prompt")).isLessThan(arguments.indexOf("--allowedTools"));
+    }
+
+    @Test
     void neverPutsThePromptInTheArguments() {
         List<String> arguments = ClaudeCommand.arguments(settings, requestOf(true));
 
