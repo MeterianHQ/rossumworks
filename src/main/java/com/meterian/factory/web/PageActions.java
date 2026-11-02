@@ -10,7 +10,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * Runs the action of a button. It checks the rule of the button again on the current board, because the page
  * can be old. Enter, Approve, and Block add one label. Continue writes the local marker and makes no request.
- * The worker acts on a label at its next poll, so a Block stops the claude process after one poll interval.
+ * After each action, the page asks the worker for an early poll, so that the worker acts in seconds.
  */
 public final class PageActions {
 
@@ -21,13 +21,17 @@ public final class PageActions {
     private final PageRequests pageRequests;
     private final LiveSessions liveSessions;
     private final BoardState board;
+    private final Runnable earlyPollRequest;
     private final ReentrantLock actionLock = new ReentrantLock();
 
-    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board) {
+    /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
+    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board,
+            Runnable earlyPollRequest) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
         this.board = board;
+        this.earlyPollRequest = earlyPollRequest;
     }
 
     /**
@@ -47,6 +51,7 @@ public final class PageActions {
                 return ActionOutcome.NOT_POSSIBLE;
             }
             runAction(card.get(), action);
+            earlyPollRequest.run();
             return ActionOutcome.DONE;
         } finally {
             actionLock.unlock();

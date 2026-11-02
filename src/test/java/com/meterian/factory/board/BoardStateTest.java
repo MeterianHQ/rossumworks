@@ -102,6 +102,38 @@ class BoardStateTest {
     }
 
     @Test
+    void aLabelFromThePageStaysWhenThePollDoesNotShowItYet() {
+        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordLabelAdded(7, "factory:approve");
+
+        board.recordPoll(List.of(issue(7, "Title")));
+
+        assertThat(board.snapshot().cards().get(0).labels()).contains("factory:approve");
+    }
+
+    @Test
+    void aLabelFromThePageFollowsThePollsAfterAPollShowsIt() {
+        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordLabelAdded(7, "factory:approve");
+        board.recordPoll(List.of(new Issue(7, "Title", "body", Set.of("factory", "factory:approve"))));
+
+        board.recordPoll(List.of(issue(7, "Title")));
+
+        assertThat(board.snapshot().cards().get(0).labels()).doesNotContain("factory:approve");
+    }
+
+    @Test
+    void aLabelFromThePageThatNoPollShowsGoesAwayAfterTwoPolls() {
+        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordLabelAdded(7, "factory:approve");
+        board.recordPoll(List.of(issue(7, "Title")));
+
+        board.recordPoll(List.of(issue(7, "Title")));
+
+        assertThat(board.snapshot().cards().get(0).labels()).doesNotContain("factory:approve");
+    }
+
+    @Test
     void aRecordKeepsTheLabelsAndTheTitleOfAnExistingCard() {
         board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
         board.recordLabelAdded(7, "factory:approve");

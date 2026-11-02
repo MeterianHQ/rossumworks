@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,6 +79,7 @@ class WebServerTest {
     private final PageRequests pageRequests = new PageRequests(clock);
     private final List<LabelCall> labelCalls = new CopyOnWriteArrayList<>();
     private volatile Optional<RuntimeException> labelFailure = Optional.empty();
+    private final AtomicInteger earlyPollRequests = new AtomicInteger();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private WebServer server;
@@ -86,7 +88,8 @@ class WebServerTest {
     void startServer() throws IOException {
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
-        PageActions actions = new PageActions(createLabelWriter(), pageRequests, liveSessions, board);
+        PageActions actions = new PageActions(createLabelWriter(), pageRequests, liveSessions, board,
+                earlyPollRequests::incrementAndGet);
         WebSettings settings = new WebSettings("127.0.0.1", 0, PasswordHash.create(PASSWORD.toCharArray(),
                 FAST_ITERATIONS));
         server = new WebServer(settings, login, createModelSource(), new BoardPage(ZoneOffset.UTC), board, actions);
@@ -343,6 +346,33 @@ class WebServerTest {
         postAction("/issues/12/continue", cookie);
 
         assertThat(postAction("/issues/12/continue", cookie).statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void anApproveAsksTheWorkerForAnEarlyPoll() {
+        recordCard(mergeWaitsForApproval());
+
+        postAction("/issues/12/approve", logIn());
+
+        assertThat(earlyPollRequests).hasValue(1);
+    }
+
+    @Test
+    void aContinueAsksTheWorkerForAnEarlyPoll() {
+        recordCard(liveConversation());
+
+        postAction("/issues/12/continue", logIn());
+
+        assertThat(earlyPollRequests).hasValue(1);
+    }
+
+    @Test
+    void anActionThatIsNotPossibleAsksForNoEarlyPoll() {
+        recordCard(waitsForAnAnswer());
+
+        postAction("/issues/12/approve", logIn());
+
+        assertThat(earlyPollRequests).hasValue(0);
     }
 
     @Test

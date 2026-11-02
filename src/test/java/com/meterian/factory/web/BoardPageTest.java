@@ -72,9 +72,28 @@ class BoardPageTest {
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, Set.of());
+    }
+
+    private static PageModel modelWithContinueRequested(List<IssueCard> cards, Set<Integer> continueRequested) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(), Map.of(),
+                continueRequested);
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
         return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, Set.of(), rememberedLabels, "MeterianHQ/target");
+                usageResumesAt, contexts, continueRequested, rememberedLabels, "MeterianHQ/target");
+    }
+
+    private static IssueCard cardWithLabel(IssueRecord record, String label) {
+        return new IssueCard(record.issueNumber(), "Title", Set.of("factory", label), record, Optional.empty());
+    }
+
+    private static String requestLine(String sentence) {
+        return "<p class=\"request\">" + sentence + "</p>";
     }
 
     private static String columnName(String name) {
@@ -221,7 +240,106 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(List.of(card)));
 
-        assertThat(html).contains("action=\"/issues/12/approve\"");
+        assertThat(html).contains("action=\"/issues/12/approve\"").doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void anApproveRequestReplacesTheReasonOfTheWait() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
+                Map.of(12, Set.of("factory:approve"))));
+
+        assertThat(html).contains(requestLine("Approval sent. The worker takes it in a few seconds."))
+                .doesNotContain(WaitReason.MERGE_NEEDS_APPROVAL.sentence());
+    }
+
+    @Test
+    void anApproveRequestEndsWhenTheIssueNoLongerWaitsForTheApproval() {
+        IssueRecord record = record(12, IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
+                Map.of(12, Set.of("factory:approve"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void anEnterRequestShowsThatTheConversationOpensSoon() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
+                Map.of(12, Set.of("factory:enter"))));
+
+        assertThat(html).contains(requestLine(
+                "Enter sent. The worker opens the live conversation in a few seconds, or after the current step."));
+    }
+
+    @Test
+    void anEnterRequestEndsWhenTheLinkIsOnTheCard() {
+        String html = page.renderBoard(modelWithRememberedLabels(
+                List.of(cardWithLabel(liveRecord(12, LINK), "factory:enter")), Map.of(12, Set.of("factory:enter"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void aBlockRequestShowsThatTheWorkerStopsTheIssueSoon() {
+        IssueRecord record = record(12, IssueStatus.IN_PROGRESS);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
+                Map.of(12, Set.of("factory:block"))));
+
+        assertThat(html).contains(requestLine("Block sent. The worker stops the issue in a few seconds."));
+    }
+
+    @Test
+    void aBlockRequestEndsWhenTheIssueIsBlocked() {
+        IssueRecord record = record(12, IssueStatus.BLOCKED);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
+                Map.of(12, Set.of("factory:block"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void aBlockRequestEndsWhenTheIssueIsDone() {
+        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
+                Map.of(12, Set.of("factory:block"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void anEnterRequestEndsWhenTheIssueIsDone() {
+        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
+                Map.of(12, Set.of("factory:enter"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void aRememberedLabelThatIsNotOnTheCardShowsNoRequest() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(card(record)),
+                Map.of(12, Set.of("factory:approve"))));
+
+        assertThat(html).doesNotContain("class=\"request\"")
+                .contains(WaitReason.MERGE_NEEDS_APPROVAL.sentence());
+    }
+
+    @Test
+    void aContinueRequestReplacesTheReasonOfTheWait() {
+        String html = page.renderBoard(modelWithContinueRequested(List.of(card(liveRecord(12, LINK))), Set.of(12)));
+
+        assertThat(html).contains(requestLine("Continue sent. The factory takes the issue back in a few seconds."))
+                .doesNotContain(WaitReason.LIVE_CONVERSATION.sentence());
     }
 
     @Test

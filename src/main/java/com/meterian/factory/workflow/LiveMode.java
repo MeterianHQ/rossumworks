@@ -27,6 +27,9 @@ final class LiveMode {
     private static final String DONE_NOTE = "The issue is done; a live conversation has no effect.";
     private static final String ALREADY_OPEN_NOTE = "The live conversation is already open: ";
     private static final String NOT_OPEN_NOTE = "The live conversation did not open: ";
+    /** Without this note, the card after the conversation looks the same as before Enter. */
+    static final String NO_CHANGE_NOTE =
+            "The live conversation ended with no change to the code. The issue waits for you again.";
     private static final Set<WaitReason> APPROVAL_WAITS =
             EnumSet.of(WaitReason.MERGE_NEEDS_APPROVAL, WaitReason.ISSUE_TEXT_CHANGED);
 
@@ -141,7 +144,7 @@ final class LiveMode {
 
     /** /factory:continue is never an approval, so the issue waits for the label again. */
     private static IssueRecord restoreTheWait(IssueRecord record, LiveSession live) {
-        IssueRecord restored = record.withStatus(live.statusBefore());
+        IssueRecord restored = record.withStatus(live.statusBefore()).withNewestNote(NO_CHANGE_NOTE);
         return live.waitBefore().map(restored::withWaitReason).orElseGet(restored::withoutWaitReason);
     }
 

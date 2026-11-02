@@ -570,8 +570,23 @@ An action costs only the requests that it needs. Enter, Approve, and
 Block add one label. Continue writes the local marker of section 8.2 and
 makes no request. A label that is already on the issue costs two requests:
 the page removes it and adds it again, so that the newest "labeled" event
-comes from the worker account. The worker acts on a label at its next
+comes from the worker account. After each action, the page asks the
+worker for an early poll, 2 s later, so the worker acts in seconds. If
+GitHub does not show the label yet, the worker acts at the next usual
 poll, so Block stops the `claude` process after one poll interval at most.
+
+My decisions on the feedback of an action:
+
+- After a click, the button shows a turning wheel, or "…" when the browser
+  asks for less motion. The button is disabled, so a second click is not
+  possible.
+- The card shows a line for each request of the page that has no effect
+  on the record yet, for example "Approval sent. The worker takes it in a
+  few seconds." The line replaces the reason of the wait.
+- After a live conversation with no change to the code, the record gets
+  the note "The live conversation ended with no change to the code. The
+  issue waits for you again." Without this note, the card looks the same
+  as before Enter.
 
 My decision on the label of the worker account: the page adds the label
 with the token of the worker. Usually the worker accepts a label only

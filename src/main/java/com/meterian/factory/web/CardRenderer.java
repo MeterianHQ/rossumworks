@@ -10,6 +10,8 @@ import com.meterian.factory.state.Verdict;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -33,7 +35,9 @@ final class CardRenderer {
         html.append("<div class=\"card-head\"><span class=\"phase\">").append(toLowerCase(record.phase().name()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
-        if (waits) {
+        List<PageAction> pendingRequests = findPendingRequests(card, model);
+        appendRequests(html, pendingRequests);
+        if (waits && pendingRequests.isEmpty()) {
             appendReason(html, record);
         }
         appendRemoteControlLink(html, record);
@@ -60,6 +64,21 @@ final class CardRenderer {
     private void appendExternalLink(StringBuilder html, String address, String text) {
         html.append("<a href=\"").append(Html.escape(address))
                 .append("\" target=\"_blank\" rel=\"noopener noreferrer\">").append(Html.escape(text)).append("</a>");
+    }
+
+    private static List<PageAction> findPendingRequests(IssueCard card, PageModel model) {
+        boolean continueRequested = model.continueRequested().contains(card.issueNumber());
+        Set<String> rememberedLabels = model.findRememberedLabels(card.issueNumber());
+        return Arrays.stream(PageAction.values())
+                .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels))
+                .toList();
+    }
+
+    /** A request of the page replaces the reason of the wait, so that the owner sees that the click arrived. */
+    private void appendRequests(StringBuilder html, List<PageAction> pendingRequests) {
+        for (PageAction action : pendingRequests) {
+            html.append("<p class=\"request\">").append(Html.escape(action.requestSentence())).append("</p>");
+        }
     }
 
     private void appendReason(StringBuilder html, IssueRecord record) {

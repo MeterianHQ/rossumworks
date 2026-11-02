@@ -45,6 +45,7 @@ public final class Worker {
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
+    private static final Duration EARLY_POLL_DELAY = Duration.ofSeconds(2);
 
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
@@ -62,6 +63,7 @@ public final class Worker {
     private final RateLimitWait rateLimitWait;
     private final BoardUpdates board;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
+    private final PollWait pollWait;
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
@@ -88,6 +90,7 @@ public final class Worker {
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
+        this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
     }
 
     /**
@@ -136,13 +139,17 @@ public final class Worker {
         LOGGER.log(System.Logger.Level.INFO, PollRequestSummary.describe(gitHub.takeRequestCounts()));
     }
 
-    /** Polls at the poll interval until the worker stops. */
+    /** Polls at the poll interval, and after each early poll request, until the worker stops. */
     public void runUntilStopped() throws InterruptedException {
-        long pollIntervalMillis = configuration.limits().pollInterval().toMillis();
         while (!isStopped()) {
             pollOnce();
-            stopSignal.await(pollIntervalMillis, TimeUnit.MILLISECONDS);
+            pollWait.awaitNextPoll();
         }
+    }
+
+    /** The page asks for a poll after an action, so that the worker acts on its label in seconds. */
+    public void requestEarlyPoll() {
+        pollWait.requestEarlyPoll();
     }
 
     public boolean isStopped() {
@@ -163,6 +170,7 @@ public final class Worker {
      */
     public boolean shutDown(Duration timeout) {
         stopSignal.countDown();
+        pollWait.stop();
         phaseStopper.refuseNewWork();
         stopPhasesInWork();
         executor.shutdown();
@@ -518,6 +526,7 @@ public final class Worker {
                 exception.getMessage());
         apiKeyFound = true;
         stopSignal.countDown();
+        pollWait.stop();
         phaseStopper.refuseNewWork();
         stopPhasesInWork();
     }

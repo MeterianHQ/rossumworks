@@ -172,6 +172,16 @@ A button of an old page gets "This action is not possible now." when the card ch
 Enter, Approve, and Block add the label with the token of the worker. The worker accepts this label because
 the page asked for it. Continue writes the local marker and adds no label.
 
+After a click, the button shows a turning wheel and you cannot click it again. When you ask the browser for
+less motion, the button shows "…". After the action, the card shows a blue line, for example "Approval sent.
+The worker takes it in a few seconds." This line replaces the reason of the wait. It goes away when the
+record of the issue shows the effect of the request.
+
+After each action, the page asks the worker for an early poll. The worker polls 2 s later and does not wait
+for the end of the poll interval. So Enter opens the conversation, and Approve, Block, and Continue take
+effect, in a few seconds. The 2 s give GitHub time to show the new label in the list of issues. If GitHub
+does not show the label yet, the worker acts at the next usual poll.
+
 The page makes no GitHub request of its own. It shows the state from the last poll of the worker. An action
 usually makes only one request: it adds one label. When the label is already on the issue, the action makes
 two requests: it removes the label and adds it again.
@@ -181,7 +191,8 @@ two requests: it removes the label and adds it again.
 - The page uses plain HTTP. On the LAN, another device can read the password and the cookie.
 - A restart of the worker asks for the password again. It also loses the cards in "Done".
 - The lock after 5 wrong passwords is for the whole worker, not for one device.
-- Block acts at the next poll of the worker, so after one poll interval at most.
+- An action acts at the early poll, 2 s after the click. If GitHub does not show the label yet, it acts at
+  the next usual poll, so after one poll interval at most.
 - A browser opens about 6 connections to one address. Many tabs of the page in one browser can stop the
   updates, the loads of the page, and the actions.
 - A label that the page adds just before a restart is ignored with a note. Click the button again.
