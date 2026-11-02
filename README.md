@@ -152,6 +152,8 @@ The page updates itself when the state changes.
 ### Actions
 
 A button shows only when its action is possible. The worker checks the rule again when you click.
+A label that the worker ignored does not hide the button; the button removes the label and adds it again.
+A button of an old page gets "This action is not possible now." when the card changed. Load the page again.
 
 | Button | Label | Effect |
 |---|---|---|
@@ -164,7 +166,8 @@ Enter, Approve, and Block add the label with the token of the worker. The worker
 the page asked for it. Continue writes the local marker and adds no label.
 
 The page makes no GitHub request of its own. It shows the state from the last poll of the worker. An action
-makes only one request: it adds one label.
+usually makes only one request: it adds one label. When the label is already on the issue, the action makes
+two requests: it removes the label and adds it again.
 
 ### Known limits
 
@@ -173,5 +176,5 @@ makes only one request: it adds one label.
 - The lock after 5 wrong passwords is for the whole worker, not for one device.
 - Block acts at the next poll of the worker, so after one poll interval at most.
 - A browser opens about 6 connections to one address. Many tabs of the page in one browser can stop the
-  updates.
+  updates, the loads of the page, and the actions.
 - A label that the page adds just before a restart is ignored with a note. Click the button again.

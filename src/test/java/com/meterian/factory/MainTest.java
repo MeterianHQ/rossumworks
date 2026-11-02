@@ -16,6 +16,7 @@ import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.web.CardFingerprint;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.workflow.RequestReader;
@@ -321,9 +322,7 @@ class MainTest {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                new FakeLiveSessions(), (issueNumber, label) -> {
-                    throw new AssertionError("The test reached the labels");
-                }, () -> 0, temporaryDirectory.resolve("claude-home"));
+                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, temporaryDirectory.resolve("claude-home"));
 
         assertThat(server).isEmpty();
     }
@@ -334,7 +333,7 @@ class MainTest {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                    new FakeLiveSessions(), (issueNumber, label) -> { }, () -> 0,
+                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0,
                     temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -353,16 +352,18 @@ class MainTest {
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                         .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
-        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(), gitHub::addLabel,
-                () -> 1, temporaryDirectory.resolve("claude-home")).orElseThrow();
+        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
+                Main.createLabelWriter(gitHub), () -> 1, temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
         try {
             HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
             URI base = URI.create("http://127.0.0.1:" + server.port());
             String cookie = logIn(client, base);
+            String fingerprint = CardFingerprint.of(shared.board().snapshot().cards().getFirst());
 
             HttpResponse<String> approve = client.send(HttpRequest.newBuilder(base.resolve("/issues/12/approve"))
-                    .POST(HttpRequest.BodyPublishers.noBody()).header("Cookie", cookie).build(),
+                    .POST(HttpRequest.BodyPublishers.ofString("state=" + fingerprint))
+                    .header("Content-Type", "application/x-www-form-urlencoded").header("Cookie", cookie).build(),
                     HttpResponse.BodyHandlers.ofString());
 
             assertThat(approve.statusCode()).isEqualTo(303);

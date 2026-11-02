@@ -9,6 +9,7 @@ import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.time.Clock;
 import java.util.HashMap;
@@ -26,19 +27,21 @@ public final class PageModelSource {
     private final ContextTracker contexts;
     private final LiveContextReader liveContexts;
     private final LiveSessions liveSessions;
+    private final PageRequests pageRequests;
     private final WorkspaceLayout layout;
     private final FactoryConfiguration configuration;
     private final IntSupplier issuesInWork;
     private final Clock clock;
 
     public PageModelSource(BoardState board, UsageTracker usage, ContextTracker contexts,
-            LiveContextReader liveContexts, LiveSessions liveSessions, WorkspaceLayout layout,
-            FactoryConfiguration configuration, IntSupplier issuesInWork, Clock clock) {
+            LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
+            WorkspaceLayout layout, FactoryConfiguration configuration, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
         this.usage = usage;
         this.contexts = contexts;
         this.liveContexts = liveContexts;
         this.liveSessions = liveSessions;
+        this.pageRequests = pageRequests;
         this.layout = layout;
         this.configuration = configuration;
         this.issuesInWork = issuesInWork;
@@ -50,7 +53,7 @@ public final class PageModelSource {
         return new PageModel(snapshot, clock.instant(), issuesInWork.getAsInt(),
                 configuration.limits().parallelIssues(), configuration.limits().fixLoops(),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
-                usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot),
+                usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
                 configuration.target().fullName());
     }
 
@@ -71,6 +74,17 @@ public final class PageModelSource {
         Optional<Long> liveTokens = liveContexts.readTokensInUse(card.record().sessionId(),
                 layout.worktree(card.issueNumber()));
         return liveTokens.map(tokens -> new ContextUsage(tokens, tracked.get().contextWindow())).or(() -> tracked);
+    }
+
+    private Map<Integer, Set<String>> readRememberedLabels(BoardSnapshot snapshot) {
+        Map<Integer, Set<String>> labelsByIssue = new HashMap<>();
+        for (IssueCard card : snapshot.cards()) {
+            Set<String> labels = PageAction.findRememberedLabels(card.issueNumber(), pageRequests);
+            if (!labels.isEmpty()) {
+                labelsByIssue.put(card.issueNumber(), labels);
+            }
+        }
+        return labelsByIssue;
     }
 
     private Set<Integer> readContinueRequests(BoardSnapshot snapshot) {

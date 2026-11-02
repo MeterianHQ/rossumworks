@@ -23,7 +23,7 @@ import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.BoardPage;
-import com.meterian.factory.web.LabelAdder;
+import com.meterian.factory.web.LabelWriter;
 import com.meterian.factory.web.PageActions;
 import com.meterian.factory.web.PageModelSource;
 import com.meterian.factory.web.WebServer;
@@ -319,8 +319,8 @@ public final class Main {
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
                 liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
-        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, gitHub::addLabel,
-                () -> worker.issuesInWork().size(), claudeHome);
+        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions,
+                createLabelWriter(gitHub), () -> worker.issuesInWork().size(), claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
         try {
@@ -343,14 +343,32 @@ public final class Main {
         return new RequestReader(gitHub, configuration.allowedAccounts(), workerLogin, shared.pageRequests());
     }
 
-    /** Without a web section, the worker serves no page. The page gets only a label adder, never the GitHub client. */
+    /** The page gets only these two label requests of the GitHub client. A 404 on a remove is not an error. */
+    static LabelWriter createLabelWriter(GitHubClient gitHub) {
+        return new LabelWriter() {
+            @Override
+            public void addLabel(int issueNumber, String label) {
+                gitHub.addLabel(issueNumber, label);
+            }
+
+            @Override
+            public void removeLabel(int issueNumber, String label) {
+                gitHub.removeLabel(issueNumber, label);
+            }
+        };
+    }
+
+    /**
+     * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
+     * client.
+     */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
-                                               LiveSessions liveSessions, LabelAdder labels,
+                                               LiveSessions liveSessions, LabelWriter labels,
                                                IntSupplier issuesInWork, Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
-                        new LiveContextReader(claudeHome), liveSessions,
+                        new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
                         Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),

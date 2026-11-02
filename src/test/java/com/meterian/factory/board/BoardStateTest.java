@@ -102,7 +102,20 @@ class BoardStateTest {
     }
 
     @Test
-    void awaitChangeReturnsAtOnceForAnOldVersion() throws InterruptedException {
+    void aRecordKeepsTheLabelsAndTheTitleOfAnExistingCard() {
+        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordLabelAdded(7, "factory:approve");
+
+        board.recordIssue(issue(7, "Old title"), record(7, IssueStatus.IN_REVIEW));
+
+        IssueCard card = board.snapshot().cards().get(0);
+        assertThat(card.labels()).contains("factory:approve");
+        assertThat(card.title()).isEqualTo("Title");
+        assertThat(card.record().status()).isEqualTo(IssueStatus.IN_REVIEW);
+    }
+
+    @Test
+    void awaitChangeReturnsAtOnceForAnOldVersion()throws InterruptedException {
         board.recordPoll(List.of());
         long current = board.snapshot().version();
 

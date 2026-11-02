@@ -62,8 +62,11 @@ class WebServerTest {
     private static final String EXPECTED_POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; "
             + "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
-    /** The arguments of one call of addLabel. */
-    private record LabelCall(int issueNumber, String label) {
+    /** The two requests of the label writer. */
+    private enum LabelChange { ADD, REMOVE }
+
+    /** The arguments of one call of the label writer. */
+    private record LabelCall(LabelChange change, int issueNumber, String label) {
     }
 
     @TempDir
@@ -74,7 +77,7 @@ class WebServerTest {
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final PageRequests pageRequests = new PageRequests(clock);
     private final List<LabelCall> labelCalls = new CopyOnWriteArrayList<>();
-    private volatile Optional<GitHubException> labelFailure = Optional.empty();
+    private volatile Optional<RuntimeException> labelFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private WebServer server;
@@ -83,13 +86,7 @@ class WebServerTest {
     void startServer() throws IOException {
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
-        LabelAdder labels = (issueNumber, label) -> {
-            labelCalls.add(new LabelCall(issueNumber, label));
-            labelFailure.ifPresent(failure -> {
-                throw failure;
-            });
-        };
-        PageActions actions = new PageActions(labels, pageRequests, liveSessions, board);
+        PageActions actions = new PageActions(createLabelWriter(), pageRequests, liveSessions, board);
         WebSettings settings = new WebSettings("127.0.0.1", 0, PasswordHash.create(PASSWORD.toCharArray(),
                 FAST_ITERATIONS));
         server = new WebServer(settings, login, createModelSource(), new BoardPage(ZoneOffset.UTC), board, actions);
@@ -101,6 +98,35 @@ class WebServerTest {
         server.stop();
     }
 
+    private LabelWriter createLabelWriter() {
+        return new LabelWriter() {
+            @Override
+            public void addLabel(int issueNumber, String label) {
+                recordLabelCall(new LabelCall(LabelChange.ADD, issueNumber, label));
+            }
+
+            @Override
+            public void removeLabel(int issueNumber, String label) {
+                recordLabelCall(new LabelCall(LabelChange.REMOVE, issueNumber, label));
+            }
+        };
+    }
+
+    private void recordLabelCall(LabelCall call) {
+        labelCalls.add(call);
+        labelFailure.ifPresent(failure -> {
+            throw failure;
+        });
+    }
+
+    private static LabelCall added(String label) {
+        return new LabelCall(LabelChange.ADD, ISSUE_NUMBER, label);
+    }
+
+    private static LabelCall removed(String label) {
+        return new LabelCall(LabelChange.REMOVE, ISSUE_NUMBER, label);
+    }
+
     private PageModelSource createModelSource() {
         Path workDirectory = temporaryDirectory.resolve("work");
         TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
@@ -110,7 +136,7 @@ class WebServerTest {
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty());
         return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
-                new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions,
+                new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }
 
@@ -136,6 +162,15 @@ class WebServerTest {
 
     private void recordCard(IssueRecord record) {
         board.recordIssue(issue(), record);
+    }
+
+    private void recordCardWithLabel(IssueRecord record, String label) {
+        board.recordIssue(new Issue(ISSUE_NUMBER, "Fix the login", "body", Set.of("factory", label)), record);
+    }
+
+    private String currentFingerprint() {
+        return board.snapshot().cards().stream().filter(card -> card.issueNumber() == ISSUE_NUMBER)
+                .map(CardFingerprint::of).findFirst().orElse("0000000000000000");
     }
 
     private URI address(String path) {
@@ -169,6 +204,20 @@ class WebServerTest {
                 .header("Origin", origin);
         cookie.ifPresent(value -> request.header("Cookie", value));
         return send(request.build());
+    }
+
+    private HttpResponse<String> postForm(String path, Optional<String> cookie, String body) {
+        HttpRequest.Builder request = HttpRequest.newBuilder(address(path))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Origin", sameOrigin());
+        cookie.ifPresent(value -> request.header("Cookie", value));
+        return send(request.build());
+    }
+
+    /** Posts the form of a button as the current page has it, with the fingerprint of the current card. */
+    private HttpResponse<String> postAction(String path, Optional<String> cookie) {
+        return postForm(path, cookie, "state=" + currentFingerprint());
     }
 
     private HttpResponse<String> postPassword(String origin) {
@@ -267,11 +316,11 @@ class WebServerTest {
     void approveAddsExactlyOneLabel() {
         recordCard(mergeWaitsForApproval());
 
-        HttpResponse<String> answer = post("/issues/12/approve", logIn(), sameOrigin());
+        HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
         assertThat(answer.statusCode()).isEqualTo(303);
         assertThat(answer.headers().firstValue("Location")).contains("/");
-        assertThat(labelCalls).containsExactly(new LabelCall(ISSUE_NUMBER, APPROVE_LABEL));
+        assertThat(labelCalls).containsExactly(added(APPROVE_LABEL));
         assertThat(pageRequests.isRemembered(ISSUE_NUMBER, APPROVE_LABEL)).isTrue();
         assertThat(board.snapshot().cards().get(0).labels()).contains(APPROVE_LABEL);
     }
@@ -280,7 +329,7 @@ class WebServerTest {
     void continueWritesTheMarkerAndNoLabel() {
         recordCard(liveConversation());
 
-        HttpResponse<String> answer = post("/issues/12/continue", logIn(), sameOrigin());
+        HttpResponse<String> answer = postAction("/issues/12/continue", logIn());
 
         assertThat(answer.statusCode()).isEqualTo(303);
         assertThat(liveSessions.isContinueRequested(ISSUE_NUMBER)).isTrue();
@@ -291,16 +340,16 @@ class WebServerTest {
     void aSecondContinueGives409() {
         recordCard(liveConversation());
         Optional<String> cookie = logIn();
-        post("/issues/12/continue", cookie, sameOrigin());
+        postAction("/issues/12/continue", cookie);
 
-        assertThat(post("/issues/12/continue", cookie, sameOrigin()).statusCode()).isEqualTo(409);
+        assertThat(postAction("/issues/12/continue", cookie).statusCode()).isEqualTo(409);
     }
 
     @Test
     void anActionThatIsNoLongerPossibleGives409() {
         recordCard(waitsForAnAnswer());
 
-        HttpResponse<String> answer = post("/issues/12/approve", logIn(), sameOrigin());
+        HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
         assertThat(answer.statusCode()).isEqualTo(409);
         assertThat(answer.body()).contains("This action is not possible now.");
@@ -312,8 +361,8 @@ class WebServerTest {
         recordCard(mergeWaitsForApproval());
         Optional<String> cookie = logIn();
 
-        assertThat(post("/issues/12/approve", cookie, sameOrigin()).statusCode()).isEqualTo(303);
-        assertThat(post("/issues/12/approve", cookie, sameOrigin()).statusCode()).isEqualTo(409);
+        assertThat(postAction("/issues/12/approve", cookie).statusCode()).isEqualTo(303);
+        assertThat(postAction("/issues/12/approve", cookie).statusCode()).isEqualTo(409);
         assertThat(labelCalls).hasSize(1);
     }
 
@@ -322,10 +371,10 @@ class WebServerTest {
         recordCard(mergeWaitsForApproval());
         Optional<String> cookie = logIn();
 
-        assertThat(post("/issues/99/approve", cookie, sameOrigin()).statusCode()).isEqualTo(404);
-        assertThat(post("/issues/12/merge", cookie, sameOrigin()).statusCode()).isEqualTo(404);
-        assertThat(post("/issues/twelve/approve", cookie, sameOrigin()).statusCode()).isEqualTo(404);
-        assertThat(post("/issues/12/approve/again", cookie, sameOrigin()).statusCode()).isEqualTo(404);
+        assertThat(postAction("/issues/99/approve", cookie).statusCode()).isEqualTo(404);
+        assertThat(postAction("/issues/12/merge", cookie).statusCode()).isEqualTo(404);
+        assertThat(postAction("/issues/twelve/approve", cookie).statusCode()).isEqualTo(404);
+        assertThat(postAction("/issues/12/approve/again", cookie).statusCode()).isEqualTo(404);
         assertThat(labelCalls).isEmpty();
     }
 
@@ -342,7 +391,7 @@ class WebServerTest {
         recordCard(mergeWaitsForApproval());
         labelFailure = Optional.of(new GitHubException("<b>no</b> rights"));
 
-        HttpResponse<String> answer = post("/issues/12/approve", logIn(), sameOrigin());
+        HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
         assertThat(answer.statusCode()).isEqualTo(502);
         assertThat(answer.body()).contains("GitHub refused the label.").contains("&lt;b&gt;no&lt;/b&gt; rights")
@@ -425,7 +474,7 @@ class WebServerTest {
                 get("/other", Optional.empty()),
                 post("/board", cookie, sameOrigin()),
                 post("/issues/12/approve", cookie, "http://evil.example"),
-                post("/issues/12/approve", cookie, sameOrigin()));
+                postAction("/issues/12/approve", cookie));
 
         for (HttpResponse<String> answer : answers) {
             assertThat(answer.headers().firstValue("Content-Security-Policy")).as(answer.uri().toString())
@@ -433,5 +482,116 @@ class WebServerTest {
             assertThat(answer.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
             assertThat(answer.headers().firstValue("Referrer-Policy")).contains("no-referrer");
         }
+    }
+
+    @Test
+    void aLabelThatTheWorkerIgnoredShowsTheButton() {
+        recordCardWithLabel(mergeWaitsForApproval(), APPROVE_LABEL);
+
+        HttpResponse<String> page = get("/board", logIn());
+
+        assertThat(page.body()).contains("action=\"/issues/12/approve\"");
+    }
+
+    @Test
+    void anApproveOnAnIgnoredLabelRemovesTheLabelAndAddsItAgain() {
+        recordCardWithLabel(mergeWaitsForApproval(), APPROVE_LABEL);
+
+        HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(labelCalls).containsExactly(removed(APPROVE_LABEL), added(APPROVE_LABEL));
+        assertThat(pageRequests.isRemembered(ISSUE_NUMBER, APPROVE_LABEL)).isTrue();
+    }
+
+    @Test
+    void aRememberedLabelHidesTheButton() {
+        recordCardWithLabel(mergeWaitsForApproval(), APPROVE_LABEL);
+        pageRequests.remember(ISSUE_NUMBER, APPROVE_LABEL);
+        Optional<String> cookie = logIn();
+
+        assertThat(get("/board", cookie).body()).doesNotContain("action=\"/issues/12/approve\"");
+        assertThat(postAction("/issues/12/approve", cookie).statusCode()).isEqualTo(409);
+        assertThat(labelCalls).isEmpty();
+    }
+
+    @Test
+    void anApproveFromAPageBeforeANewWaitReasonGives409() {
+        recordCard(mergeWaitsForApproval());
+        String oldFingerprint = currentFingerprint();
+        recordCard(mergeWaitsForApproval().withPhase(Phase.PREPARE).withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
+
+        HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
+
+        assertThat(answer.statusCode()).isEqualTo(409);
+        assertThat(answer.body()).contains("This action is not possible now.");
+        assertThat(labelCalls).isEmpty();
+    }
+
+    @Test
+    void anApproveFromAPageBeforeANewFixLoopGives409() {
+        recordCard(mergeWaitsForApproval());
+        String oldFingerprint = currentFingerprint();
+        recordCard(mergeWaitsForApproval().withFixLoop());
+
+        HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
+
+        assertThat(answer.statusCode()).isEqualTo(409);
+        assertThat(labelCalls).isEmpty();
+    }
+
+    @Test
+    void anActionWithoutTheStateGives409() {
+        recordCard(mergeWaitsForApproval());
+        Optional<String> cookie = logIn();
+
+        assertThat(post("/issues/12/approve", cookie, sameOrigin()).statusCode()).isEqualTo(409);
+        assertThat(postForm("/issues/12/approve", cookie, "other=1").statusCode()).isEqualTo(409);
+        assertThat(postForm("/issues/12/approve", cookie, "state=").statusCode()).isEqualTo(409);
+        assertThat(labelCalls).isEmpty();
+    }
+
+    @Test
+    void theStateCanBeAnyFieldOfTheForm() {
+        recordCard(mergeWaitsForApproval());
+
+        HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "a=1&state=" + currentFingerprint());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+    }
+
+    @Test
+    void aLargeBodyGives413() {
+        recordCard(mergeWaitsForApproval());
+
+        HttpResponse<String> answer = postForm("/issues/12/approve", logIn(),
+                "state=" + currentFingerprint() + "&padding=" + "x".repeat(5000));
+
+        assertThat(answer.statusCode()).isEqualTo(413);
+        assertThat(labelCalls).isEmpty();
+    }
+
+    @Test
+    void aCardThatWentAwayGives404WithAMessage() {
+        recordCard(mergeWaitsForApproval());
+        Optional<String> cookie = logIn();
+        String fingerprint = currentFingerprint();
+        board.recordPoll(List.of());
+
+        HttpResponse<String> answer = postForm("/issues/12/approve", cookie, "state=" + fingerprint);
+
+        assertThat(answer.statusCode()).isEqualTo(404);
+        assertThat(answer.body()).contains("This issue is no longer on the board.");
+    }
+
+    @Test
+    void aFailureOfTheActionGives500WithAMessage() {
+        recordCard(mergeWaitsForApproval());
+        labelFailure = Optional.of(new IllegalStateException("broken"));
+
+        HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(500);
+        assertThat(answer.body()).contains("The action failed. See the log of the worker.").doesNotContain("broken");
     }
 }

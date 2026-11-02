@@ -59,9 +59,21 @@ class BoardPageTest {
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, Map.of());
+    }
+
+    private static PageModel modelWithRememberedLabels(List<IssueCard> cards,
+            Map<Integer, Set<String>> rememberedLabels) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(),
+                rememberedLabels);
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
         return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, Set.of(), "MeterianHQ/target");
+                usageResumesAt, contexts, Set.of(), rememberedLabels, "MeterianHQ/target");
     }
 
     @Test
@@ -168,10 +180,33 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(List.of(card(record))));
 
-        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/approve\"><button>Approve</button></form>");
-        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter\"><button>Enter</button></form>");
+        String state = "<input type=\"hidden\" name=\"state\" value=\"" + CardFingerprint.of(card(record)) + "\">";
+        assertThat(html).contains(
+                "<form method=\"post\" action=\"/issues/12/approve\">" + state + "<button>Approve</button></form>");
+        assertThat(html).contains(
+                "<form method=\"post\" action=\"/issues/12/enter\">" + state + "<button>Enter</button></form>");
         assertThat(html).contains("action=\"/issues/12/block\"").contains("<button>Block</button>");
         assertThat(html).doesNotContain("/issues/12/continue").doesNotContain("<button>Continue</button>");
+    }
+
+    @Test
+    void aLabelThatThePageDidNotRequestShowsTheButton() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
+
+        String html = page.renderBoard(model(List.of(card)));
+
+        assertThat(html).contains("action=\"/issues/12/approve\"");
+    }
+
+    @Test
+    void aLabelThatThePageRequestedHidesTheButton() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(card), Map.of(12, Set.of("factory:approve"))));
+
+        assertThat(html).doesNotContain("action=\"/issues/12/approve\"").contains("action=\"/issues/12/block\"");
     }
 
     @Test

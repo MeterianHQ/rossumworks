@@ -472,7 +472,7 @@ limit of 5,000 requests for each hour, and the pilot hit it. The worker
 keeps the board in memory. Each poll and each change of an issue record
 updates it. The page shows only this board and the data from the agent
 runs (the context and the usage). The classes of the page never get the
-GitHub client. They get only a label adder, for the actions.
+GitHub client. They get only a label writer, for the actions.
 
 ### 9.1 Content
 
@@ -542,8 +542,9 @@ the same way.
 My decisions on "Block":
 
 - Block does not wait for the phase to end. It stops the running `claude`
-  process at once, because the owner can use Block to stop a wrong
-  change. The worktree keeps the files as they are. A blocked issue never
+  process at the next poll, at most one poll interval later, because the
+  owner can use Block to stop a wrong change. The worktree keeps the files
+  as they are. A blocked issue never
   merges, so a phase that is not complete does no harm.
 - To start a blocked issue again, the owner clicks "Enter", discusses with
   the agent, and then clicks "Continue".
@@ -551,12 +552,18 @@ My decisions on "Block":
 A button shows only when its action is possible, for example "Approve"
 only for the reason "merge needs approval". The worker checks the same
 rule again when it gets the action. An action that is no longer possible
-adds no label.
+adds no label. Each form sends a fingerprint of the card: the status, the
+wait reason, the phase, the fix loops, the reviewed tree, and the issue
+text. A form from an old page gets "This action is not possible now."
+A label that the worker ignored does not hide the button; the button
+removes the label and adds it again.
 
 An action costs only the requests that it needs. Enter, Approve, and
 Block add one label. Continue writes the local marker of section 8.2 and
-makes no request. The worker acts on a label at its next poll, so Block
-stops the `claude` process after one poll interval at most.
+makes no request. A label that is already on the issue costs two requests:
+the page removes it and adds it again, so that the newest "labeled" event
+comes from the worker account. The worker acts on a label at its next
+poll, so Block stops the `claude` process after one poll interval at most.
 
 My decision on the label of the worker account: the page adds the label
 with the token of the worker. Usually the worker accepts a label only

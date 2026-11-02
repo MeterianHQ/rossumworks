@@ -5,12 +5,16 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.workflow.ApprovalCheck;
+import com.meterian.factory.workflow.PageRequests;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The four buttons of the page. Each rule is here only: the page shows a button and the server accepts its
- * POST only when {@link #isPossible} is true. A label that is already on the card hides its button.
+ * POST only when {@link #isPossible} is true. A label on the card hides its button only when the page asked
+ * for this label: a label that the worker ignored keeps the button, so that the owner can click again.
  */
 public enum PageAction {
     ENTER("enter", "Enter", "factory:enter"),
@@ -45,8 +49,22 @@ public enum PageAction {
         return Arrays.stream(values()).filter(action -> action.pathName.equals(name)).findFirst();
     }
 
-    public boolean isPossible(IssueCard card, boolean continueRequested) {
-        if (isLabelOnTheCard(card)) {
+    /** The labels of the buttons that the page asked for on this issue, from the remembered page requests. */
+    public static Set<String> findRememberedLabels(int issueNumber, PageRequests pageRequests) {
+        return Arrays.stream(values())
+                .flatMap(action -> action.label().stream())
+                .filter(label -> pageRequests.isRemembered(issueNumber, label))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Tells if the page shows the button and if the server accepts its POST.
+     *
+     * @param continueRequested true when the marker of Continue exists
+     * @param rememberedLabels the labels that the page asked for on this issue, see {@link #findRememberedLabels}
+     */
+    public boolean isPossible(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
+        if (isRequestedLabelOnTheCard(card, rememberedLabels)) {
             return false;
         }
         IssueRecord record = card.record();
@@ -58,8 +76,13 @@ public enum PageAction {
         };
     }
 
-    private boolean isLabelOnTheCard(IssueCard card) {
+    /** True when the card has the label of this button. */
+    public boolean isLabelOnTheCard(IssueCard card) {
         return label().filter(card.labels()::contains).isPresent();
+    }
+
+    private boolean isRequestedLabelOnTheCard(IssueCard card, Set<String> rememberedLabels) {
+        return isLabelOnTheCard(card) && label().filter(rememberedLabels::contains).isPresent();
     }
 
     /** A live state without a link can enter again, because the open of the session did not end. */

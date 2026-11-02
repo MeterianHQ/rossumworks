@@ -46,11 +46,14 @@ public final class BoardState implements BoardUpdates {
         markChanged();
     }
 
+    /** The labels and the title come from the poll. The issue gives them only to a new card. */
     @Override
     public synchronized void recordIssue(Issue issue, IssueRecord record) {
         Optional<Instant> doneAt = findDoneTime(issue.number(), record);
-        cardsByNumber.put(issue.number(),
-                new IssueCard(issue.number(), issue.title(), issue.labels(), record, doneAt));
+        IssueCard existing = cardsByNumber.get(issue.number());
+        String title = existing == null ? issue.title() : existing.title();
+        Set<String> labels = existing == null ? issue.labels() : existing.labels();
+        cardsByNumber.put(issue.number(), new IssueCard(issue.number(), title, labels, record, doneAt));
         removeOldDoneCards();
         markChanged();
     }

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** All the values that the page shows. The page reads them from memory and from local files only. */
 public record PageModel(
@@ -24,11 +25,19 @@ public record PageModel(
         Optional<Instant> usageResumesAt,
         Map<Integer, ContextUsage> contexts,
         Set<Integer> continueRequested,
+        Map<Integer, Set<String>> rememberedLabels,
         String repositoryFullName) {
 
     public PageModel {
         usageWindows = List.copyOf(usageWindows);
         contexts = Map.copyOf(contexts);
         continueRequested = Set.copyOf(continueRequested);
+        rememberedLabels = rememberedLabels.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
+    }
+
+    /** The labels that the page asked for on this issue. */
+    public Set<String> findRememberedLabels(int issueNumber) {
+        return rememberedLabels.getOrDefault(issueNumber, Set.of());
     }
 }

@@ -1,6 +1,7 @@
 package com.meterian.factory.web;
 
 import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.web.ActionFormReader.BodyTooLargeException;
 import com.meterian.factory.web.PageActions.ActionOutcome;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -10,15 +11,18 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Serves POST /issues/n/action, the forms of the buttons. The body of the form is empty and is never read.
+ * Serves POST /issues/n/action, the forms of the buttons. The form has one field, the fingerprint of the card.
  * After the action, the browser goes back to the page.
  */
 final class ActionHandler implements HttpHandler {
 
+    private static final System.Logger LOGGER = System.getLogger(ActionHandler.class.getName());
     private static final Pattern ACTION_PATH = Pattern.compile("/issues/([^/]+)/([^/]+)");
     private static final Pattern ISSUE_NUMBER = Pattern.compile("[1-9][0-9]{0,8}");
     private static final String NOT_POSSIBLE_MESSAGE = "This action is not possible now.";
+    private static final String UNKNOWN_ISSUE_MESSAGE = "This issue is no longer on the board.";
     private static final String REFUSED_LABEL_MESSAGE = "GitHub refused the label. ";
+    private static final String FAILED_ACTION_MESSAGE = "The action failed. See the log of the worker.";
 
     /** The issue and the action of one path. */
     private record ActionTarget(int issueNumber, PageAction action) {
@@ -26,6 +30,7 @@ final class ActionHandler implements HttpHandler {
 
     private final PageLogin login;
     private final PageActions actions;
+    private final ActionFormReader formReader = new ActionFormReader();
 
     ActionHandler(PageLogin login, PageActions actions) {
         this.login = login;
@@ -61,10 +66,27 @@ final class ActionHandler implements HttpHandler {
             HttpAnswers.sendStatus(exchange, 404);
             return;
         }
+        Optional<String> state;
         try {
-            sendOutcome(exchange, actions.perform(target.get().issueNumber(), target.get().action()));
+            state = formReader.readState(exchange.getRequestBody());
+        } catch (BodyTooLargeException exception) {
+            HttpAnswers.sendMessagePage(exchange, 413, exception.getMessage());
+            return;
+        }
+        performAction(exchange, target.get(), state);
+    }
+
+    /** An unexpected failure goes to the log. The page shows only a fixed message. */
+    private void performAction(HttpExchange exchange, ActionTarget target, Optional<String> state)
+            throws IOException {
+        try {
+            sendOutcome(exchange, actions.perform(target.issueNumber(), target.action(), state));
         } catch (GitHubException exception) {
             HttpAnswers.sendMessagePage(exchange, 502, REFUSED_LABEL_MESSAGE + exception.getMessage());
+        } catch (RuntimeException exception) {
+            LOGGER.log(System.Logger.Level.ERROR, "The action " + target.action().pathName() + " on the issue #"
+                    + target.issueNumber() + " failed.", exception);
+            HttpAnswers.sendMessagePage(exchange, 500, FAILED_ACTION_MESSAGE);
         }
     }
 
@@ -72,7 +94,7 @@ final class ActionHandler implements HttpHandler {
         switch (outcome) {
             case DONE -> HttpAnswers.sendRedirect(exchange, "/");
             case NOT_POSSIBLE -> HttpAnswers.sendMessagePage(exchange, 409, NOT_POSSIBLE_MESSAGE);
-            case UNKNOWN_ISSUE -> HttpAnswers.sendStatus(exchange, 404);
+            case UNKNOWN_ISSUE -> HttpAnswers.sendMessagePage(exchange, 404, UNKNOWN_ISSUE_MESSAGE);
         }
     }
 }

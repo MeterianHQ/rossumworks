@@ -20,6 +20,7 @@ import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,6 +46,7 @@ class PageModelSourceTest {
     private final UsageTracker usage = new UsageTracker(0.90, clock);
     private final ContextTracker contexts = new ContextTracker();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
+    private final PageRequests pageRequests = new PageRequests(clock);
 
     private PageModelSource source() {
         Path workDirectory = temporaryDirectory.resolve("work");
@@ -55,7 +57,7 @@ class PageModelSourceTest {
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty());
         return new PageModelSource(board, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
-                new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                pageRequests, new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }
 
     private Path claudeHome() {
@@ -135,5 +137,19 @@ class PageModelSourceTest {
         PageModel model = source().read();
 
         assertThat(model.continueRequested()).containsExactly(12);
+    }
+
+    @Test
+    void readsTheRememberedLabelsOfEachCard() {
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), IssueRecord.queued(13));
+        pageRequests.remember(12, "factory:approve");
+        pageRequests.remember(12, "factory:block");
+        pageRequests.remember(99, "factory:enter");
+
+        PageModel model = source().read();
+
+        assertThat(model.rememberedLabels()).containsOnlyKeys(12)
+                .containsEntry(12, Set.of("factory:approve", "factory:block"));
     }
 }

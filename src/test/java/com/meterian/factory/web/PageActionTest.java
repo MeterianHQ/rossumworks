@@ -34,12 +34,17 @@ class PageActionTest {
         return new IssueCard(12, "Title", labels, record, Optional.empty());
     }
 
+    /** The rule of the action when the page remembers no request. */
+    private static boolean isPossible(PageAction action, IssueCard card, boolean continueRequested) {
+        return action.isPossible(card, continueRequested, Set.of());
+    }
+
     @Test
     void enterNeedsAStartedSession() {
         IssueRecord notStarted = IssueRecord.queued(12).withStatus(IssueStatus.IN_PROGRESS);
 
-        assertThat(PageAction.ENTER.isPossible(card(notStarted), false)).isFalse();
-        assertThat(PageAction.ENTER.isPossible(card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
+        assertThat(isPossible(PageAction.ENTER, card(notStarted), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
                 .isTrue();
     }
 
@@ -47,17 +52,17 @@ class PageActionTest {
     void enterIsNotPossibleWhenThePhaseIsDone() {
         IssueRecord done = startedRecord(IssueStatus.DONE, Phase.DONE);
 
-        assertThat(PageAction.ENTER.isPossible(card(done), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER, card(done), false)).isFalse();
     }
 
     @Test
     void enterIsNotPossibleWhenTheLiveStateHasALink() {
-        assertThat(PageAction.ENTER.isPossible(card(liveRecord(Optional.of(LINK))), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER, card(liveRecord(Optional.of(LINK))), false)).isFalse();
     }
 
     @Test
     void enterIsPossibleAgainWhenTheLiveStateHasNoLink() {
-        assertThat(PageAction.ENTER.isPossible(card(liveRecord(Optional.empty())), false)).isTrue();
+        assertThat(isPossible(PageAction.ENTER, card(liveRecord(Optional.empty())), false)).isTrue();
     }
 
     @Test
@@ -69,44 +74,67 @@ class PageActionTest {
         IssueRecord question = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
                 .withWaitReason(WaitReason.QUESTION);
 
-        assertThat(PageAction.APPROVE.isPossible(card(merge), false)).isTrue();
-        assertThat(PageAction.APPROVE.isPossible(card(textChanged), false)).isTrue();
-        assertThat(PageAction.APPROVE.isPossible(card(question), false)).isFalse();
+        assertThat(isPossible(PageAction.APPROVE, card(merge), false)).isTrue();
+        assertThat(isPossible(PageAction.APPROVE, card(textChanged), false)).isTrue();
+        assertThat(isPossible(PageAction.APPROVE, card(question), false)).isFalse();
     }
 
     @Test
     void blockIsNotPossibleWhenTheIssueIsBlockedOrDone() {
-        assertThat(PageAction.BLOCK.isPossible(card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
                 .isTrue();
-        assertThat(PageAction.BLOCK.isPossible(card(startedRecord(IssueStatus.BLOCKED, Phase.IMPLEMENT)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.BLOCKED, Phase.IMPLEMENT)), false))
                 .isFalse();
-        assertThat(PageAction.BLOCK.isPossible(card(startedRecord(IssueStatus.DONE, Phase.MERGE)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.DONE, Phase.MERGE)), false))
                 .isFalse();
-        assertThat(PageAction.BLOCK.isPossible(card(startedRecord(IssueStatus.IN_REVIEW, Phase.DONE)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_REVIEW, Phase.DONE)), false))
                 .isFalse();
     }
 
     @Test
     void continueNeedsALiveState() {
-        assertThat(PageAction.CONTINUE.isPossible(card(liveRecord(Optional.of(LINK))), false)).isTrue();
-        assertThat(PageAction.CONTINUE.isPossible(card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
+        assertThat(isPossible(PageAction.CONTINUE, card(liveRecord(Optional.of(LINK))), false)).isTrue();
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
                 false)).isFalse();
     }
 
     @Test
     void continueHidesWhenTheMarkerExists() {
-        assertThat(PageAction.CONTINUE.isPossible(card(liveRecord(Optional.of(LINK))), true)).isFalse();
+        assertThat(isPossible(PageAction.CONTINUE, card(liveRecord(Optional.of(LINK))), true)).isFalse();
     }
 
     @Test
-    void aLabelOnTheCardHidesItsButton() {
+    void aRememberedLabelOnTheCardHidesItsButton() {
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        Set<String> remembered = Set.of("factory:approve", "factory:block", "factory:enter");
+
+        assertThat(PageAction.APPROVE.isPossible(card(merge, Set.of("factory", "factory:approve")), false, remembered))
+                .isFalse();
+        assertThat(PageAction.BLOCK.isPossible(card(merge, Set.of("factory", "factory:block")), false, remembered))
+                .isFalse();
+        assertThat(PageAction.ENTER.isPossible(card(merge, Set.of("factory", "factory:enter")), false, remembered))
+                .isFalse();
+        assertThat(PageAction.BLOCK.isPossible(card(merge, Set.of("factory", "factory:approve")), false, remembered))
+                .isTrue();
+    }
+
+    @Test
+    void aLabelThatThePageDidNotRequestKeepsItsButton() {
         IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
 
-        assertThat(PageAction.APPROVE.isPossible(card(merge, Set.of("factory", "factory:approve")), false)).isFalse();
-        assertThat(PageAction.BLOCK.isPossible(card(merge, Set.of("factory", "factory:block")), false)).isFalse();
-        assertThat(PageAction.ENTER.isPossible(card(merge, Set.of("factory", "factory:enter")), false)).isFalse();
-        assertThat(PageAction.BLOCK.isPossible(card(merge, Set.of("factory", "factory:approve")), false)).isTrue();
+        assertThat(isPossible(PageAction.APPROVE, card(merge, Set.of("factory", "factory:approve")), false)).isTrue();
+        assertThat(isPossible(PageAction.BLOCK, card(merge, Set.of("factory", "factory:block")), false)).isTrue();
+        assertThat(isPossible(PageAction.ENTER, card(merge, Set.of("factory", "factory:enter")), false)).isTrue();
+    }
+
+    @Test
+    void aRememberedRequestWithoutTheLabelKeepsTheButton() {
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+
+        assertThat(PageAction.APPROVE.isPossible(card(merge), false, Set.of("factory:approve"))).isTrue();
     }
 
     @Test

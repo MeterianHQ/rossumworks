@@ -12,6 +12,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /** Writes the HTML of one card. All text from GitHub and from the agents goes through {@link Html#escape}. */
 final class CardRenderer {
@@ -42,7 +43,8 @@ final class CardRenderer {
         appendPullRequestLink(html, record, model.repositoryFullName());
         appendNewestNote(html, record);
         card.doneAt().ifPresent(doneAt -> appendDoneDate(html, doneAt));
-        appendActions(html, card, model.continueRequested().contains(card.issueNumber()));
+        appendActions(html, card, model.continueRequested().contains(card.issueNumber()),
+                model.findRememberedLabels(card.issueNumber()));
         html.append("</article>");
         return html.toString();
     }
@@ -115,24 +117,30 @@ final class CardRenderer {
         html.append("<p class=\"done\">Done on ").append(dateFormat.format(doneAt)).append("</p>");
     }
 
-    /** The forms work without JavaScript. page.js finds the Block form by its class and asks for a confirm. */
-    private void appendActions(StringBuilder html, IssueCard card, boolean continueRequested) {
+    /**
+     * The forms work without JavaScript. page.js finds the Block form by its class and asks for a confirm.
+     * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
+     */
+    private void appendActions(StringBuilder html, IssueCard card, boolean continueRequested,
+            Set<String> rememberedLabels) {
+        String fingerprint = CardFingerprint.of(card);
         html.append("<div class=\"actions\">");
         for (PageAction action : PageAction.values()) {
-            if (action.isPossible(card, continueRequested)) {
-                appendActionForm(html, card.issueNumber(), action);
+            if (action.isPossible(card, continueRequested, rememberedLabels)) {
+                appendActionForm(html, card.issueNumber(), action, fingerprint);
             }
         }
         html.append("</div>");
     }
 
-    private void appendActionForm(StringBuilder html, int issueNumber, PageAction action) {
+    private void appendActionForm(StringBuilder html, int issueNumber, PageAction action, String fingerprint) {
         html.append("<form method=\"post\" action=\"/issues/").append(issueNumber).append('/')
                 .append(action.pathName()).append('"');
         if (action == PageAction.BLOCK) {
             html.append(" class=\"confirm-block\" data-issue=\"").append(issueNumber).append('"');
         }
-        html.append("><button>").append(action.buttonText()).append("</button></form>");
+        html.append("><input type=\"hidden\" name=\"").append(CardFingerprint.FIELD_NAME).append("\" value=\"")
+                .append(fingerprint).append("\"><button>").append(action.buttonText()).append("</button></form>");
     }
 
     private void appendLine(StringBuilder html, String text) {
