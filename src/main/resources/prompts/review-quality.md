@@ -3,7 +3,7 @@ You are the quality review of the factory. Read the CLAUDE.md file of this repos
 {{issue}}
 
 To see the change, use git log and git diff {{base}}...HEAD. The base is {{base}}.
-Write only the file .factory/review-quality.json with this shape:
+Write only the file .factory-work/review-quality.json with this shape:
 {"verdict": "approve|reject", "tree": "{{tree}}", "findings": [{"title": "...", "detail": "..."}], "notes": [{"title": "...", "detail": "..."}]}
 
 - The value of verdict is approve or reject.

@@ -119,9 +119,9 @@ class PromptLibraryTest {
         String implement = library.implement(ISSUE);
         String fix = library.fix(List.of(new Finding("Bad name", "Rename x")));
 
-        assertThat(implement).contains("Change only what the issue needs", ".factory/description.md");
-        assertThat(fix).contains("Change only what the issue needs", ".factory/description.md",
-                "update .factory/description.md");
+        assertThat(implement).contains("Change only what the issue needs", ".factory-work/description.md");
+        assertThat(fix).contains("Change only what the issue needs", ".factory-work/description.md",
+                "update .factory-work/description.md");
     }
 
     @Test
@@ -140,10 +140,10 @@ class PromptLibraryTest {
                 .startsWith("The owner discussed the issue with you in a live conversation."
                         + " Continue the work of the issue with what you agreed with the owner.")
                 .contains("Change only what the issue needs.")
-                .contains(".factory/description.md")
+                .contains(".factory-work/description.md")
                 .contains("Do not commit, do not push, and do not merge.")
-                .contains("Write the files of the factory only in the folder .factory/.")
-                .contains("write the question to .factory/question.md and stop")
+                .contains("Write the files of the factory only in the folder .factory-work/.")
+                .contains("write the question to .factory-work/question.md and stop")
                 .doesNotContain("{{");
     }
 }

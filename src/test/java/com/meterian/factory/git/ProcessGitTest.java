@@ -79,14 +79,30 @@ class ProcessGitTest {
         Path worktree = temporaryDirectory.resolve("worktree");
         git.addWorktree(clone, worktree, "factory/issue-1", "main");
         git.excludeFactoryFolder(worktree);
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory/question.md"), "Question\n");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
         Files.writeString(worktree.resolve("fix.txt"), "fix\n");
 
         git.commitAll(worktree, "Fix the issue");
 
         String committedFiles = run(worktree, "show", "--name-only", "--format=", "HEAD");
-        assertThat(committedFiles).contains("fix.txt").doesNotContain(".factory");
+        assertThat(committedFiles).contains("fix.txt").doesNotContain(".factory-work");
+    }
+
+    @Test
+    void excludesTheScratchFolderButNotTheDefinitionFolder() throws IOException {
+        Path worktree = temporaryDirectory.resolve("worktree");
+        git.addWorktree(clone, worktree, "factory/issue-2", "main");
+        git.excludeFactoryFolder(worktree);
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.writeString(worktree.resolve(".factory/factory.yaml"), "name: factory\n");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
+
+        git.commitAll(worktree, "Add the workflow definition");
+
+        String committedFiles = run(worktree, "show", "--name-only", "--format=", "HEAD");
+        assertThat(committedFiles).contains(".factory/factory.yaml").doesNotContain(".factory-work/question.md");
     }
 
     @Test

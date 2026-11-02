@@ -9,7 +9,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Optional;
 
-/** The files of the factory in the folder .factory of a worktree. Git does not commit this folder. */
+/** The files of the factory in the scratch folder of a worktree. Git does not commit this folder. */
 final class FactoryFolder {
 
     private static final String QUESTION_FILE = "question.md";
@@ -19,7 +19,7 @@ final class FactoryFolder {
     private final Path folder;
 
     FactoryFolder(Path worktree) {
-        this.folder = worktree.resolve(".factory");
+        this.folder = worktree.resolve(ScratchFolder.NAME);
     }
 
     boolean hasQuestion() {

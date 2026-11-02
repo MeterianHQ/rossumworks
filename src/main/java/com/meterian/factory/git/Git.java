@@ -31,7 +31,7 @@ public interface Git {
 
     boolean hasUncommittedChanges(Path worktree);
 
-    /** Adds all changes, except the folder .factory, and commits them. */
+    /** Adds all changes, except the scratch folder .factory-work, and commits them. */
     void commitAll(Path worktree, String message);
 
     /** Rebases onto the upstream. It is up to date when HEAD contains the upstream. On a conflict it aborts. */

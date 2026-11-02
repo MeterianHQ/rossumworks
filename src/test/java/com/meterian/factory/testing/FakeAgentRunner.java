@@ -32,7 +32,7 @@ public final class FakeAgentRunner implements AgentRunner {
         void perform(PhaseRequest request) throws IOException, ApiKeyDetectedException;
     }
 
-    private static final Pattern RESULT_FILE = Pattern.compile("\\.factory/((review-\\w+|risk)\\.json)");
+    private static final Pattern RESULT_FILE = Pattern.compile("\\.factory-work/((review-\\w+|risk)\\.json)");
     private static final SessionReport SUCCESS = new SessionReport(true, "done", Optional.of("none"),
             Optional.empty(), List.of());
     private static final SessionReport FAILURE = new SessionReport(false, "stopped", Optional.of("none"),
@@ -92,7 +92,7 @@ public final class FakeAgentRunner implements AgentRunner {
     public synchronized FakeAgentRunner thenAskQuestion(String question) {
         then(request -> {
             writeFile(request, "work.txt", "half done\n");
-            writeFile(request, ".factory/question.md", question);
+            writeFile(request, ".factory-work/question.md", question);
         });
         return this;
     }
@@ -230,7 +230,7 @@ public final class FakeAgentRunner implements AgentRunner {
         if (!matcher.find()) {
             throw new IllegalStateException("The prompt names no result file");
         }
-        writeFile(request, ".factory/" + matcher.group(1), json);
+        writeFile(request, ".factory-work/" + matcher.group(1), json);
     }
 
     private static void writeFile(PhaseRequest request, String relativePath, String content) throws IOException {

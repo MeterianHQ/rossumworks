@@ -1,5 +1,6 @@
 package com.meterian.factory.git;
 
+import com.meterian.factory.workflow.ScratchFolder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,7 +17,7 @@ import java.util.Optional;
 
 public final class ProcessGit implements Git {
 
-    private static final String FACTORY_FOLDER_PATTERN = ".factory/";
+    private static final String FACTORY_FOLDER_PATTERN = ScratchFolder.NAME + "/";
 
     private static final String FACTORY_BRANCH_PREFIX = "factory/";
     private static final List<String> FIXED_IDENTITY = List.of(

@@ -20,8 +20,8 @@ class PullRequestDescriptionTest {
     Path worktree;
 
     private void writeDescription(String content) throws IOException {
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory/description.md"), content);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/description.md"), content);
     }
 
     @Test
@@ -50,8 +50,8 @@ class PullRequestDescriptionTest {
     void usesTheFallbackForASymbolicLink() throws IOException {
         Path target = worktree.resolve("secret.txt");
         Files.writeString(target, "A secret.");
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.createSymbolicLink(worktree.resolve(".factory/description.md"), target);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.createSymbolicLink(worktree.resolve(".factory-work/description.md"), target);
 
         String body = PullRequestDescription.bodyFor(7, worktree);
 

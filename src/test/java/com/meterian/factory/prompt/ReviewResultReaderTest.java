@@ -16,8 +16,8 @@ class ReviewResultReaderTest {
     Path worktree;
 
     private void writeReview(String content) throws IOException {
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory").resolve(ReviewKind.CORRECTNESS.fileName()), content);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work").resolve(ReviewKind.CORRECTNESS.fileName()), content);
     }
 
     @Test
@@ -84,8 +84,8 @@ class ReviewResultReaderTest {
     void aSymbolicLinkIsAReject() throws IOException {
         Path real = worktree.resolve("real.json");
         Files.writeString(real, "{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": []}");
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.createSymbolicLink(worktree.resolve(".factory").resolve(ReviewKind.CORRECTNESS.fileName()), real);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.createSymbolicLink(worktree.resolve(".factory-work").resolve(ReviewKind.CORRECTNESS.fileName()), real);
 
         assertThat(ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS).verdict()).isEqualTo(Verdict.REJECT);
     }

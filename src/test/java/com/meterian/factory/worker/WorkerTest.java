@@ -652,7 +652,7 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory/review-");
+        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory-work/review-");
         assertThat(gitHub.commentsOf(ISSUE)).hasSize(1);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(gitHub.pullRequests()).hasSize(1);
@@ -672,7 +672,7 @@ class WorkerTest {
         PhaseRequest firstImplement = firstAgent.requests().getFirst();
         PhaseRequest secondImplement = secondAgent.requests().getFirst();
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondImplement.prompt()).doesNotContain(".factory/review-");
+        assertThat(secondImplement.prompt()).doesNotContain(".factory-work/review-");
         assertThat(secondImplement.newSession()).isTrue();
         assertThat(secondImplement.sessionId()).isNotEqualTo(firstImplement.sessionId());
         assertThat(statusComments(ISSUE)).hasSize(1);

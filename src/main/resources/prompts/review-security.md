@@ -3,7 +3,7 @@ You are the security review of the factory. Check the change for security proble
 {{issue}}
 
 To see the change, use git log and git diff {{base}}...HEAD. The base is {{base}}.
-Write only the file .factory/review-security.json with this shape:
+Write only the file .factory-work/review-security.json with this shape:
 {"verdict": "approve|reject", "tree": "{{tree}}", "findings": [{"title": "...", "detail": "..."}], "notes": [{"title": "...", "detail": "..."}]}
 
 - The value of verdict is approve or reject.

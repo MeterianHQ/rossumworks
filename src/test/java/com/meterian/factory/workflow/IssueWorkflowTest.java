@@ -287,8 +287,8 @@ class IssueWorkflowTest {
     private static FakeAgentRunner.Action changeFileAndDescribe(String description) {
         return request -> {
             Files.writeString(request.workingDirectory().resolve("work.txt"), description + "\n");
-            Files.createDirectories(request.workingDirectory().resolve(".factory"));
-            Files.writeString(request.workingDirectory().resolve(".factory/description.md"), description);
+            Files.createDirectories(request.workingDirectory().resolve(".factory-work"));
+            Files.writeString(request.workingDirectory().resolve(".factory-work/description.md"), description);
         };
     }
 
@@ -326,7 +326,7 @@ class IssueWorkflowTest {
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .then(request -> {
                     Files.writeString(request.workingDirectory().resolve("work.txt"), "fixed\n");
-                    Files.delete(request.workingDirectory().resolve(".factory/description.md"));
+                    Files.delete(request.workingDirectory().resolve(".factory-work/description.md"));
                 }).thenApproveAllReviews().thenAssessRisk("low", true);
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -431,7 +431,7 @@ class IssueWorkflowTest {
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.commentsOf(ISSUE)).anySatisfy(comment -> assertThat(comment.body())
                 .contains("Which greeting do you want?").contains("@bbossola"));
-        assertThat(run(worktree(), "log", "--all", "--oneline", "--", ".factory")).isEmpty();
+        assertThat(run(worktree(), "log", "--all", "--oneline", "--", ".factory-work")).isEmpty();
         assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(run(worktree(), "rev-parse", "origin/main"));
     }
 
@@ -1020,7 +1020,7 @@ class IssueWorkflowTest {
         assertThat(record.conflictedPaths()).containsExactly("a.txt");
         assertThat(record.fixLoops()).isEqualTo(2);
         assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
-        assertThat(Files.readString(worktree().resolve(".factory/fix-prompt.md")))
+        assertThat(Files.readString(worktree().resolve(".factory-work/fix-prompt.md")))
                 .contains("The files still hold conflict markers: a.txt.");
         assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(headBefore);
     }
@@ -1119,7 +1119,7 @@ class IssueWorkflowTest {
         IssueWorkflow workflow = createWorkflow("false");
         IssueRecord inFixLoop = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
         inFixLoop = workflow.advance(inFixLoop);
-        Files.delete(worktree().resolve(".factory/fix-prompt.md"));
+        Files.delete(worktree().resolve(".factory-work/fix-prompt.md"));
 
         IssueRecord record = workflow.advance(inFixLoop);
 
@@ -1252,7 +1252,7 @@ class IssueWorkflowTest {
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.phase()).isEqualTo(Phase.IMPLEMENT);
         assertThat(continued.waitReason()).isEmpty();
-        assertThat(worktree().resolve(".factory/question.md")).doesNotExist();
+        assertThat(worktree().resolve(".factory-work/question.md")).doesNotExist();
         assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
 
@@ -1451,8 +1451,8 @@ class IssueWorkflowTest {
     @Test
     void aGitFailureAtTheEnterAfterAQuestionKeepsTheQuestionWaiting() throws ApiKeyDetectedException {
         agent.then(request -> {
-            Files.createDirectories(request.workingDirectory().resolve(".factory"));
-            Files.writeString(request.workingDirectory().resolve(".factory/question.md"), "Which greeting?");
+            Files.createDirectories(request.workingDirectory().resolve(".factory-work"));
+            Files.writeString(request.workingDirectory().resolve(".factory-work/question.md"), "Which greeting?");
             breakTheHeadOf(request.workingDirectory());
         });
 
