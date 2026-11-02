@@ -582,7 +582,9 @@ class WebServerTest {
         HttpResponse<String> answer = postForm("/issues/12/approve", cookie, "state=" + fingerprint);
 
         assertThat(answer.statusCode()).isEqualTo(404);
-        assertThat(answer.body()).contains("This issue is no longer on the board.");
+        assertThat(answer.body()).contains("<body class=\"login-page\"><main class=\"login\"><div class=\"login-box\">"
+                + "<p class=\"message\">This issue is no longer on the board.</p>"
+                + "<p><a href=\"/\">Back to the board</a></p></div></main></body>");
     }
 
     @Test

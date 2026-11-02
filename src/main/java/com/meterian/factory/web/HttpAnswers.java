@@ -38,12 +38,15 @@ final class HttpAnswers {
         }
     }
 
-    /** A short page with the message as text and a link back to the board. */
+    /** A short page with the message and a link back to the board, in the same centered box as the login. */
     static void sendMessagePage(HttpExchange exchange, int statusCode, String message) throws IOException {
         sendHtml(exchange, statusCode, "<!DOCTYPE html>"
                 + "<html lang=\"en\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                + "<meta name=\"color-scheme\" content=\"dark\">"
                 + "<title>Factory</title><link rel=\"stylesheet\" href=\"/page.css\"></head>"
-                + "<body><p>" + Html.escape(message) + "</p><p><a href=\"/\">Back to the board</a></p></body></html>");
+                + "<body class=\"login-page\"><main class=\"login\"><div class=\"login-box\">"
+                + "<p class=\"message\">" + Html.escape(message) + "</p>"
+                + "<p><a href=\"/\">Back to the board</a></p></div></main></body></html>");
     }
 }

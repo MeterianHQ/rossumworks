@@ -35,6 +35,7 @@ public final class BoardPage {
         return "<!DOCTYPE html>"
                 + "<html lang=\"en\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                + "<meta name=\"color-scheme\" content=\"dark\">"
                 + "<title>Factory</title>"
                 + "<link rel=\"stylesheet\" href=\"/page.css\">"
                 + "<script src=\"/page.js\" defer></script>"
@@ -53,19 +54,52 @@ public final class BoardPage {
     }
 
     private void appendHeader(StringBuilder html, PageModel model) {
-        BoardSnapshot board = model.board();
-        html.append("<header>");
-        appendLine(html, "Worker runs since " + formatTime(board.workerStartedAt()));
-        appendLine(html, "Last GitHub check: " + board.lastCheckAt().map(this::formatTime).orElse("none yet"));
+        html.append("<header class=\"topbar\"><div class=\"brand\"><h1>Claude AI Factory</h1>")
+                .append("<span class=\"repository\">").append(Html.escape(model.repositoryFullName()))
+                .append("</span></div>");
+        appendHealth(html, model);
+        html.append("</header>");
         if (isLastCheckOld(model)) {
             html.append("<p class=\"warning\">The last GitHub check is old.</p>");
         }
-        appendLine(html, "Issues in work: " + model.issuesInWork() + " of " + model.parallelLimit());
-        appendLine(html, "Isolation: " + describeIsolation(model));
-        model.usageWindows().forEach(window -> appendLine(html, describeUsageWindow(window)));
-        model.usageResumesAt().ifPresent(resumesAt ->
-                appendLine(html, "New phases start again at " + formatTime(resumesAt) + "."));
-        html.append("</header>");
+        model.usageResumesAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
+                .append(Html.escape("New phases start again at " + formatTime(resumesAt) + "."))
+                .append("</p>"));
+    }
+
+    private void appendHealth(StringBuilder html, PageModel model) {
+        BoardSnapshot board = model.board();
+        html.append("<div class=\"health\">");
+        appendTile(html, "Worker runs since", formatTime(board.workerStartedAt()));
+        appendTile(html, "Last GitHub check", board.lastCheckAt().map(this::formatTime).orElse("none yet"));
+        appendTile(html, "Issues in work", model.issuesInWork() + " of " + model.parallelLimit());
+        appendTile(html, "Isolation", describeIsolation(model));
+        model.usageWindows().forEach(window -> appendUsageTile(html, window));
+        html.append("</div>");
+    }
+
+    private void appendTile(StringBuilder html, String label, String value) {
+        html.append("<div class=\"tile\"><span class=\"tile-label\">").append(Html.escape(label))
+                .append("</span><span class=\"tile-value\">").append(Html.escape(value)).append("</span></div>");
+    }
+
+    /** The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. */
+    private void appendUsageTile(StringBuilder html, UsageWindow window) {
+        long percent = Math.clamp(Math.round(window.utilization() * 100), 0, 100);
+        html.append("<div class=\"tile usage\"><span class=\"tile-label\">")
+                .append(Html.escape(describeWindowName(window.name())))
+                .append("</span><span class=\"tile-value\"><meter min=\"0\" max=\"100\" low=\"70\" high=\"90\" ")
+                .append("optimum=\"0\" value=\"").append(percent).append("\"></meter> ").append(percent)
+                .append("%</span><span class=\"tile-note\">at ").append(formatTime(window.reportedAt()))
+                .append("</span></div>");
+    }
+
+    private String describeWindowName(String windowName) {
+        return switch (windowName) {
+            case "five_hour" -> "5-hour usage";
+            case "seven_day" -> "Weekly usage";
+            default -> windowName;
+        };
     }
 
     /** Without a check, the start of the worker is the reference time. */
@@ -79,17 +113,23 @@ public final class BoardPage {
         return model.isolationMode().name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
-    private String describeUsageWindow(UsageWindow window) {
-        long percent = Math.round(window.utilization() * 100);
-        return window.name() + ": " + percent + "% at " + formatTime(window.reportedAt());
-    }
-
     private void appendColumn(StringBuilder html, IssueStatus status, PageModel model) {
-        html.append("<section class=\"column\"><h2>").append(Html.escape(status.displayName())).append("</h2>");
-        for (IssueCard card : findCardsOfColumn(status, model.board())) {
+        List<IssueCard> cards = findCardsOfColumn(status, model.board());
+        html.append("<section class=\"column status-").append(toClassName(status)).append("\"><h2>")
+                .append("<span class=\"column-name\">").append(Html.escape(status.displayName())).append("</span>")
+                .append("<span class=\"count\">").append(cards.size()).append("</span></h2>")
+                .append("<div class=\"cards\">");
+        if (cards.isEmpty()) {
+            html.append("<p class=\"empty\">No issues</p>");
+        }
+        for (IssueCard card : cards) {
             html.append(cardRenderer.render(card, model));
         }
-        html.append("</section>");
+        html.append("</div></section>");
+    }
+
+    private static String toClassName(IssueStatus status) {
+        return status.name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
     /** The cards go by issue number. The Done cards go by the date of the merge, the newest first. */
@@ -101,10 +141,6 @@ public final class BoardPage {
                 .filter(card -> card.record().status() == status)
                 .sorted(order)
                 .toList();
-    }
-
-    private void appendLine(StringBuilder html, String text) {
-        html.append("<p>").append(Html.escape(text)).append("</p>");
     }
 
     private String formatTime(Instant instant) {

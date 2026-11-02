@@ -148,6 +148,7 @@ Blocked, Done. A card shows the issue, the phase, the four review results, the f
 of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
 The column "Done" keeps the 20 newest cards.
 The page updates itself when the state changes.
+The page uses a dark theme. On a narrow screen, the columns go one under the other.
 
 ### Actions
 

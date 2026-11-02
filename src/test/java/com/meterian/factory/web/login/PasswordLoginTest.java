@@ -190,7 +190,8 @@ class PasswordLoginTest {
         HttpResponse<String> response = postForm("password=wrong");
 
         assertThat(response.statusCode()).isEqualTo(401);
-        assertThat(response.body()).contains("The password is not correct.").contains("<form");
+        assertThat(response.body()).containsSubsequence("<main class=\"login\"><div class=\"login-box\">",
+                "<p class=\"login-message\">The password is not correct.</p>", "<form", "</div></main>");
         assertThat(response.headers().firstValue("Set-Cookie")).isEmpty();
     }
 

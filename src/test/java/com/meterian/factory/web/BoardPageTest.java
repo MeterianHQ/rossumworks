@@ -76,6 +76,15 @@ class BoardPageTest {
                 usageResumesAt, contexts, Set.of(), rememberedLabels, "MeterianHQ/target");
     }
 
+    private static String columnName(String name) {
+        return "<span class=\"column-name\">" + name + "</span>";
+    }
+
+    private static String tile(String label, String value) {
+        return "<div class=\"tile\"><span class=\"tile-label\">" + label + "</span><span class=\"tile-value\">"
+                + value + "</span></div>";
+    }
+
     @Test
     void escapesTheTitleTheNoteAndTheReason() {
         IssueRecord record = waitingRecord(12, WaitReason.QUESTION).withNote("\"><img src=x onerror=alert(1)>");
@@ -122,9 +131,21 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(cards));
 
-        assertThat(html).containsSubsequence("<h2>Waits for you</h2>", "#8 ", "<h2>In progress</h2>", "#7 ",
-                "<h2>In review</h2>", "#6 ", "<h2>Queued</h2>", "#5 ", "<h2>Blocked</h2>", "#4 ",
-                "<h2>Done</h2>", "#3 ");
+        assertThat(html).containsSubsequence(columnName("Waits for you"), "#8 ", columnName("In progress"), "#7 ",
+                columnName("In review"), "#6 ", columnName("Queued"), "#5 ", columnName("Blocked"), "#4 ",
+                columnName("Done"), "#3 ");
+    }
+
+    @Test
+    void eachColumnShowsItsStatusAndTheNumberOfCards() {
+        List<IssueCard> cards = List.of(card(record(5, IssueStatus.QUEUED)), card(record(6, IssueStatus.QUEUED)));
+
+        String html = page.renderBoard(model(cards));
+
+        assertThat(html).contains("<section class=\"column status-queued\"><h2>" + columnName("Queued")
+                + "<span class=\"count\">2</span></h2>");
+        assertThat(html).contains("<section class=\"column status-waits-for-you\"><h2>" + columnName("Waits for you")
+                + "<span class=\"count\">0</span></h2><div class=\"cards\"><p class=\"empty\">No issues</p></div>");
     }
 
     @Test
@@ -149,7 +170,7 @@ class BoardPageTest {
         String html = page.renderBoard(model);
 
         assertThat(html).contains("<meter min=\"0\" max=\"100\" value=\"62\">");
-        assertThat(html).contains("Context 62%");
+        assertThat(html).contains("<span class=\"context-value\">62%</span>");
         assertThat(html).doesNotContain("style=");
     }
 
@@ -167,9 +188,12 @@ class BoardPageTest {
         String html = page.renderBoard(model(List.of(card(record, "Fix the parser"))));
 
         assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/issues/12\">#12 Fix the parser</a>");
-        assertThat(html).contains("Phase: implement");
-        assertThat(html).contains("Correctness: positive", "Security: negative", "Architecture: —", "Quality: —");
-        assertThat(html).contains("Fix loops: 1 of 2", "Risk: low");
+        assertThat(html).contains("<span class=\"phase\">implement</span>");
+        assertThat(html).contains("<li class=\"review positive\" title=\"Correctness: positive\">Correctness</li>",
+                "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
+                "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
+                "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
+        assertThat(html).contains("<dt>Fix loops</dt><dd>1 of 2</dd>", "<dt>Risk</dt><dd class=\"risk-low\">low</dd>");
         assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/pull/40\">Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
     }
@@ -222,10 +246,11 @@ class BoardPageTest {
     void showsTheHealthOfTheWorker() {
         String html = page.renderBoard(model(List.of()));
 
-        assertThat(html).contains("Worker runs since 2026-11-02 09:00");
-        assertThat(html).contains("Last GitHub check: 2026-11-02 10:59");
-        assertThat(html).contains("Issues in work: 2 of 2");
-        assertThat(html).contains("Isolation: same-user");
+        assertThat(html).contains("<h1>Claude AI Factory</h1><span class=\"repository\">MeterianHQ/target</span>");
+        assertThat(html).contains(tile("Worker runs since", "2026-11-02 09:00"));
+        assertThat(html).contains(tile("Last GitHub check", "2026-11-02 10:59"));
+        assertThat(html).contains(tile("Issues in work", "2 of 2"));
+        assertThat(html).contains(tile("Isolation", "same-user"));
         assertThat(html).doesNotContain("class=\"warning\"");
     }
 
@@ -249,8 +274,11 @@ class BoardPageTest {
 
         String html = page.renderBoard(model);
 
-        assertThat(html).contains("seven_day: 37% at 2026-11-02 10:50");
-        assertThat(html).contains("five_hour: 95% at 2026-11-02 11:00");
+        assertThat(html).containsSubsequence("<span class=\"tile-label\">Weekly usage</span>",
+                "<meter min=\"0\" max=\"100\" low=\"70\" high=\"90\" optimum=\"0\" value=\"37\"></meter> 37%",
+                "<span class=\"tile-note\">at 2026-11-02 10:50</span>");
+        assertThat(html).containsSubsequence("<span class=\"tile-label\">5-hour usage</span>", "value=\"95\"",
+                "<span class=\"tile-note\">at 2026-11-02 11:00</span>");
         assertThat(html).contains("New phases start again at 2026-11-02 12:00.");
         assertThat(html).doesNotContain("$");
     }

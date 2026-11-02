@@ -30,15 +30,15 @@ final class CardRenderer {
         boolean waits = record.status() == IssueStatus.WAITS_FOR_YOU;
         StringBuilder html = new StringBuilder();
         html.append("<article class=\"").append(waits ? "card waits" : "card").append("\">");
+        html.append("<div class=\"card-head\"><span class=\"phase\">").append(toLowerCase(record.phase().name()))
+                .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
         if (waits) {
             appendReason(html, record);
         }
         appendRemoteControlLink(html, record);
-        appendLine(html, "Phase: " + toLowerCase(record.phase().name()));
         appendReviews(html, record);
-        appendLine(html, "Fix loops: " + record.fixLoops() + " of " + model.fixLoopLimit());
-        appendLine(html, "Risk: " + record.risk().map(risk -> toLowerCase(risk.name())).orElse(NO_VALUE));
+        appendFacts(html, record, model.fixLoopLimit());
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
         appendNewestNote(html, record);
@@ -75,11 +75,14 @@ final class CardRenderer {
         html.append("</p>");
     }
 
+    /** Each review is a chip. Its class gives the color, and its title gives the result in words. */
     private void appendReviews(StringBuilder html, IssueRecord record) {
         html.append("<ul class=\"reviews\">");
         for (ReviewKind kind : ReviewKind.values()) {
-            String result = Optional.ofNullable(record.reviews().get(kind)).map(this::describeVerdict).orElse(NO_VALUE);
-            html.append("<li>").append(capitalize(kind.name())).append(": ").append(result).append("</li>");
+            Optional<String> result = Optional.ofNullable(record.reviews().get(kind)).map(this::describeVerdict);
+            String name = capitalize(kind.name());
+            html.append("<li class=\"review ").append(result.orElse("none")).append("\" title=\"").append(name)
+                    .append(": ").append(result.orElse(NO_VALUE)).append("\">").append(name).append("</li>");
         }
         html.append("</ul>");
     }
@@ -88,20 +91,29 @@ final class CardRenderer {
         return verdict == Verdict.APPROVE ? "positive" : "negative";
     }
 
+    private void appendFacts(StringBuilder html, IssueRecord record, int fixLoopLimit) {
+        String risk = record.risk().map(level -> toLowerCase(level.name())).orElse(NO_VALUE);
+        String riskClass = record.risk().map(level -> " class=\"risk-" + toLowerCase(level.name()) + "\"").orElse("");
+        html.append("<dl class=\"facts\"><div><dt>Fix loops</dt><dd>").append(record.fixLoops()).append(" of ")
+                .append(fixLoopLimit).append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
+                .append(risk).append("</dd></div></dl>");
+    }
+
     /** The policy of the page forbids an inline style, so the bar is a meter element. */
     private void appendContext(StringBuilder html, Optional<ContextUsage> context) {
         if (context.isEmpty()) {
             return;
         }
         long percent = Math.clamp(Math.round(context.get().fraction() * 100), 0, 100);
-        html.append("<p class=\"context\"><meter min=\"0\" max=\"100\" value=\"").append(percent)
-                .append("\"></meter> Context ").append(percent).append("%</p>");
+        html.append("<p class=\"context\"><span class=\"context-label\">Context</span>")
+                .append("<meter min=\"0\" max=\"100\" value=\"").append(percent).append("\"></meter>")
+                .append("<span class=\"context-value\">").append(percent).append("%</span></p>");
     }
 
     private void appendPullRequestLink(StringBuilder html, IssueRecord record, String repositoryFullName) {
         record.pullRequestNumber().ifPresent(number -> {
             String pullRequestLink = "https://github.com/" + repositoryFullName + "/pull/" + number;
-            html.append("<p><a href=\"").append(Html.escape(pullRequestLink)).append("\">Pull request #")
+            html.append("<p class=\"pull-request\"><a href=\"").append(Html.escape(pullRequestLink)).append("\">Pull request #")
                     .append(number).append("</a></p>");
         });
     }
@@ -141,10 +153,6 @@ final class CardRenderer {
         }
         html.append("><input type=\"hidden\" name=\"").append(CardFingerprint.FIELD_NAME).append("\" value=\"")
                 .append(fingerprint).append("\"><button>").append(action.buttonText()).append("</button></form>");
-    }
-
-    private void appendLine(StringBuilder html, String text) {
-        html.append("<p>").append(Html.escape(text)).append("</p>");
     }
 
     private static String capitalize(String constantName) {
