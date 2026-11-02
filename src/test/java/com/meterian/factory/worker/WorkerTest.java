@@ -7,6 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.meterian.factory.agent.PhaseRequest;
+import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -29,6 +31,8 @@ import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
@@ -62,6 +66,7 @@ import org.junit.jupiter.api.io.TempDir;
 class WorkerTest {
 
     private static final int ISSUE = 7;
+    private static final int STRANGER_ISSUE = 8;
     private static final String WORKER_LOGIN = "factory-bot";
     private static final String FACTORY_LABEL = "factory";
     private static final String BLOCK_LABEL = "factory:block";
@@ -88,6 +93,8 @@ class WorkerTest {
     Path temporaryDirectory;
 
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
+    private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T09:00:00Z"));
+    private final BoardState board = new BoardState(clock);
 
     private final Git git = new ProcessGit();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
@@ -154,6 +161,10 @@ class WorkerTest {
     }
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration) {
+        return createWorker(agent, configuration, board);
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
         BuildRunner buildRunner = new BuildRunner();
         RequestReader requests =
                 new RequestReader(gitHub, configuration.allowedAccounts(), WORKER_LOGIN, pageRequests);
@@ -162,13 +173,14 @@ class WorkerTest {
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
-                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions);
+                new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
+                board, new ContextTracker());
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC());
+                liveSessions, Clock.systemUTC(), board);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -190,6 +202,10 @@ class WorkerTest {
         return StatusComment.findRecord(gitHub.commentsOf(issueNumber), WORKER_LOGIN);
     }
 
+    private static Optional<IssueCard> findCard(BoardState board, int issueNumber) {
+        return board.snapshot().cards().stream().filter(card -> card.issueNumber() == issueNumber).findFirst();
+    }
+
     private List<IssueComment> statusComments(int issueNumber) {
         return gitHub.commentsOf(issueNumber).stream()
                 .filter(comment -> comment.body().contains("<!-- factory-record"))
@@ -209,6 +225,69 @@ class WorkerTest {
         waitForTheLoops();
         assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.REVIEW);
         return firstAgent;
+    }
+
+    @Test
+    void thePollPutsTheIssuesOnTheBoard() {
+        addLabeledIssue(1);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        IssueCard card = findCard(board, 1).orElseThrow();
+        assertThat(card.title()).isEqualTo("Change the greeting 1");
+        assertThat(card.record().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(board.snapshot().lastCheckAt()).contains(clock.instant());
+    }
+
+    @Test
+    void thePollAfterARestartPutsTheKnownIssuesOnTheBoard() {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        BoardState boardAfterRestart = new BoardState(clock);
+        Worker restartedWorker = createWorker(new FakeAgentRunner(),
+                createConfiguration(0, Duration.ofSeconds(60)), boardAfterRestart);
+
+        restartedWorker.pollOnce();
+
+        assertThat(findCard(boardAfterRestart, ISSUE).orElseThrow().record())
+                .isEqualTo(readRecord(ISSUE).orElseThrow());
+    }
+
+    @Test
+    void aStepUpdatesTheCardBetweenPolls() throws InterruptedException {
+        Worker worker = createWorker(new FakeAgentRunner().thenAskQuestion("Which greeting do you want?"), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord onGitHub = readRecord(ISSUE).orElseThrow();
+        assertThat(onGitHub.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(findCard(board, ISSUE).orElseThrow().record()).isEqualTo(onGitHub);
+    }
+
+    @Test
+    void aFailedPollKeepsTheLastCheckTime() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        Instant firstCheck = clock.instant();
+        clock.advance(Duration.ofMinutes(1));
+        gitHub.failTheNextIssueList();
+
+        worker.pollOnce();
+
+        assertThat(board.snapshot().lastCheckAt()).contains(firstCheck);
+    }
+
+    @Test
+    void anIssueFromAnotherAccountMakesNoCard() {
+        gitHub.addIssue(STRANGER_ISSUE, "Delete the history", "Delete it.");
+        gitHub.addLabelBy(STRANGER_ISSUE, FACTORY_LABEL, "stranger");
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        assertThat(findCard(board, STRANGER_ISSUE)).isEmpty();
+        assertThat(findCard(board, ISSUE)).isPresent();
     }
 
     @Test

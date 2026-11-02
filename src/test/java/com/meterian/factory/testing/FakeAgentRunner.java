@@ -3,6 +3,7 @@ package com.meterian.factory.testing;
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
@@ -57,6 +58,16 @@ public final class FakeAgentRunner implements AgentRunner {
     public synchronized FakeAgentRunner thatFails() {
         ScriptedPhase last = phases.removeLast();
         phases.add(new ScriptedPhase(last.action(), FAILURE));
+        return this;
+    }
+
+    /** The session of the last scripted phase reports this context usage. */
+    public synchronized FakeAgentRunner withContextUsage(long tokensInUse, long contextWindow) {
+        ScriptedPhase last = phases.removeLast();
+        SessionReport report = last.report();
+        phases.add(new ScriptedPhase(last.action(), new SessionReport(report.success(), report.resultText(),
+                report.apiKeySource(), Optional.of(new ContextUsage(tokensInUse, contextWindow)),
+                report.usageWindows())));
         return this;
     }
 

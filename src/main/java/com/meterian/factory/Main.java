@@ -4,6 +4,7 @@ import com.meterian.factory.agent.ClaudeAgentRunner;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
+import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
@@ -17,6 +18,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
@@ -242,7 +244,7 @@ public final class Main {
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions, Clock.systemUTC());
+                liveSessions, Clock.systemUTC(), BoardUpdates.IGNORED);
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
         worker.runUntilStopped();
         worker.shutDown(LOOP_END_TIMEOUT);
@@ -290,6 +292,6 @@ public final class Main {
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger, usage,
-                requests, layout, workerLogin, liveSessions);
+                requests, layout, workerLogin, liveSessions, BoardUpdates.IGNORED, new ContextTracker());
     }
 }

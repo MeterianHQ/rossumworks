@@ -2,6 +2,7 @@ package com.meterian.factory.worker;
 
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
@@ -59,6 +60,7 @@ public final class Worker {
     private final EnterRequests enterRequests;
     private final LiveRecordCheck liveRecordCheck;
     private final RateLimitWait rateLimitWait;
+    private final BoardUpdates board;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
@@ -70,7 +72,7 @@ public final class Worker {
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
                   PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock) {
+                  LiveSessions liveSessions, Clock clock, BoardUpdates board) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
@@ -78,8 +80,9 @@ public final class Worker {
         this.requests = requests;
         this.workerLogin = workerLogin;
         this.executor = executor;
+        this.board = board;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
         this.restartPreparation = new RestartPreparation(gitHub, layout);
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
@@ -99,7 +102,9 @@ public final class Worker {
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
-            for (Issue issue : readLabeledIssues()) {
+            List<Issue> labeledIssues = readLabeledIssues();
+            board.recordPoll(labeledIssues);
+            for (Issue issue : labeledIssues) {
                 verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
@@ -241,6 +246,7 @@ public final class Worker {
         IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(record.get())
                 : record.get();
         current = liveRecordCheck.forgetEndedSession(issue, current);
+        board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
     }
 
