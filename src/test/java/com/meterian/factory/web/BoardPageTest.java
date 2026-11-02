@@ -28,6 +28,7 @@ class BoardPageTest {
 
     private static final Instant NOW = Instant.parse("2026-11-02T10:00:00Z");
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(60);
+    private static final String NEW_TAB = "\" target=\"_blank\" rel=\"noopener noreferrer\">";
     private static final String LINK = "https://claude.ai/code/session_abc123";
 
     private final BoardPage page = new BoardPage(ZoneId.of("Europe/Rome"));
@@ -119,7 +120,7 @@ class BoardPageTest {
 
         assertThat(html).contains("class=\"card waits\"");
         assertThat(html).contains(WaitReason.LIVE_CONVERSATION.sentence());
-        assertThat(html).contains("<a href=\"" + LINK + "\">Remote Control</a>");
+        assertThat(html).contains("<a href=\"" + LINK + NEW_TAB + "Remote Control</a>");
     }
 
     @Test
@@ -187,14 +188,14 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(List.of(card(record, "Fix the parser"))));
 
-        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/issues/12\">#12 Fix the parser</a>");
+        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/issues/12" + NEW_TAB + "#12 Fix the parser</a>");
         assertThat(html).contains("<span class=\"phase\">implement</span>");
         assertThat(html).contains("<li class=\"review positive\" title=\"Correctness: positive\">Correctness</li>",
                 "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
                 "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
                 "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
         assertThat(html).contains("<dt>Fix loops</dt><dd>1 of 2</dd>", "<dt>Risk</dt><dd class=\"risk-low\">low</dd>");
-        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/pull/40\">Pull request #40</a>");
+        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
     }
 

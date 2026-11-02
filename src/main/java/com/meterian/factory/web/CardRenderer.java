@@ -51,8 +51,15 @@ final class CardRenderer {
 
     private void appendTitle(StringBuilder html, IssueCard card, String repositoryFullName) {
         String issueLink = "https://github.com/" + repositoryFullName + "/issues/" + card.issueNumber();
-        html.append("<h3><a href=\"").append(Html.escape(issueLink)).append("\">#").append(card.issueNumber())
-                .append(' ').append(Html.escape(card.title())).append("</a></h3>");
+        html.append("<h3>");
+        appendExternalLink(html, issueLink, "#" + card.issueNumber() + " " + card.title());
+        html.append("</h3>");
+    }
+
+    /** A link to another site opens in a new tab, and that site gets no access to the page and no referrer. */
+    private void appendExternalLink(StringBuilder html, String address, String text) {
+        html.append("<a href=\"").append(Html.escape(address))
+                .append("\" target=\"_blank\" rel=\"noopener noreferrer\">").append(Html.escape(text)).append("</a>");
     }
 
     private void appendReason(StringBuilder html, IssueRecord record) {
@@ -68,7 +75,7 @@ final class CardRenderer {
         }
         html.append("<p class=\"live\">");
         if (TmuxLiveSessions.isRemoteControlLink(link.get())) {
-            html.append("<a href=\"").append(Html.escape(link.get())).append("\">Remote Control</a>");
+            appendExternalLink(html, link.get(), "Remote Control");
         } else {
             html.append("Remote Control: ").append(Html.escape(link.get()));
         }
@@ -113,8 +120,9 @@ final class CardRenderer {
     private void appendPullRequestLink(StringBuilder html, IssueRecord record, String repositoryFullName) {
         record.pullRequestNumber().ifPresent(number -> {
             String pullRequestLink = "https://github.com/" + repositoryFullName + "/pull/" + number;
-            html.append("<p class=\"pull-request\"><a href=\"").append(Html.escape(pullRequestLink)).append("\">Pull request #")
-                    .append(number).append("</a></p>");
+            html.append("<p class=\"pull-request\">");
+            appendExternalLink(html, pullRequestLink, "Pull request #" + number);
+            html.append("</p>");
         });
     }
 
