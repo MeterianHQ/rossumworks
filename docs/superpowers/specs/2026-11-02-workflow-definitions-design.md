@@ -1,6 +1,6 @@
 # Workflow definitions in each repository: design
 
-Status: approved by the owner in the brainstorming of 2026-11-02. This
+Status: for the review of the owner, from the brainstorming of 2026-11-02. This
 document adds to `2026-11-01-factory-design.md`. Where the two documents
 differ, this document is the newer decision.
 
@@ -153,9 +153,8 @@ scratch folder: `question.md`, `description.md`, `fix-prompt.md`,
 now collides with the definition folder.
 
 The scratch folder moves to `.factory-work` in each worktree. Git does not
-commit it. The prompts name the new paths. A worktree of an issue in work
-at the upgrade keeps its files: the worker moves the files of the old
-folder when it finds them.
+commit it. The prompts name the new paths. There is no move of old files,
+because no worktree of the old form exists at the upgrade (section 9).
 
 ## 5. The workflow definition
 
@@ -341,7 +340,12 @@ the tool.
 
 - The exact names of the outcomes and the exact YAML shape, within
   section 5.
-- How to split `IssueWorkflow` into step types.
+- How to split `IssueWorkflow` into step types. The current methods are
+  the natural boundaries.
+- How the record keeps the version: a field with the commit of `.factory`.
+- The order of the plans. My call: plan A is the engine, the definition,
+  the loader, and the scratch folder rename. Plan B is the create command
+  and the default `.factory` with the PR.
 
 ## 9. The upgrade (my call)
 
@@ -356,9 +360,4 @@ form exists.
 
 - `git.excludeFactoryFolder` excludes `.factory-work` from now on.
 - The gatekeeper already accepts the branch `factory/setup`.
-- The `reviews` step can use only the four existing review kinds. The current methods are
-  the natural boundaries.
-- How the record keeps the version: a field with the commit of `.factory`.
-- The order of the plans. My call: plan A is the engine, the definition,
-  the loader, and the scratch folder rename. Plan B is the create command
-  and the default `.factory` with the PR.
+- The `reviews` step can use only the four existing review kinds.
