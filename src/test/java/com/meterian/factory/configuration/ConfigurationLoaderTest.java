@@ -163,6 +163,28 @@ class ConfigurationLoaderTest {
     }
 
     @Test
+    void theDefaultTerminalCommandIsGnomeTerminal() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION);
+
+        assertThat(configuration.terminalCommand()).isEqualTo(List.of("gnome-terminal", "--"));
+    }
+
+    @Test
+    void readsTheTerminalCommand() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION
+                + "live:\n  terminal-command: [xterm, -e]\n");
+
+        assertThat(configuration.terminalCommand()).isEqualTo(List.of("xterm", "-e"));
+    }
+
+    @Test
+    void anEmptyTerminalCommandStopsTheStart() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + "live:\n  terminal-command: []\n"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("live.terminal-command must have at least one value.");
+    }
+
+    @Test
     void theWebSectionIsOptional() throws Exception {
         FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION);
 

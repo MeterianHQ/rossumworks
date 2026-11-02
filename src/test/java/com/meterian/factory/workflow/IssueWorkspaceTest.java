@@ -53,7 +53,8 @@ class IssueWorkspaceTest {
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty());
+                temporaryDirectory.resolve("live"), Optional.empty(),
+                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         IssueWorkspace workspace = new IssueWorkspace(configuration, git);
         Path mergeWorktree = temporaryDirectory.resolve("work").resolve("issue-2");
         workspace.create(2, mergeWorktree);

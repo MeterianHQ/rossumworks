@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.configuration.FactoryConfiguration;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -189,7 +190,8 @@ class TmuxLiveSessionsTest {
     @Test
     void openClosesTheSessionWhenATmuxCommandFailsAfterTheStart() throws Exception {
         TmuxLiveSessions sessions = new TmuxLiveSessions(settingsFor(Map.of()), liveFiles, System.getenv(),
-                SUCCESS_TIMEOUT, new TmuxCommand(tmuxThatFailsOnCapture().toString(), socketName));
+                SUCCESS_TIMEOUT, new TmuxCommand(tmuxThatFailsOnCapture().toString(), socketName),
+                new TerminalWindow(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND, socketName, System.getenv()));
 
         assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
                 .isInstanceOf(LiveSessionException.class)
@@ -290,6 +292,44 @@ class TmuxLiveSessionsTest {
         sessions.clearContinueRequest(ISSUE_NUMBER);
 
         assertThat(sessions.isContinueRequested(ISSUE_NUMBER)).isFalse();
+    }
+
+    @Test
+    void openTerminalRefusesASessionThatIsNotOpenAndRunsNoTerminal() throws Exception {
+        Path marker = directory.resolve("terminal-ran.txt");
+        TmuxLiveSessions sessions = sessionsWithTerminal(writeFakeTerminal(marker));
+
+        assertThatThrownBy(() -> sessions.openTerminal(ISSUE_NUMBER))
+                .isInstanceOf(LiveSessionException.class)
+                .hasMessage("The live session of the issue #7 is not open.");
+
+        assertThat(marker).doesNotExist();
+    }
+
+    @Test
+    void openTerminalAttachesTheTerminalToTheSessionOfTheIssue() throws Exception {
+        Path arguments = directory.resolve("terminal-arguments.txt");
+        TmuxLiveSessions sessions = sessionsWithTerminal(writeFakeTerminal(arguments));
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+
+        sessions.openTerminal(ISSUE_NUMBER);
+
+        assertThat(Files.readAllLines(arguments))
+                .containsExactly("tmux", "-L", socketName, "attach", "-t", "factory-issue-7");
+    }
+
+    private TmuxLiveSessions sessionsWithTerminal(Path terminal) throws IOException, URISyntaxException {
+        return new TmuxLiveSessions(settingsFor(Map.of()), liveFiles, System.getenv(), SUCCESS_TIMEOUT,
+                new TmuxCommand(socketName),
+                new TerminalWindow(List.of(terminal.toString()), socketName, System.getenv()));
+    }
+
+    /** A terminal that writes its arguments to the output file and ends. */
+    private Path writeFakeTerminal(Path outputFile) throws IOException {
+        Path script = directory.resolve("terminal.sh");
+        Files.writeString(script, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + outputFile + "'\n");
+        Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwxr-xr-x"));
+        return script;
     }
 
     private TmuxLiveSessions sessionsFor(Map<String, String> options, Map<String, String> parent,

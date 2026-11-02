@@ -8,9 +8,9 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,10 +22,12 @@ import java.util.Set;
 /** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
 final class LiveMode {
 
+    private static final System.Logger LOGGER = System.getLogger(LiveMode.class.getName());
     private static final String TOO_EARLY_NOTE =
             "The factory opens a live conversation only after the first implement step.";
     private static final String DONE_NOTE = "The issue is done; a live conversation has no effect.";
     private static final String ALREADY_OPEN_NOTE = "The live conversation is already open: ";
+    private static final String TERMINAL_NOT_OPEN_NOTE = "The terminal window did not open: ";
     private static final String NOT_OPEN_NOTE = "The live conversation did not open: ";
     /** Without this note, the card after the conversation looks the same as before Enter. */
     static final String NO_CHANGE_NOTE =
@@ -38,9 +40,11 @@ final class LiveMode {
     private final LiveSessions liveSessions;
     private final OwnerApproval ownerApproval;
     private final List<String> allowedAccounts;
+    private final PageRequests pageRequests;
 
     LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             List<String> allowedAccounts) {
+             List<String> allowedAccounts, PageRequests pageRequests) {
+        this.pageRequests = pageRequests;
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
@@ -63,10 +67,12 @@ final class LiveMode {
         try {
             // The head commit is read before the open: a failure of git never leaves a session that is open.
             LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
+            LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
             String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree);
-            postOpenComment(record.issueNumber(), link);
-            return record.withLive(stateBefore.withLink(link))
+            postOpenComment(record.issueNumber(), link, place);
+            IssueRecord opened = record.withLive(stateBefore.withLink(link).withPlace(place))
                     .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
+            return place == LivePlace.TERMINAL ? openTerminal(opened) : opened;
         } catch (LiveSessionException | GitException exception) {
             return record.withNote(NOT_OPEN_NOTE + exception.getMessage());
         }
@@ -89,23 +95,35 @@ final class LiveMode {
     }
 
     private LiveSession captureStateBefore(IssueRecord record, Path worktree) {
-        return new LiveSession(git.headCommit(worktree), record.status(), record.waitReason(), Optional.empty());
+        return new LiveSession(git.headCommit(worktree), record.status(), record.waitReason(), Optional.empty(),
+                LivePlace.PHONE);
+    }
+
+    /** The session stays open when the window does not open: the owner uses the link. */
+    private IssueRecord openTerminal(IssueRecord opened) {
+        try {
+            liveSessions.openTerminal(opened.issueNumber());
+            return opened;
+        } catch (LiveSessionException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The terminal window of the issue #{0} did not open: {1}",
+                    opened.issueNumber(), exception.getMessage());
+            return opened.withNote(TERMINAL_NOT_OPEN_NOTE + exception.getMessage() + " Use the Remote Control link.");
+        }
     }
 
     /** The record must never know less than tmux: when the comment fails, the session closes. */
-    private void postOpenComment(int issueNumber, String link) {
+    private void postOpenComment(int issueNumber, String link, LivePlace place) {
         try {
-            gitHub.createComment(issueNumber, renderOpenComment(link));
+            gitHub.createComment(issueNumber, LiveComment.render(link, findMentionedLogin(place)));
         } catch (RuntimeException exception) {
             LiveSessionClosing.closeAfterAFailure(liveSessions, issueNumber, exception);
             throw exception;
         }
     }
 
-    private String renderOpenComment(String link) {
-        String mention = allowedAccounts.stream().findFirst().map(login -> "@" + login).orElse("");
-        return "The live conversation is open: " + StatusComment.sanitizeLine(link)
-                + "\n\nType /factory:continue in the conversation when you are done.\n\n" + mention;
+    /** Only the phone needs the mention: the mention is what notifies it. */
+    private Optional<String> findMentionedLogin(LivePlace place) {
+        return place == LivePlace.PHONE ? allowedAccounts.stream().findFirst() : Optional.empty();
     }
 
     private IssueRecord chooseNextStep(Issue issue, IssueRecord record, LiveSession live, Path worktree) {

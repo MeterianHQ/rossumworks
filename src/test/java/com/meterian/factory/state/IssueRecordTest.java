@@ -124,7 +124,8 @@ class IssueRecordTest {
     }
 
     private static final LiveSession SESSION =
-            new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.empty());
+            new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.empty(),
+                    LivePlace.PHONE);
 
     @Test
     void anOldRecordWithoutTheLiveFieldsReadsAsNotLive() throws Exception {

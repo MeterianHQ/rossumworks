@@ -16,6 +16,9 @@ public interface LiveSessions {
     /** Tells if the owner gave /factory:continue in the live session of the issue. */
     boolean isContinueRequested(int issueNumber);
 
+    /** Opens a desktop terminal window that attaches to the live session of the issue. */
+    void openTerminal(int issueNumber) throws LiveSessionException;
+
     void clearContinueRequest(int issueNumber);
 
     /** Acts as the hook: the owner asks for the continue from the web page. */

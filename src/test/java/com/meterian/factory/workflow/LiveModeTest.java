@@ -14,6 +14,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
@@ -22,9 +23,15 @@ import com.meterian.factory.testing.FakeLiveSessions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -53,9 +60,11 @@ class LiveModeTest {
         issue = gitHub.issue(ISSUE);
     }
 
+    private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
+
     private LiveMode createLiveMode(LiveSessions sessions) {
         OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"));
+        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests);
     }
 
     private LiveMode createLiveMode() {
@@ -81,12 +90,98 @@ class LiveModeTest {
         IssueRecord live = createLiveMode().enter(waiting, worktree);
 
         assertThat(live.live()).contains(new LiveSession(git.headCommit(worktree), IssueStatus.WAITS_FOR_YOU,
-                Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.of(LINK)));
+                Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.of(LINK), LivePlace.PHONE));
         assertThat(live.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
                 .isEqualTo("The live conversation is open: " + LINK
                         + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola"));
+    }
+
+    @Test
+    void anEnterWithoutAPageRequestIsPhoneWithTheMention() {
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.PHONE);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement()
+                .satisfies(comment -> assertThat(comment.body()).contains("@bbossola"));
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void anEnterInTheTerminalOpensTheTerminalWithoutTheMention() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.TERMINAL);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
+                .doesNotContain("@").endsWith("when you are done."));
+        assertThat(liveSessions.openedTerminals()).containsExactly(ISSUE);
+    }
+
+    @Test
+    void anEnterInTheBrowserHasNoMention() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.BROWSER);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement()
+                .satisfies(comment -> assertThat(comment.body()).doesNotContain("@"));
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenKeepsTheSession() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().flatMap(LiveSession::link)).contains(LINK);
+        assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(live.notes())
+                .contains("The terminal window did not open: no display Use the Remote Control link.");
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenWritesAWarning() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
+        List<String> messages = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord logRecord) {
+                messages.add(new SimpleFormatter().formatMessage(logRecord));
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        Logger logger = Logger.getLogger(LiveMode.class.getName());
+        logger.addHandler(handler);
+        try {
+            createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        assertThat(messages).contains("The terminal window of the issue #" + ISSUE + " did not open: no display");
+    }
+
+    @Test
+    void aRefusedEnterKeepsTheChosenPlace() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        createLiveMode().enter(IssueRecord.queued(ISSUE), worktree);
+
+        assertThat(pageRequests.takeEnterPlace(ISSUE)).isEqualTo(LivePlace.TERMINAL);
     }
 
     @Test
@@ -279,6 +374,11 @@ class LiveModeTest {
         @Override
         public void close(int issueNumber) {
             delegate.close(issueNumber);
+        }
+
+        @Override
+        public void openTerminal(int issueNumber) throws LiveSessionException {
+            delegate.openTerminal(issueNumber);
         }
 
         @Override

@@ -5,6 +5,7 @@ import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.Verdict;
 import java.time.Instant;
@@ -20,6 +21,11 @@ import java.util.Set;
 final class CardRenderer {
 
     private static final String NO_VALUE = "—";
+    private static final String BROWSER_TOOLTIP = "Opens the same conversation in a new tab of this browser.";
+    private static final List<PageAction> ENTER_ACTIONS =
+            List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER, PageAction.ENTER_PHONE);
+    private static final List<PageAction> OTHER_ACTIONS =
+            List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.CONTINUE);
 
     private final DateTimeFormatter dateFormat;
 
@@ -40,15 +46,14 @@ final class CardRenderer {
         if (waits && pendingRequests.isEmpty()) {
             appendReason(html, record);
         }
-        appendRemoteControlLink(html, record);
+        appendLiveBox(html, card, model);
         appendReviews(html, record);
         appendFacts(html, record, model.fixLoopLimit());
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
         appendNewestNote(html, record);
         card.doneAt().ifPresent(doneAt -> appendDoneDate(html, doneAt));
-        appendActions(html, card, model.continueRequested().contains(card.issueNumber()),
-                model.findRememberedLabels(card.issueNumber()));
+        appendActions(html, card, model);
         html.append("</article>");
         return html.toString();
     }
@@ -62,14 +67,26 @@ final class CardRenderer {
 
     /** A link to another site opens in a new tab, and that site gets no access to the page and no referrer. */
     private void appendExternalLink(StringBuilder html, String address, String text) {
-        html.append("<a href=\"").append(Html.escape(address))
-                .append("\" target=\"_blank\" rel=\"noopener noreferrer\">").append(Html.escape(text)).append("</a>");
+        appendExternalLinkStart(html, address, "");
+        html.append(Html.escape(text)).append("</a>");
     }
 
+    /** The attributes come after the attributes of the new tab, and they must be escaped already. */
+    private static void appendExternalLinkStart(StringBuilder html, String address, String attributes) {
+        html.append("<a href=\"").append(Html.escape(address))
+                .append("\" target=\"_blank\" rel=\"noopener noreferrer\"").append(attributes).append('>');
+    }
+
+    /**
+     * The three Enter buttons share one label, so only the button of the remembered place shows its line. A label
+     * that did not come from the page has no remembered place, and it shows no Enter line.
+     */
     private static List<PageAction> findPendingRequests(IssueCard card, PageModel model) {
         boolean continueRequested = model.continueRequested().contains(card.issueNumber());
         Set<String> rememberedLabels = model.findRememberedLabels(card.issueNumber());
+        Optional<LivePlace> enterPlace = model.findEnterPlace(card.issueNumber());
         return Arrays.stream(PageAction.values())
+                .filter(action -> action.enterPlace().isEmpty() || action.enterPlace().equals(enterPlace))
                 .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels))
                 .toList();
     }
@@ -77,7 +94,8 @@ final class CardRenderer {
     /** A request of the page replaces the reason of the wait, so that the owner sees that the click arrived. */
     private void appendRequests(StringBuilder html, List<PageAction> pendingRequests) {
         for (PageAction action : pendingRequests) {
-            html.append("<p class=\"request\">").append(Html.escape(action.requestSentence())).append("</p>");
+            action.requestSentence().ifPresent(sentence ->
+                    html.append("<p class=\"request\">").append(Html.escape(sentence)).append("</p>"));
         }
     }
 
@@ -86,19 +104,55 @@ final class CardRenderer {
                 html.append("<p class=\"reason\">").append(Html.escape(reason.sentence())).append("</p>"));
     }
 
-    /** Only a full match of the Remote Control pattern becomes a link. Any other value is text. */
-    private void appendRemoteControlLink(StringBuilder html, IssueRecord record) {
-        Optional<String> link = record.live().flatMap(live -> live.link());
+    /** The box shows where the owner opened the live conversation, and the places where it opens again. */
+    private void appendLiveBox(StringBuilder html, IssueCard card, PageModel model) {
+        Optional<String> link = card.record().live().flatMap(live -> live.link());
         if (link.isEmpty()) {
             return;
         }
-        html.append("<p class=\"live\">");
-        if (TmuxLiveSessions.isRemoteControlLink(link.get())) {
-            appendExternalLink(html, link.get(), "Remote Control");
-        } else {
-            html.append("Remote Control: ").append(Html.escape(link.get()));
+        LivePlace chosenPlace = card.record().live().orElseThrow().place();
+        String openGroup = createOpenGroup(card, model, link.get(), chosenPlace);
+        html.append("<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p>")
+                .append("<p class=\"open-label\">").append(describeChosenPlace(chosenPlace));
+        if (!openGroup.isEmpty()) {
+            html.append(" Open it again or somewhere else:");
         }
         html.append("</p>");
+        if (!TmuxLiveSessions.isRemoteControlLink(link.get())) {
+            html.append("<p class=\"open-label\">Remote Control: ").append(Html.escape(link.get())).append("</p>");
+        }
+        if (!openGroup.isEmpty()) {
+            html.append("<div class=\"open-group\">").append(openGroup).append("</div>");
+        }
+        html.append("</div>");
+    }
+
+    private static String describeChosenPlace(LivePlace place) {
+        return switch (place) {
+            case TERMINAL -> "You opened it in a terminal on this machine.";
+            case BROWSER -> "You opened it in a tab of this browser.";
+            case PHONE -> "You sent it to the phone.";
+        };
+    }
+
+    /** Only a full match of the Remote Control pattern becomes the Browser link. Any other value is text. */
+    private String createOpenGroup(IssueCard card, PageModel model, String link, LivePlace chosenPlace) {
+        StringBuilder group = new StringBuilder();
+        String fingerprint = CardFingerprint.of(card);
+        if (isPossible(PageAction.OPEN_TERMINAL, card, model)) {
+            appendPlaceForm(group, card.issueNumber(), PageAction.OPEN_TERMINAL, chosenPlace == LivePlace.TERMINAL,
+                    fingerprint);
+        }
+        if (TmuxLiveSessions.isRemoteControlLink(link)) {
+            appendExternalLinkStart(group, link, createPlaceAttributes(chosenPlace == LivePlace.BROWSER,
+                    "Browser", BROWSER_TOOLTIP));
+            group.append("Browser</a>");
+        }
+        if (isPossible(PageAction.SEND_TO_PHONE, card, model)) {
+            appendPlaceForm(group, card.issueNumber(), PageAction.SEND_TO_PHONE, chosenPlace == LivePlace.PHONE,
+                    fingerprint);
+        }
+        return group.toString();
     }
 
     /** Each review is a chip. Its class gives the color, and its title gives the result in words. */
@@ -159,27 +213,61 @@ final class CardRenderer {
     /**
      * The forms work without JavaScript. page.js finds the Block form by its class and asks for a confirm.
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
+     * The Enter buttons are one group before the other forms.
      */
-    private void appendActions(StringBuilder html, IssueCard card, boolean continueRequested,
-            Set<String> rememberedLabels) {
+    private void appendActions(StringBuilder html, IssueCard card, PageModel model) {
         String fingerprint = CardFingerprint.of(card);
+        List<PageAction> enterActions = ENTER_ACTIONS.stream()
+                .filter(action -> isPossible(action, card, model))
+                .toList();
         html.append("<div class=\"actions\">");
-        for (PageAction action : PageAction.values()) {
-            if (action.isPossible(card, continueRequested, rememberedLabels)) {
-                appendActionForm(html, card.issueNumber(), action, fingerprint);
+        if (!enterActions.isEmpty()) {
+            html.append("<div class=\"enter-group\">");
+            for (PageAction action : enterActions) {
+                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint);
+            }
+            html.append("</div><span class=\"separator\"></span>");
+        }
+        for (PageAction action : OTHER_ACTIONS) {
+            if (isPossible(action, card, model)) {
+                appendFormStart(html, card.issueNumber(), action, fingerprint);
+                html.append("<button>").append(action.buttonText()).append("</button></form>");
             }
         }
         html.append("</div>");
     }
 
-    private void appendActionForm(StringBuilder html, int issueNumber, PageAction action, String fingerprint) {
+    private static boolean isPossible(PageAction action, IssueCard card, PageModel model) {
+        return action.isPossible(card, model.continueRequested().contains(card.issueNumber()),
+                model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine());
+    }
+
+    /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */
+    private void appendPlaceForm(StringBuilder html, int issueNumber, PageAction action, boolean current,
+            String fingerprint) {
+        appendFormStart(html, issueNumber, action, fingerprint);
+        html.append("<button").append(createPlaceAttributes(current, action.buttonText(), action.tooltip()))
+                .append('>').append(action.buttonText()).append("</button></form>");
+    }
+
+    /** The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it. */
+    private void appendFormStart(StringBuilder html, int issueNumber, PageAction action, String fingerprint) {
         html.append("<form method=\"post\" action=\"/issues/").append(issueNumber).append('/')
                 .append(action.pathName()).append('"');
         if (action == PageAction.BLOCK) {
             html.append(" class=\"confirm-block\" data-issue=\"").append(issueNumber).append('"');
         }
+        if (action == PageAction.ENTER_BROWSER) {
+            html.append(" target=\"_blank\"");
+        }
         html.append("><input type=\"hidden\" name=\"").append(CardFingerprint.FIELD_NAME).append("\" value=\"")
-                .append(fingerprint).append("\"><button>").append(action.buttonText()).append("</button></form>");
+                .append(fingerprint).append("\">");
+    }
+
+    private static String createPlaceAttributes(boolean current, String name, String tooltip) {
+        String tooltipText = Html.escape(tooltip);
+        return (current ? " class=\"current\"" : "") + " data-tip=\"" + tooltipText + "\" aria-label=\""
+                + Html.escape(name) + ". " + tooltipText + "\"";
     }
 
     private static String capitalize(String constantName) {

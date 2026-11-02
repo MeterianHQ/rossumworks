@@ -37,7 +37,7 @@ final class PageHandler implements HttpHandler {
         } else if (!login.isLoggedIn(exchange.getRequestHeaders())) {
             HttpAnswers.sendRedirect(exchange, "/login");
         } else {
-            HttpAnswers.sendHtml(exchange, 200, page.renderPage(models.read()));
+            HttpAnswers.sendHtml(exchange, 200, page.renderPage(models.read(ViewerLocation.isThisMachine(exchange))));
         }
     }
 
@@ -47,7 +47,7 @@ final class PageHandler implements HttpHandler {
         } else if (!login.isLoggedIn(exchange.getRequestHeaders())) {
             HttpAnswers.sendStatus(exchange, 401);
         } else {
-            HttpAnswers.sendHtml(exchange, 200, page.renderBoard(models.read()));
+            HttpAnswers.sendHtml(exchange, 200, page.renderBoard(models.read(ViewerLocation.isThisMachine(exchange))));
         }
     }
 }

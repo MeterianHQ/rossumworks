@@ -35,7 +35,8 @@ public final class ConfigurationLoader {
                 root.requirePath("gatekeeper-directory"),
                 root.findPath("prompts-directory"),
                 root.findPath("live-directory").orElse(workDirectory.resolve("live")),
-                readWebSettings(root));
+                readWebSettings(root),
+                readTerminalCommand(root));
     }
 
     private static JsonNode readTree(Path file) throws ConfigurationException {
@@ -151,6 +152,19 @@ public final class ConfigurationLoader {
                 section.findText("address").orElse(WebSettings.DEFAULT_ADDRESS),
                 readPort(section),
                 readPasswordHash(section)));
+    }
+
+    private static List<String> readTerminalCommand(ConfigurationSection root) throws ConfigurationException {
+        ConfigurationSection section = root.findSection("live").orElse(null);
+        if (section == null) {
+            return FactoryConfiguration.DEFAULT_TERMINAL_COMMAND;
+        }
+        List<String> command = section.findTextList("terminal-command")
+                .orElse(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        if (command.isEmpty()) {
+            throw new ConfigurationException("live.terminal-command must have at least one value.");
+        }
+        return command;
     }
 
     private static int readPort(ConfigurationSection section) throws ConfigurationException {

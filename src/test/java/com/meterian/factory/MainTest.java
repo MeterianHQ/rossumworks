@@ -10,6 +10,7 @@ import com.meterian.factory.configuration.Limits;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
@@ -291,7 +292,7 @@ class MainTest {
         return new FactoryConfiguration(target, "main", new Limits(2, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), workDirectory,
                 temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(), temporaryDirectory.resolve("live"),
-                web);
+                web, FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
     @Test
@@ -318,11 +319,25 @@ class MainTest {
     }
 
     @Test
+    void thePhoneLinkSenderPostsTheLinkWithTheMentionOfTheOwner() {
+        FactoryConfiguration configuration = configuration(Optional.empty());
+        FakeGitHubClient gitHub = new FakeGitHubClient();
+        gitHub.addIssue(12, "Fix the login", "body");
+
+        Main.createPhoneLinkSender(gitHub, configuration).sendLink(12, "https://claude.ai/code/session_abc123");
+
+        assertThat(gitHub.commentsOf(12)).singleElement().extracting(IssueComment::body)
+                .isEqualTo("The live conversation is open: https://claude.ai/code/session_abc123"
+                        + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola");
+    }
+
+    @Test
     void makesNoWebServerWithoutAWebSection() {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, () -> { },
+                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
+                Main.createPhoneLinkSender(new FakeGitHubClient(), configuration), () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
         assertThat(server).isEmpty();
@@ -334,7 +349,8 @@ class MainTest {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, () -> { },
+                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
+                    Main.createPhoneLinkSender(new FakeGitHubClient(), configuration), () -> 0, () -> { },
                     temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -354,8 +370,8 @@ class MainTest {
                 IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                         .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), () -> 1, () -> { }, temporaryDirectory.resolve("claude-home"))
-                .orElseThrow();
+                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, configuration), () -> 1, () -> { },
+                temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
         try {
             HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();

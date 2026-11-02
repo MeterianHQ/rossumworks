@@ -77,7 +77,8 @@ public final class IssueWorkflow {
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
                          RequestReader requests, WorkspaceLayout layout, String workerLogin,
-                         LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts) {
+                         LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
+                         PageRequests pageRequests) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.git = git;
@@ -99,7 +100,8 @@ public final class IssueWorkflow {
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage, contexts);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
-        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts());
+        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts(),
+                pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
     }
