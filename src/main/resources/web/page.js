@@ -53,6 +53,28 @@
         }
     }
 
+    // The button shows that the click arrived, and a second click is not possible. The button has no name,
+    // so a disabled button does not change the form data.
+    function showBusyButton(event) {
+        if (event.defaultPrevented) {
+            return;
+        }
+        var button = event.target.querySelector("button");
+        if (button) {
+            button.classList.add("busy");
+            button.disabled = true;
+        }
+    }
+
+    // A page from the history of the browser shows the board again, without the busy buttons.
+    function refreshBoardFromHistory(event) {
+        if (event.persisted) {
+            refreshBoard();
+        }
+    }
+
     document.addEventListener("submit", confirmBlock);
+    document.addEventListener("submit", showBusyButton);
+    window.addEventListener("pageshow", refreshBoardFromHistory);
     openEvents();
 })();

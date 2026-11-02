@@ -321,7 +321,7 @@ public final class Main {
                 liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions,
-                createLabelWriter(gitHub), () -> worker.issuesInWork().size(), claudeHome);
+                createLabelWriter(gitHub), () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
                 UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
@@ -367,7 +367,8 @@ public final class Main {
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
                                                LiveSessions liveSessions, LabelWriter labels,
-                                               IntSupplier issuesInWork, Path claudeHome) {
+                                               IntSupplier issuesInWork, Runnable earlyPollRequest,
+                                               Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
@@ -375,7 +376,8 @@ public final class Main {
                         new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
                         Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board())));
+                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(),
+                        earlyPollRequest)));
     }
 
     /** A web server that cannot start stops the worker before its first poll. */

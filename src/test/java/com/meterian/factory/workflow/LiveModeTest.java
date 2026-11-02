@@ -194,7 +194,20 @@ class LiveModeTest {
         assertThat(continued.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(continued.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
         assertThat(continued.live()).isEmpty();
-        assertThat(continued.notes()).isEmpty();
+        assertThat(continued.notes()).containsExactly(LiveMode.NO_CHANGE_NOTE);
+    }
+
+    @Test
+    void continueWithoutChangesTellsThatTheMergeStillNeedsTheApproval() {
+        LiveMode liveMode = createLiveMode();
+        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
+
+        IssueRecord continued = liveMode.continueWork(issue, live, worktree);
+
+        assertThat(continued.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(continued.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(continued.notes()).containsExactly(
+                "The live conversation ended with no change to the code. The issue waits for you again.");
     }
 
     @Test

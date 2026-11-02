@@ -322,7 +322,8 @@ class MainTest {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, temporaryDirectory.resolve("claude-home"));
+                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, () -> { },
+                temporaryDirectory.resolve("claude-home"));
 
         assertThat(server).isEmpty();
     }
@@ -333,7 +334,7 @@ class MainTest {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0,
+                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, () -> { },
                     temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -353,7 +354,8 @@ class MainTest {
                 IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                         .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), () -> 1, temporaryDirectory.resolve("claude-home")).orElseThrow();
+                Main.createLabelWriter(gitHub), () -> 1, () -> { }, temporaryDirectory.resolve("claude-home"))
+                .orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
         try {
             HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();

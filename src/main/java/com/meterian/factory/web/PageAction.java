@@ -17,19 +17,26 @@ import java.util.stream.Collectors;
  * for this label: a label that the worker ignored keeps the button, so that the owner can click again.
  */
 public enum PageAction {
-    ENTER("enter", "Enter", "factory:enter"),
-    APPROVE("approve", "Approve", "factory:approve"),
-    BLOCK("block", "Block", "factory:block"),
-    CONTINUE("continue", "Continue", null);
+    ENTER("enter", "Enter", "factory:enter", "Enter sent. The live conversation opens in a few seconds."),
+    APPROVE("approve", "Approve", "factory:approve", "Approval sent. The worker takes it in a few seconds."),
+    BLOCK("block", "Block", "factory:block", "Block sent. The worker stops the issue in a few seconds."),
+    CONTINUE("continue", "Continue", null, "Continue sent. The factory takes the issue back in a few seconds.");
 
     private final String pathName;
     private final String buttonText;
     private final String label;
+    private final String requestSentence;
 
-    PageAction(String pathName, String buttonText, String label) {
+    PageAction(String pathName, String buttonText, String label, String requestSentence) {
         this.pathName = pathName;
         this.buttonText = buttonText;
         this.label = label;
+        this.requestSentence = requestSentence;
+    }
+
+    /** The line of the card while the worker did not act on the request yet. */
+    public String requestSentence() {
+        return requestSentence;
     }
 
     /** The label with the same effect. Continue has no label: it writes a local marker file. */
@@ -73,6 +80,21 @@ public enum PageAction {
             case APPROVE -> ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isBlockPossible(record);
             case CONTINUE -> record.live().isPresent() && !continueRequested;
+        };
+    }
+
+    /**
+     * Tells if the page sent this request and the record does not show its effect yet. A label that the page
+     * did not request is never a pending request.
+     */
+    public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
+        IssueRecord record = card.record();
+        return switch (this) {
+            case ENTER -> isRequestedLabelOnTheCard(card, rememberedLabels)
+                    && record.live().flatMap(live -> live.link()).isEmpty();
+            case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
+            case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && record.status() != IssueStatus.BLOCKED;
+            case CONTINUE -> continueRequested && record.live().isPresent();
         };
     }
 
