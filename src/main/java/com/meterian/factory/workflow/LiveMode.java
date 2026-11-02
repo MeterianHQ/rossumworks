@@ -22,6 +22,7 @@ import java.util.Set;
 /** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
 final class LiveMode {
 
+    private static final System.Logger LOGGER = System.getLogger(LiveMode.class.getName());
     private static final String TOO_EARLY_NOTE =
             "The factory opens a live conversation only after the first implement step.";
     private static final String DONE_NOTE = "The issue is done; a live conversation has no effect.";
@@ -104,6 +105,8 @@ final class LiveMode {
             liveSessions.openTerminal(opened.issueNumber());
             return opened;
         } catch (LiveSessionException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The terminal window of the issue #{0} did not open: {1}",
+                    opened.issueNumber(), exception.getMessage());
             return opened.withNote(TERMINAL_NOT_OPEN_NOTE + exception.getMessage() + " Use the Remote Control link.");
         }
     }

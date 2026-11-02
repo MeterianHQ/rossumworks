@@ -24,9 +24,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -138,6 +143,36 @@ class LiveModeTest {
         assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(live.notes())
                 .contains("The terminal window did not open: no display Use the Remote Control link.");
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenWritesAWarning() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
+        List<String> messages = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord logRecord) {
+                messages.add(new SimpleFormatter().formatMessage(logRecord));
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        Logger logger = Logger.getLogger(LiveMode.class.getName());
+        logger.addHandler(handler);
+        try {
+            createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        assertThat(messages).contains("The terminal window of the issue #" + ISSUE + " did not open: no display");
     }
 
     @Test
