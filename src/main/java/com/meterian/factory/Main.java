@@ -473,6 +473,7 @@ public final class Main {
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
-                shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts());
+                shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
+                shared.pageRequests());
     }
 }

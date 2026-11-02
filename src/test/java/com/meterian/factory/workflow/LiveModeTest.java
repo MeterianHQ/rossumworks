@@ -23,6 +23,7 @@ import com.meterian.factory.testing.FakeLiveSessions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -54,9 +55,11 @@ class LiveModeTest {
         issue = gitHub.issue(ISSUE);
     }
 
+    private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
+
     private LiveMode createLiveMode(LiveSessions sessions) {
         OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"));
+        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests);
     }
 
     private LiveMode createLiveMode() {
@@ -88,6 +91,62 @@ class LiveModeTest {
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
                 .isEqualTo("The live conversation is open: " + LINK
                         + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola"));
+    }
+
+    @Test
+    void anEnterWithoutAPageRequestIsPhoneWithTheMention() {
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.PHONE);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement()
+                .satisfies(comment -> assertThat(comment.body()).contains("@bbossola"));
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void anEnterInTheTerminalOpensTheTerminalWithoutTheMention() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.TERMINAL);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
+                .doesNotContain("@").endsWith("when you are done."));
+        assertThat(liveSessions.openedTerminals()).containsExactly(ISSUE);
+    }
+
+    @Test
+    void anEnterInTheBrowserHasNoMention() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.BROWSER);
+        assertThat(gitHub.commentsOf(ISSUE)).singleElement()
+                .satisfies(comment -> assertThat(comment.body()).doesNotContain("@"));
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenKeepsTheSession() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
+
+        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+
+        assertThat(live.live().flatMap(LiveSession::link)).contains(LINK);
+        assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(live.notes())
+                .contains("The terminal window did not open: no display Use the Remote Control link.");
+    }
+
+    @Test
+    void aRefusedEnterKeepsTheChosenPlace() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        createLiveMode().enter(IssueRecord.queued(ISSUE), worktree);
+
+        assertThat(pageRequests.takeEnterPlace(ISSUE)).isEqualTo(LivePlace.TERMINAL);
     }
 
     @Test

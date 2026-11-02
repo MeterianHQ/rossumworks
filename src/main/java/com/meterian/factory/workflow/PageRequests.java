@@ -1,5 +1,6 @@
 package com.meterian.factory.workflow;
 
+import com.meterian.factory.state.LivePlace;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -13,6 +14,10 @@ public final class PageRequests {
 
     private final Clock clock;
     private final Map<String, Instant> expiryByRequest = new ConcurrentHashMap<>();
+    private final Map<Integer, PlaceRequest> placeByIssue = new ConcurrentHashMap<>();
+
+    private record PlaceRequest(LivePlace place, Instant expiry) {
+    }
 
     public PageRequests(Clock clock) {
         this.clock = clock;
@@ -27,6 +32,20 @@ public final class PageRequests {
     public boolean isRemembered(int issueNumber, String label) {
         Instant expiry = expiryByRequest.get(createKey(issueNumber, label));
         return expiry != null && clock.instant().isBefore(expiry);
+    }
+
+    /** The page calls this method before it adds the label that enters the live conversation. */
+    public void rememberEnterPlace(int issueNumber, LivePlace place) {
+        placeByIssue.put(issueNumber, new PlaceRequest(place, clock.instant().plus(REQUEST_LIFETIME)));
+    }
+
+    /** Gives the remembered place and forgets it. Gives PHONE when no place is remembered or it expired. */
+    public LivePlace takeEnterPlace(int issueNumber) {
+        PlaceRequest request = placeByIssue.remove(issueNumber);
+        if (request == null || !clock.instant().isBefore(request.expiry())) {
+            return LivePlace.PHONE;
+        }
+        return request.place();
     }
 
     private void removeExpiredRequests() {

@@ -120,7 +120,7 @@ class IssueWorkflowTest {
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
                 buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
-                BoardUpdates.IGNORED, new ContextTracker());
+                BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {

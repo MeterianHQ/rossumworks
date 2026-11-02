@@ -175,7 +175,7 @@ class WorkerTest {
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
-                board, new ContextTracker());
+                board, new ContextTracker(), pageRequests);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
