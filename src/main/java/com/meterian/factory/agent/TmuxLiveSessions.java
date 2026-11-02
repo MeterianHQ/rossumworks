@@ -1,7 +1,6 @@
 package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
-import com.meterian.factory.configuration.FactoryConfiguration;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -48,7 +47,7 @@ public final class TmuxLiveSessions implements LiveSessions {
     TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Map<String, String> parentEnvironment,
             Duration openTimeout, String socketName) {
         this(settings, liveFiles, parentEnvironment, openTimeout, new TmuxCommand(socketName),
-                new TerminalWindow(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND, socketName, parentEnvironment));
+                new TerminalWindow(List.of("false"), socketName, parentEnvironment));
     }
 
     TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Map<String, String> parentEnvironment,

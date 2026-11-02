@@ -123,7 +123,19 @@ public final class PageActions {
     /** An Enter remembers its place first, so that the worker knows where to open the conversation. */
     private void sendLabelRequest(IssueCard card, PageAction action) {
         action.enterPlace().ifPresent(place -> pageRequests.rememberEnterPlace(card.issueNumber(), place));
-        addLabel(card, action, action.label().orElseThrow());
+        try {
+            addLabel(card, action, action.label().orElseThrow());
+        } catch (RuntimeException exception) {
+            forgetEnterPlace(card.issueNumber(), action);
+            throw exception;
+        }
+    }
+
+    /** A refused label leaves no place behind, so that a later Enter from the GitHub app opens no wrong place. */
+    private void forgetEnterPlace(int issueNumber, PageAction action) {
+        if (action.enterPlace().isPresent()) {
+            pageRequests.takeEnterPlace(issueNumber);
+        }
     }
 
     /**

@@ -692,6 +692,16 @@ class WebServerTest {
     }
 
     @Test
+    void aRefusedEnterForgetsThePlace() {
+        recordCard(waitsForAnAnswer());
+        labelFailure = Optional.of(new GitHubException("no rights"));
+
+        postAction("/issues/12/enter-terminal", logIn());
+
+        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.PHONE);
+    }
+
+    @Test
     void anEnterOnThePhoneAddsTheLabelOfEnter() {
         recordCard(waitsForAnAnswer());
 
