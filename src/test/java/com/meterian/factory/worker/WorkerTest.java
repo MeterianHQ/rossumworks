@@ -164,7 +164,7 @@ class WorkerTest {
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions);
+                liveSessions, Clock.systemUTC());
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */

@@ -1,7 +1,9 @@
 package com.meterian.factory.github;
 
 import com.meterian.factory.state.IssueStatus;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface GitHubClient {
@@ -18,8 +20,16 @@ public interface GitHubClient {
 
     void editComment(long commentId, String body);
 
+    /**
+     * Reads the events of the issue once, and returns the actor of the newest "labeled" event for each label. A
+     * label whose newest event has no actor is not in the map.
+     */
+    Map<String, String> lastLabelActors(int issueNumber);
+
     /** Returns the actor of the newest "labeled" event for this label. */
-    Optional<String> lastLabelActor(int issueNumber, String label);
+    default Optional<String> lastLabelActor(int issueNumber, String label) {
+        return Optional.ofNullable(lastLabelActors(issueNumber).get(label));
+    }
 
     /** Creates the label when it does not exist. Does nothing when it exists. */
     void ensureLabel(String label, String color, String description);
@@ -60,4 +70,20 @@ public interface GitHubClient {
 
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
+
+    /**
+     * Returns the number of requests since the last call, by method and path template, and starts the counts
+     * again at zero. A client that does not count returns an empty map.
+     */
+    default Map<String, Integer> takeRequestCounts() {
+        return Map.of();
+    }
+
+    /**
+     * Returns the reset time of the rate-limit window when few requests remain in it. The poll then starts no
+     * work. A client that does not read the rate limit returns empty.
+     */
+    default Optional<Instant> findLowRemainingReset() {
+        return Optional.empty();
+    }
 }

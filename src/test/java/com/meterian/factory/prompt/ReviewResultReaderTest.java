@@ -89,4 +89,55 @@ class ReviewResultReaderTest {
 
         assertThat(ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS).verdict()).isEqualTo(Verdict.REJECT);
     }
+
+    @Test
+    void anApprovalWithNotesAndNoFindingsIsAnApprovalWithTheNotes() throws IOException {
+        writeReview("{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": [],"
+                + " \"notes\": [{\"title\": \"Info\", \"detail\": \"A later idea.\"}]}");
+
+        ReviewResult result = ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.APPROVE);
+        assertThat(result.findings()).isEmpty();
+        assertThat(result.notes()).containsExactly(new Finding("Info", "A later idea."));
+    }
+
+    @Test
+    void anApprovalWithFindingsAndNotesIsAReject() throws IOException {
+        writeReview("{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": [{\"title\": \"T\", \"detail\": \"D\"}],"
+                + " \"notes\": [{\"title\": \"Info\", \"detail\": \"A later idea.\"}]}");
+
+        assertThat(ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS).verdict()).isEqualTo(Verdict.REJECT);
+    }
+
+    @Test
+    void aRejectWithNotesIsAReject() throws IOException {
+        writeReview("{\"verdict\": \"reject\", \"tree\": \"abc\", \"findings\": [],"
+                + " \"notes\": [{\"title\": \"Info\", \"detail\": \"A later idea.\"}]}");
+
+        ReviewResult result = ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.REJECT);
+        assertThat(result.notes()).containsExactly(new Finding("Info", "A later idea."));
+    }
+
+    @Test
+    void aFileWithoutNotesHasNoNotes() throws IOException {
+        writeReview("{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": []}");
+
+        ReviewResult result = ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.APPROVE);
+        assertThat(result.notes()).isEmpty();
+    }
+
+    @Test
+    void anInvalidNotesListIsReadAsNoNotes() throws IOException {
+        writeReview("{\"verdict\": \"approve\", \"tree\": \"abc\", \"findings\": [], \"notes\": \"none\"}");
+
+        ReviewResult result = ReviewResultReader.read(worktree, ReviewKind.CORRECTNESS);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.APPROVE);
+        assertThat(result.notes()).isEmpty();
+    }
 }

@@ -23,17 +23,24 @@ public final class ReviewResultReader {
                 .orElseGet(ReviewResultReader::createRejectResult);
     }
 
+    /** An approval with a finding is not consistent, so it stays a reject. A missing notes list is empty. */
     private static Optional<ReviewResult> parseReviewResult(JsonNode node) {
         Optional<Verdict> verdict = parseVerdict(node.path("verdict").asText(""));
         if (verdict.isEmpty() || !node.path("findings").isArray()) {
             return Optional.empty();
         }
+        List<Finding> findings = parseFindings(node.get("findings"));
+        List<Finding> notes = node.path("notes").isArray() ? parseFindings(node.get("notes")) : List.of();
+        Verdict effectiveVerdict = findings.isEmpty() ? verdict.get() : Verdict.REJECT;
+        return Optional.of(new ReviewResult(effectiveVerdict, node.path("tree").asText(""), findings, notes));
+    }
+
+    private static List<Finding> parseFindings(JsonNode array) {
         List<Finding> findings = new ArrayList<>();
-        for (JsonNode findingNode : node.get("findings")) {
+        for (JsonNode findingNode : array) {
             findings.add(new Finding(findingNode.path("title").asText(""), findingNode.path("detail").asText("")));
         }
-        Verdict effectiveVerdict = findings.isEmpty() ? verdict.get() : Verdict.REJECT;
-        return Optional.of(new ReviewResult(effectiveVerdict, node.path("tree").asText(""), findings));
+        return findings;
     }
 
     private static Optional<Verdict> parseVerdict(String text) {
@@ -46,6 +53,6 @@ public final class ReviewResultReader {
 
     private static ReviewResult createRejectResult() {
         return new ReviewResult(Verdict.REJECT, "",
-                List.of(new Finding(INVALID_TITLE, "The file is missing, too large, or not valid.")));
+                List.of(new Finding(INVALID_TITLE, "The file is missing, too large, or not valid.")), List.of());
     }
 }

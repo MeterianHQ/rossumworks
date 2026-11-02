@@ -15,16 +15,21 @@ public final class RequestReader {
         this.allowedAccounts = List.copyOf(allowedAccounts);
     }
 
-    /** GitHub logins do not depend on case, so the comparison ignores case. */
     public boolean isGivenByAllowedAccount(int issueNumber, String label) {
-        return findLabelActor(issueNumber, label).filter(this::isAllowed).isPresent();
+        return readLabelActorsOf(issueNumber).isGivenByAllowedAccount(label);
     }
 
     /** Returns the account that added the label last. */
     public Optional<String> findLabelActor(int issueNumber, String label) {
-        return gitHub.lastLabelActor(issueNumber, label);
+        return readLabelActorsOf(issueNumber).findActor(label);
     }
 
+    /** The events are read at the first check, and only one time for all the labels of the issue. */
+    public IssueLabelActors readLabelActorsOf(int issueNumber) {
+        return new IssueLabelActors(gitHub, issueNumber, this::isAllowed);
+    }
+
+    /** GitHub logins do not depend on case, so the comparison ignores case. */
     private boolean isAllowed(String login) {
         return allowedAccounts.stream().anyMatch(login::equalsIgnoreCase);
     }

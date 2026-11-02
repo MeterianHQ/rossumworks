@@ -116,6 +116,20 @@ GitHub (issues, labels with the status, pull requests)
   seconds). This interval is the delay of each reaction.
 - The worker uses one GitHub token. The token stays in the worker. It
   never goes to the browser or to an agent session.
+- The worker respects the GitHub rate limit. When less than 100 requests
+  remain, the poll starts no work until the reset time, but a running step
+  can still publish its result. When GitHub refuses a request with a
+  rate-limit header, the worker sends no request until the reset time. It
+  logs one line for each wait. A step that meets the refusal runs again at
+  the first poll after the reset. It is not a failure of the issue.
+- At the end of each poll, the worker logs one line with the number of its
+  GitHub requests: the total and the 10 largest counts by path template. The
+  requests of the issue threads count in the line of the next poll.
+- The worker reads little. It sends the last `ETag` for the issue list and
+  for the comments of an issue, and a `304 Not Modified` answer reuses the
+  cached body. It reads the events of an issue at most once in each check,
+  and only for a request label. The status label changes without a second
+  read of the issue.
 - The worker can stop and start again at any time. At start, it reads the
   state from GitHub and continues. A phase that ran when the worker
   stopped runs again from its start.

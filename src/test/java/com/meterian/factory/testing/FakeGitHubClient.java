@@ -25,13 +25,15 @@ import java.util.stream.Collectors;
 /** An in-memory GitHub for the workflow tests. All methods are thread safe. */
 public final class FakeGitHubClient implements GitHubClient {
 
-    private record LabelEvent(int issueNumber, String label, String actor) {
+    /** One "labeled" event of an issue, in the order of the events. */
+    public record LabelEvent(int issueNumber, String label, String actor) {
     }
 
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<LabelEvent> labelEvents = new ArrayList<>();
+    private final Map<Integer, Integer> labelEventReads = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
@@ -56,6 +58,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private RuntimeException removeLabelFailureAfterTheMerge;
     private RuntimeException nextRemoveLabelFailure;
     private boolean failsTheNextIssueList;
+    private boolean failsTheNextPullRequestBodyEdit;
+    private Runnable pullRequestBodyEditAction = () -> { };
     private Runnable squashMergeAction = () -> { };
     private String commentEditTrigger;
     private Runnable commentEditAction = () -> { };
@@ -107,6 +111,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     public synchronized Set<String> labelsOf(int issueNumber) {
         return Set.copyOf(labels.get(issueNumber));
+    }
+
+    public synchronized List<LabelEvent> labelEventsOf(int issueNumber) {
+        return labelEvents.stream().filter(event -> event.issueNumber() == issueNumber).toList();
     }
 
     public synchronized List<PullRequest> pullRequests() {
@@ -179,6 +187,16 @@ public final class FakeGitHubClient implements GitHubClient {
     /** Each body that editPullRequestBody wrote, in order. */
     public synchronized List<String> editedPullRequestBodies() {
         return List.copyOf(editedPullRequestBodies);
+    }
+
+    /** The next editPullRequestBody throws a GitHubException. */
+    public synchronized void failTheNextPullRequestBodyEdit() {
+        failsTheNextPullRequestBodyEdit = true;
+    }
+
+    /** Runs the action at each editPullRequestBody, before the edit. */
+    public synchronized void runOnPullRequestBodyEdit(Runnable action) {
+        pullRequestBodyEditAction = action;
     }
 
     /** Each label that removeLabel removed from an issue, in order. */
@@ -268,12 +286,17 @@ public final class FakeGitHubClient implements GitHubClient {
         }
     }
 
+    /** The order of the events gives their time, so a later event wins. */
     @Override
-    public synchronized Optional<String> lastLabelActor(int issueNumber, String label) {
-        return labelEvents.reversed().stream()
-                .filter(event -> event.issueNumber() == issueNumber && event.label().equals(label))
-                .map(LabelEvent::actor)
-                .findFirst();
+    public synchronized Map<String, String> lastLabelActors(int issueNumber) {
+        labelEventReads.merge(issueNumber, 1, Integer::sum);
+        Map<String, String> actors = new TreeMap<>();
+        labelEventsOf(issueNumber).forEach(event -> actors.put(event.label(), event.actor()));
+        return actors;
+    }
+
+    public synchronized int labelEventReadCount(int issueNumber) {
+        return labelEventReads.getOrDefault(issueNumber, 0);
     }
 
     @Override
@@ -324,6 +347,11 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void editPullRequestBody(int pullRequestNumber, String body) {
+        pullRequestBodyEditAction.run();
+        if (failsTheNextPullRequestBodyEdit) {
+            failsTheNextPullRequestBodyEdit = false;
+            throw new GitHubException("GitHub answered 502 for PATCH /pulls/" + pullRequestNumber);
+        }
         pullRequests.replaceAll(pullRequest -> pullRequest.number() == pullRequestNumber
                 ? new PullRequest(pullRequestNumber, pullRequest.url(), pullRequest.headBranch(), body)
                 : pullRequest);

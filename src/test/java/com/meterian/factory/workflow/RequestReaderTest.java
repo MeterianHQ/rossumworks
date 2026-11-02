@@ -51,4 +51,23 @@ class RequestReaderTest {
 
         assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isTrue();
     }
+
+    @Test
+    void readsTheEventsOnceForAllLabelChecksOfOneIssue() {
+        gitHub.addLabelBy(7, "factory:block", "mallory");
+        gitHub.addLabelBy(7, "factory:enter", "bbossola");
+        IssueLabelActors actors = requests.readLabelActorsOf(7);
+
+        assertThat(actors.isGivenByAllowedAccount("factory:block")).isFalse();
+        assertThat(actors.isGivenByAllowedAccount("factory:enter")).isTrue();
+        assertThat(actors.findActor("factory:block")).contains("mallory");
+        assertThat(gitHub.labelEventReadCount(7)).isEqualTo(1);
+    }
+
+    @Test
+    void readsNoEventsBeforeTheFirstLabelCheck() {
+        requests.readLabelActorsOf(7);
+
+        assertThat(gitHub.labelEventReadCount(7)).isZero();
+    }
 }

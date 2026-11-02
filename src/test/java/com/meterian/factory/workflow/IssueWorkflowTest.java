@@ -41,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -328,6 +329,69 @@ class IssueWorkflowTest {
 
         assertThat(gitHub.editedPullRequestBodies()).isEmpty();
         assertThat(gitHub.pullRequests().getFirst().body()).contains("The first description.");
+    }
+
+    @Test
+    void aReviewNoteStartsNoFixLoopAndReachesThePullRequest() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello."))
+                .thenApproveReviewWithNote("Info", "Fixes #12 can come later.")
+                .thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenAssessRisk("low", true);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(gitHub.pullRequests().getFirst().body())
+                .isEqualTo("Fixes #7\n\n## The change\n\nThe greeting says hello.\n\n"
+                        + "The factory made this change for the issue #7.\n\n"
+                        + "## Notes of the reviews\n\n"
+                        + "- correctness: Info: Fixes issue 12 can come later.");
+    }
+
+    @Test
+    void writesTheReviewNotesAfterTheRecordOfTheRound() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello."))
+                .thenApproveReviewWithNote("Info", "A note.")
+                .thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenAssessRisk("low", true);
+        List<Phase> phasesAtTheEdit = new ArrayList<>();
+        gitHub.runOnPullRequestBodyEdit(() -> phasesAtTheEdit.add(
+                StatusComment.findRecord(gitHub.commentsOf(ISSUE), WORKER_LOGIN).orElseThrow().phase()));
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(phasesAtTheEdit).containsExactly(Phase.RISK);
+    }
+
+    @Test
+    void aFailedWriteOfTheReviewNotesKeepsTheReviewRound() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello."))
+                .thenApproveReviewWithNote("Info", "A note.")
+                .thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenAssessRisk("low", true);
+        gitHub.failTheNextPullRequestBodyEdit();
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(agent.requests()).hasSize(6);
+        assertThat(gitHub.pullRequests().getFirst().body()).doesNotContain("## Notes of the reviews");
+    }
+
+    @Test
+    void ignoresTheNotesOfAResultForAnotherTree() throws ApiKeyDetectedException {
+        agent.then(changeFileAndDescribe("The greeting says hello."))
+                .thenApproveReviewOfTreeWithNote("0000000", "Info", "A note for another tree.")
+                .thenApproveReview().thenApproveReview().thenApproveReview()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(gitHub.editedPullRequestBodies()).noneMatch(body -> body.contains("A note for another tree."));
+        assertThat(gitHub.pullRequests().getFirst().body()).doesNotContain("A note for another tree.");
     }
 
     @Test

@@ -99,6 +99,21 @@ class PromptLibraryTest {
     }
 
     @Test
+    void reviewPromptsSeparateTheFindingsFromTheNotes() {
+        PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
+
+        for (ReviewKind kind : ReviewKind.values()) {
+            assertThat(library.review(kind, ISSUE, "abc")).contains(
+                    "\"notes\": [{\"title\": \"...\", \"detail\": \"...\"}]",
+                    "A finding is a problem that must be fixed before the merge. Put information, minor points, and"
+                            + " ideas that do not block the merge in \"notes\", not in \"findings\". Write reject when"
+                            + " there is at least one finding. Write approve with an empty findings list when there is"
+                            + " none.",
+                    "When you cannot decide, write reject.");
+        }
+    }
+
+    @Test
     void implementAndFixPromptsKeepTheChangeInScopeAndAskForADescription() {
         PromptLibrary library = new PromptLibrary(Optional.empty(), "main");
         String implement = library.implement(ISSUE);

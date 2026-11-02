@@ -240,7 +240,7 @@ public final class Main {
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions);
+                liveSessions, Clock.systemUTC());
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
         worker.runUntilStopped();
         worker.shutDown(LOOP_END_TIMEOUT);

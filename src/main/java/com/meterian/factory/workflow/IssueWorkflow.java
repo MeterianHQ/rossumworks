@@ -13,6 +13,8 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
+import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.merge.MergeDecision;
 import com.meterian.factory.merge.MergeGate;
@@ -31,12 +33,15 @@ import com.meterian.factory.usage.UsageTracker;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Moves one issue through the phases. Each call of advance runs one step and publishes the new record. */
 public final class IssueWorkflow {
 
+    private static final System.Logger LOGGER = System.getLogger(IssueWorkflow.class.getName());
     private static final String FACTORY_LABEL = "factory";
     private static final int MAXIMUM_FAILED_REVIEW_ROUNDS = 2;
     private static final Set<IssueStatus> WAITING_STATUSES =
@@ -64,6 +69,8 @@ public final class IssueWorkflow {
     private final LiveMode liveMode;
     private final LiveRecordPublisher livePublisher;
     private final UnknownSessionCloser unknownSessionCloser;
+    /** The notes of the review round of the current step, by issue number. Each issue thread uses its own entry. */
+    private final Map<Integer, List<ReviewNote>> reviewNotesToPublish = new ConcurrentHashMap<>();
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
@@ -95,10 +102,30 @@ public final class IssueWorkflow {
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
     }
 
+    /** The review notes go to the pull request only after the record of their round is on GitHub. */
     public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
+        reviewNotesToPublish.remove(record.issueNumber());
         Issue issue = gitHub.issue(record.issueNumber());
         IssueRecord next = runStep(issue, record);
-        return livePublisher.publish(issue, record, next);
+        IssueRecord published = livePublisher.publish(issue, record, next);
+        publishReviewNotes(issue);
+        return published;
+    }
+
+    /** A failure loses only the notes: the review round stays, and the next round writes its notes again. */
+    private void publishReviewNotes(Issue issue) {
+        List<ReviewNote> notes = reviewNotesToPublish.remove(issue.number());
+        if (notes == null) {
+            return;
+        }
+        try {
+            pullRequestPublisher.publishReviewNotes(issue, notes);
+        } catch (GitHubRateLimitException exception) {
+            throw exception;
+        } catch (GitHubException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The review notes of the issue #{0} are not in the pull "
+                    + "request: {1}", issue.number(), exception.getMessage());
+        }
     }
 
     public IssueRecord enterLiveMode(IssueRecord record) {
@@ -204,10 +231,22 @@ public final class IssueWorkflow {
             return commitSolvedConflict(issue, ran, worktree);
         }
         if (!git.hasUncommittedChanges(worktree)) {
-            return block(ran, "The agent made no change.");
+            return hasUnbuiltCommit(record, worktree) ? ran.withPhase(Phase.BUILD)
+                    : block(ran, "The agent made no change.");
         }
         git.commitAll(worktree, ChangeTitle.describe(issue));
         return ran.withPhase(Phase.BUILD);
+    }
+
+    /**
+     * A run of the phase can commit its change and then lose its record, for example on a GitHub rate limit. The
+     * commit is the change of the phase when it is on the branch only and the factory did not build its tree.
+     */
+    private boolean hasUnbuiltCommit(IssueRecord record, Path worktree) {
+        String headCommit = git.headCommit(worktree);
+        boolean isOnTheBranchOnly = !git.isAncestor(worktree, headCommit, mergeTargetReference());
+        boolean isBuilt = record.builtTreeHash().equals(Optional.of(git.treeHashOf(worktree, headCommit)));
+        return isOnTheBranchOnly && !isBuilt;
     }
 
     private IssueRecord commitSolvedConflict(Issue issue, IssueRecord record, Path worktree) {
@@ -267,6 +306,7 @@ public final class IssueWorkflow {
         if (outcome.sessionFailed()) {
             return retryReviewRound(record);
         }
+        reviewNotesToPublish.put(issue.number(), outcome.notes());
         IssueRecord reviewed = outcome.record().withoutFailedReviewRounds();
         if (!outcome.allApprove()) {
             return fixLoop.start(reviewed, worktree, outcome.findings());

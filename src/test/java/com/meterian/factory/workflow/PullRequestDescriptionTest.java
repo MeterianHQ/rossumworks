@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import com.meterian.factory.prompt.Finding;
+import com.meterian.factory.state.ReviewKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -122,5 +125,68 @@ class PullRequestDescriptionTest {
     @Test
     void reportsNoDescriptionForAMissingFile() {
         assertThat(PullRequestDescription.bodyIfDescribed(7, worktree)).isEmpty();
+    }
+
+    private static final String BODY = "Fixes #7\n\n## The change\n\nThe change.\n\n" + LAST_LINE;
+
+    private static ReviewNote note(ReviewKind kind, String title, String detail) {
+        return new ReviewNote(kind, new Finding(title, detail));
+    }
+
+    @Test
+    void addsTheNotesOfTheReviewsAfterTheChange() {
+        String body = PullRequestDescription.withReviewNotes(BODY, List.of(
+                note(ReviewKind.SECURITY, "Info", "No secret."), note(ReviewKind.QUALITY, "Minor", "A long name.")));
+
+        assertThat(body).isEqualTo(BODY + "\n\n## Notes of the reviews\n\n"
+                + "- security: Info: No secret.\n- quality: Minor: A long name.");
+    }
+
+    @Test
+    void replacesTheNotesOfAnEarlierRound() {
+        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note(ReviewKind.SECURITY, "Old", "Old.")));
+
+        String body = PullRequestDescription.withReviewNotes(earlier, List.of(note(ReviewKind.QUALITY, "New", "New.")));
+
+        assertThat(body).isEqualTo(BODY + "\n\n## Notes of the reviews\n\n- quality: New: New.");
+    }
+
+    @Test
+    void addsNoSectionWithoutANote() {
+        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note(ReviewKind.SECURITY, "Old", "Old.")));
+
+        assertThat(PullRequestDescription.withReviewNotes(BODY, List.of())).isEqualTo(BODY);
+        assertThat(PullRequestDescription.withReviewNotes(earlier, List.of())).isEqualTo(BODY);
+    }
+
+    @Test
+    void writesEachNoteOnOneLineWithoutAClosingKeyword() {
+        String body = PullRequestDescription.withReviewNotes(BODY, List.of(
+                note(ReviewKind.CORRECTNESS, "Closes #12", "First line.\n## A heading\r\nFixes o/r#13.")));
+
+        assertThat(body).endsWith("\n\n- correctness: Closes issue 12: First line. ## A heading Fixes issue 13.");
+    }
+
+    @Test
+    void cutsANoteOverOneThousandCharacters() {
+        String body = PullRequestDescription.withReviewNotes(BODY, List.of(
+                note(ReviewKind.CORRECTNESS, "Long", "a".repeat(2_000))));
+
+        String line = body.substring(body.lastIndexOf("\n") + 1);
+        assertThat(line).isEqualTo("- correctness: "
+                + ("Long: " + "a".repeat(2_000)).substring(0, PullRequestDescription.MAXIMUM_NOTE_CHARACTERS) + " (cut)");
+    }
+
+    @Test
+    void keepsTheTextAfterANotesHeadingOfTheAgent() throws IOException {
+        writeDescription("Intro.\n\n## Notes of the reviews\n\nThe agent text after the heading.");
+        String body = PullRequestDescription.bodyFor(7, worktree);
+        ReviewNote note = new ReviewNote(ReviewKind.CORRECTNESS, new Finding("Info", "A note."));
+
+        String withNote = PullRequestDescription.withReviewNotes(body, List.of(note));
+        String afterARoundWithoutNotes = PullRequestDescription.withReviewNotes(withNote, List.of());
+
+        assertThat(withNote).contains("The agent text after the heading.", LAST_LINE, "- correctness: Info: A note.");
+        assertThat(afterARoundWithoutNotes).isEqualTo(body).contains("The agent text after the heading.", LAST_LINE);
     }
 }

@@ -12,11 +12,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -24,6 +28,11 @@ import java.util.regex.Pattern;
 
 public final class HttpGitHubClient implements GitHubClient {
 
+    /** Enough for the issue list and the comments of many issues, and small in memory. */
+    static final int CACHED_LIST_LIMIT = 200;
+    private static final int NOT_MODIFIED = 304;
+    /** The page size of each list request, the maximum of GitHub. */
+    private static final int PAGE_SIZE = 100;
     private static final String API_VERSION = "2022-11-28";
     private static final Pattern NEXT_LINK = Pattern.compile("<([^>]+)>;\\s*rel=\"next\"");
 
@@ -36,18 +45,52 @@ public final class HttpGitHubClient implements GitHubClient {
     private final HttpClient httpClient;
     private final Duration requestTimeout;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final GitHubRequestCounter requestCounter;
+    private final GitHubRateLimit rateLimit;
+    private final ConditionalRequestCache conditionalCache = new ConditionalRequestCache(CACHED_LIST_LIMIT);
+    private final StatusLabelMemory statusLabels = new StatusLabelMemory();
 
     public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
-        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT);
+        this(apiBase, token, target, httpClient, Clock.systemUTC());
+    }
+
+    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient, Clock clock) {
+        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT, clock);
     }
 
     HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
                      Duration requestTimeout) {
+        this(apiBase, token, target, httpClient, requestTimeout, Clock.systemUTC());
+    }
+
+    HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
+                     Duration requestTimeout, Clock clock) {
         this.apiBase = apiBase;
         this.token = token;
         this.repositoryPath = "/repos/" + target.fullName();
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
+        this.requestCounter = new GitHubRequestCounter(repositoryPath);
+        this.rateLimit = new GitHubRateLimit(clock);
+    }
+
+    /** The number of requests since the start or the last reset, by method and path template. */
+    public Map<String, Integer> requestCounts() {
+        return requestCounter.counts();
+    }
+
+    public void resetRequestCounts() {
+        requestCounter.reset();
+    }
+
+    @Override
+    public Optional<Instant> findLowRemainingReset() {
+        return rateLimit.findLowRemainingReset();
+    }
+
+    @Override
+    public Map<String, Integer> takeRequestCounts() {
+        return requestCounter.take();
     }
 
     @Override
@@ -58,8 +101,8 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public List<Issue> openIssuesWithLabel(String label) {
         List<Issue> issues = new ArrayList<>();
-        for (JsonNode item : readAllPages(repositoryPath + "/issues?labels=" + encode(label)
-                + "&state=open&per_page=100")) {
+        for (JsonNode item : readAllPagesConditionally(repositoryPath + "/issues?labels=" + encode(label)
+                + "&state=open&per_page=" + PAGE_SIZE)) {
             if (!item.has("pull_request")) {
                 issues.add(toIssue(item));
             }
@@ -75,7 +118,8 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public List<IssueComment> comments(int issueNumber) {
         List<IssueComment> comments = new ArrayList<>();
-        for (JsonNode item : readAllPages(repositoryPath + "/issues/" + issueNumber + "/comments?per_page=100")) {
+        for (JsonNode item : readAllPagesConditionally(repositoryPath + "/issues/" + issueNumber
+                + "/comments?per_page=" + PAGE_SIZE)) {
             comments.add(new IssueComment(item.path("id").asLong(), item.path("user").path("login").asText(),
                     item.path("body").asText("")));
         }
@@ -94,20 +138,24 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
-    public Optional<String> lastLabelActor(int issueNumber, String label) {
-        String newestTime = "";
-        Optional<String> newestActor = Optional.empty();
-        for (JsonNode event : readAllPages(repositoryPath + "/issues/" + issueNumber + "/events?per_page=100")) {
-            boolean matches = "labeled".equals(event.path("event").asText())
-                    && label.equals(event.path("label").path("name").asText());
+    public Map<String, String> lastLabelActors(int issueNumber) {
+        Map<String, String> newestTimes = new HashMap<>();
+        Map<String, String> newestActors = new HashMap<>();
+        String eventsPath = repositoryPath + "/issues/" + issueNumber + "/events?per_page=" + PAGE_SIZE;
+        for (JsonNode event : readAllPages(eventsPath)) {
+            if (!"labeled".equals(event.path("event").asText())) {
+                continue;
+            }
+            String label = event.path("label").path("name").asText();
             String createdAt = event.path("created_at").asText("");
-            if (matches && createdAt.compareTo(newestTime) >= 0) {
-                newestTime = createdAt;
+            if (createdAt.compareTo(newestTimes.getOrDefault(label, "")) >= 0) {
+                newestTimes.put(label, createdAt);
                 JsonNode login = event.path("actor").path("login");
-                newestActor = login.isTextual() ? Optional.of(login.asText()) : Optional.empty();
+                newestActors.put(label, login.isTextual() ? login.asText() : null);
             }
         }
-        return newestActor;
+        newestActors.values().removeIf(Objects::isNull);
+        return Map.copyOf(newestActors);
     }
 
     @Override
@@ -134,23 +182,25 @@ public final class HttpGitHubClient implements GitHubClient {
         }
     }
 
+    /** The caller knows the labels of the issue, so the client does not read the issue again. */
     @Override
     public void setStatus(Issue issue, IssueStatus status) {
-        Set<String> currentLabels = issue(issue.number()).labels();
-        for (String label : currentLabels) {
-            if (IssueStatus.isStatusLabel(label) && !label.equals(status.labelName())) {
+        String wantedLabel = status.labelName();
+        for (String label : statusLabels.findPossibleStatusLabels(issue)) {
+            if (!label.equals(wantedLabel)) {
                 removeLabel(issue.number(), label);
             }
         }
-        if (!currentLabels.contains(status.labelName())) {
-            addLabel(issue.number(), status.labelName());
+        if (!statusLabels.isSurelyOnTheIssue(issue, wantedLabel)) {
+            addLabel(issue.number(), wantedLabel);
         }
+        statusLabels.remember(issue.number(), wantedLabel);
     }
 
     @Override
     public Optional<PullRequest> openPullRequest(String headBranch) {
         String head = encode(repositoryOwner() + ":" + headBranch);
-        return readAllPages(repositoryPath + "/pulls?head=" + head + "&state=open&per_page=100").stream()
+        return readAllPages(repositoryPath + "/pulls?head=" + head + "&state=open&per_page=" + PAGE_SIZE).stream()
                 .findFirst().map(this::toPullRequest);
     }
 
@@ -231,13 +281,54 @@ public final class HttpGitHubClient implements GitHubClient {
             HttpResponse<String> response = sendRaw("GET", next, null);
             requireSuccess("GET", next.getRawPath(), response);
             parse(response.body()).forEach(items::add);
-            next = nextPage(response);
+            next = nextPage(response.headers().firstValue("Link"));
         }
         return items;
     }
 
-    private URI nextPage(HttpResponse<String> response) {
-        Matcher matcher = NEXT_LINK.matcher(response.headers().firstValue("Link").orElse(""));
+    /** Sends the ETag of the last answer of each page. A 304 answer gives the cached page. */
+    private List<JsonNode> readAllPagesConditionally(String firstPath) {
+        List<JsonNode> items = new ArrayList<>();
+        URI next = apiBase.resolve(firstPath);
+        while (next != null) {
+            ConditionalRequestCache.CachedPage page = readPageConditionally(next);
+            parse(page.body()).forEach(items::add);
+            next = nextPage(page.link());
+        }
+        return items;
+    }
+
+    private ConditionalRequestCache.CachedPage readPageConditionally(URI uri) {
+        String cacheKey = uri.getRawPath() + "?" + uri.getRawQuery();
+        Optional<ConditionalRequestCache.CachedPage> cached = conditionalCache.find(cacheKey);
+        HttpResponse<String> response = sendRaw("GET", uri, null,
+                cached.map(ConditionalRequestCache.CachedPage::entityTag));
+        if (response.statusCode() == NOT_MODIFIED && cached.isPresent()) {
+            return cached.get();
+        }
+        requireSuccess("GET", uri.getRawPath(), response);
+        ConditionalRequestCache.CachedPage page = new ConditionalRequestCache.CachedPage(
+                response.headers().firstValue("ETag").orElse(""), response.body(),
+                response.headers().firstValue("Link"));
+        if (!page.entityTag().isEmpty() && !isFullLastPage(page)) {
+            conditionalCache.store(cacheKey, page);
+        } else {
+            conditionalCache.remove(cacheKey);
+        }
+        return page;
+    }
+
+    /**
+     * A full page without a next link can get a next page later, and a 304 answer would hide it. So such a page
+     * is never cached.
+     */
+    private boolean isFullLastPage(ConditionalRequestCache.CachedPage page) {
+        boolean hasNextPage = NEXT_LINK.matcher(page.link().orElse("")).find();
+        return !hasNextPage && parse(page.body()).size() >= PAGE_SIZE;
+    }
+
+    private URI nextPage(Optional<String> linkHeader) {
+        Matcher matcher = NEXT_LINK.matcher(linkHeader.orElse(""));
         if (!matcher.find()) {
             return null;
         }
@@ -261,24 +352,45 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     private HttpResponse<String> sendRaw(String method, URI uri, Object payload) {
+        return sendRaw(method, uri, payload, Optional.empty());
+    }
+
+    private HttpResponse<String> sendRaw(String method, URI uri, Object payload, Optional<String> entityTag) {
         try {
             HttpRequest.BodyPublisher publisher = payload == null ? HttpRequest.BodyPublishers.noBody()
                     : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload));
-            HttpRequest request = HttpRequest.newBuilder(uri)
+            HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                     .method(method, publisher)
                     .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + token)
                     .header("Accept", "application/vnd.github+json")
                     .header("Content-Type", "application/json")
-                    .header("X-GitHub-Api-Version", API_VERSION)
-                    .build();
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    .header("X-GitHub-Api-Version", API_VERSION);
+            entityTag.ifPresent(tag -> request.header("If-None-Match", tag));
+            rateLimit.verifyRequestIsAllowed();
+            HttpResponse<String> response = sendAndCount(method, uri, request.build());
+            rateLimit.readAnswer(response.statusCode(), response.headers());
+            return response;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new GitHubException("the request " + method + " " + uri.getRawPath() + " was interrupted");
         } catch (IOException exception) {
             throw new GitHubException("the request " + method + " " + uri.getRawPath() + " failed: "
                     + exception.getClass().getSimpleName());
+        }
+    }
+
+    /** A request that fails without an answer still counts. A 304 answer counts under its own key. */
+    private HttpResponse<String> sendAndCount(String method, URI uri, HttpRequest request)
+            throws IOException, InterruptedException {
+        try {
+            HttpResponse<String> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            requestCounter.count(method, uri, response.statusCode() == NOT_MODIFIED);
+            return response;
+        } catch (IOException exception) {
+            requestCounter.count(method, uri, false);
+            throw exception;
         }
     }
 

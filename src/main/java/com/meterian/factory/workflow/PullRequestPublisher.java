@@ -6,6 +6,7 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.merge.PushedCommitCheck;
 import java.nio.file.Path;
+import java.util.List;
 
 /** Pushes the built commit through the gatekeeper, opens or finds the pull request, and checks GitHub. */
 final class PullRequestPublisher {
@@ -33,6 +34,16 @@ final class PullRequestPublisher {
                 .map(existing -> updateBody(existing, issue, worktree))
                 .orElseGet(() -> createPullRequest(issue, branch, worktree));
         return new PublishedBranch(pullRequest, pushedCommitCheck.isOnGitHub(pullRequest.number(), headCommit, branch));
+    }
+
+    /** Writes the notes of the last review round into the body of the open pull request, when the body changes. */
+    void publishReviewNotes(Issue issue, List<ReviewNote> notes) {
+        gitHub.openPullRequest(WorkspaceLayout.branch(issue.number())).ifPresent(pullRequest -> {
+            String body = PullRequestDescription.withReviewNotes(pullRequest.body(), notes);
+            if (!body.equals(pullRequest.body())) {
+                gitHub.editPullRequestBody(pullRequest.number(), body);
+            }
+        });
     }
 
     private PullRequest createPullRequest(Issue issue, String branch, Path worktree) {
