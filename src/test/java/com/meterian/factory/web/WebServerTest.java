@@ -480,7 +480,8 @@ class WebServerTest {
             assertThat(answer.headers().firstValue("Content-Security-Policy")).as(answer.uri().toString())
                     .contains(EXPECTED_POLICY);
             assertThat(answer.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
-            assertThat(answer.headers().firstValue("Referrer-Policy")).contains("no-referrer");
+            // With "no-referrer", a browser sends "Origin: null" on a form POST, and the origin check refuses the login.
+            assertThat(answer.headers().firstValue("Referrer-Policy")).contains("same-origin");
         }
     }
 

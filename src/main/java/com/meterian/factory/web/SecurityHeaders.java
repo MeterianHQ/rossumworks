@@ -16,7 +16,8 @@ final class SecurityHeaders extends Filter {
         Headers responseHeaders = exchange.getResponseHeaders();
         responseHeaders.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
         responseHeaders.set("X-Content-Type-Options", "nosniff");
-        responseHeaders.set("Referrer-Policy", "no-referrer");
+        // Not "no-referrer": with it, a browser sends "Origin: null" and SameOriginCheck refuses every form POST.
+        responseHeaders.set("Referrer-Policy", "same-origin");
         chain.doFilter(exchange);
     }
 
