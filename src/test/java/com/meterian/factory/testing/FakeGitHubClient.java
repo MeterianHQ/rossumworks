@@ -33,6 +33,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<LabelEvent> labelEvents = new ArrayList<>();
+    private final Map<Integer, Integer> labelEventReads = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
@@ -273,12 +274,17 @@ public final class FakeGitHubClient implements GitHubClient {
         }
     }
 
+    /** The order of the events gives their time, so a later event wins. */
     @Override
-    public synchronized Optional<String> lastLabelActor(int issueNumber, String label) {
-        return labelEvents.reversed().stream()
-                .filter(event -> event.issueNumber() == issueNumber && event.label().equals(label))
-                .map(LabelEvent::actor)
-                .findFirst();
+    public synchronized Map<String, String> lastLabelActors(int issueNumber) {
+        labelEventReads.merge(issueNumber, 1, Integer::sum);
+        Map<String, String> actors = new TreeMap<>();
+        labelEventsOf(issueNumber).forEach(event -> actors.put(event.label(), event.actor()));
+        return actors;
+    }
+
+    public synchronized int labelEventReadCount(int issueNumber) {
+        return labelEventReads.getOrDefault(issueNumber, 0);
     }
 
     @Override

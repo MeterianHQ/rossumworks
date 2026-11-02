@@ -65,7 +65,8 @@ class HttpGitHubClientTest {
             RecordedRequest request = new RecordedRequest(exchange.getRequestMethod(),
                     exchange.getRequestURI().toString(),
                     Map.of("Authorization", header(exchange.getRequestHeaders().getFirst("Authorization")),
-                            "X-GitHub-Api-Version", header(exchange.getRequestHeaders().getFirst("X-GitHub-Api-Version"))),
+                            "X-GitHub-Api-Version", header(exchange.getRequestHeaders().getFirst("X-GitHub-Api-Version")),
+                            "If-None-Match", header(exchange.getRequestHeaders().getFirst("If-None-Match"))),
                     body);
             requests.add(request);
             Answer answer = responder.apply(request);
@@ -190,12 +191,22 @@ class HttpGitHubClientTest {
                 .map(request -> request.method() + " " + request.target()).toList();
     }
 
+    private static Issue issueWithLabels(String... labelNames) {
+        return new Issue(4, "T", "", Set.of(labelNames));
+    }
+
+    private List<String> reads() {
+        return requests.stream().filter(request -> "GET".equals(request.method())).map(RecordedRequest::target)
+                .toList();
+    }
+
     @Test
     void setsTheStatusAsALabel() {
-        answerIssueWithLabels("factory:status:queued", "bug");
+        answerIssueWithLabels();
 
-        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.IN_REVIEW);
+        client.setStatus(issueWithLabels("factory:status:queued", "bug"), IssueStatus.IN_REVIEW);
 
+        assertThat(reads()).isEmpty();
         assertThat(changes()).containsExactly("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
                 "POST /repos/o/r/issues/4/labels");
         assertThat(requests.get(requests.size() - 1).body()).contains("factory:status:in-review");
@@ -203,9 +214,10 @@ class HttpGitHubClientTest {
 
     @Test
     void keepsOnlyOneStatusLabel() {
-        answerIssueWithLabels("factory:status:queued", "factory:status:blocked", "factory:status:done");
+        answerIssueWithLabels();
 
-        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.DONE);
+        client.setStatus(issueWithLabels("factory:status:queued", "factory:status:blocked", "factory:status:done"),
+                IssueStatus.DONE);
 
         assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
                 "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Ablocked");
@@ -213,11 +225,27 @@ class HttpGitHubClientTest {
 
     @Test
     void addsNothingWhenTheStatusIsAlreadySet() {
-        answerIssueWithLabels("factory:status:in-review", "bug");
+        answerIssueWithLabels();
 
-        client.setStatus(new Issue(4, "T", "", Set.of()), IssueStatus.IN_REVIEW);
+        client.setStatus(issueWithLabels("factory:status:in-review", "bug"), IssueStatus.IN_REVIEW);
 
-        assertThat(changes()).isEmpty();
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void remembersTheStatusLabelThatItSetWhenTheCallerHasOlderLabels() {
+        answerIssueWithLabels();
+        Issue readBeforeTheStep = issueWithLabels("factory:status:in-progress");
+        client.setStatus(readBeforeTheStep, IssueStatus.WAITS_FOR_YOU);
+        requests.clear();
+
+        client.setStatus(readBeforeTheStep, IssueStatus.IN_PROGRESS);
+
+        assertThat(reads()).isEmpty();
+        assertThat(changes()).containsExactly(
+                "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Awaits-for-you",
+                "POST /repos/o/r/issues/4/labels");
+        assertThat(requests.get(requests.size() - 1).body()).contains("factory:status:in-progress");
     }
 
     @Test
@@ -534,5 +562,107 @@ class HttpGitHubClientTest {
                 .isInstanceOf(GitHubException.class)
                 .isNotInstanceOf(GitHubRateLimitException.class)
                 .hasMessageContaining("403");
+    }
+
+    @Test
+    void readsTheEventsOnceForTheActorsOfAllLabels() {
+        responder = request -> new Answer(200, "["
+                + labeledEvent("2026-11-01T10:00:00Z", "factory:block", "{\"login\":\"mallory\"}") + ","
+                + labeledEvent("2026-11-01T11:00:00Z", "factory:enter", "{\"login\":\"bbossola\"}") + ","
+                + labeledEvent("2026-11-01T12:00:00Z", "factory:block", "{\"login\":\"bbossola\"}") + ","
+                + labeledEvent("2026-11-01T13:00:00Z", "factory:enter", "null") + "]");
+
+        Map<String, String> actors = client.lastLabelActors(4);
+
+        assertThat(actors).containsExactly(Map.entry("factory:block", "bbossola"));
+        assertThat(requests).hasSize(1);
+    }
+
+    private static Answer answerWithEntityTag(String entityTag, String body) {
+        return new Answer(200, body, Map.of("ETag", entityTag));
+    }
+
+    private Function<RecordedRequest, Answer> answerNotModifiedFor(String entityTag, String body) {
+        return request -> entityTag.equals(request.headers().get("If-None-Match")) ? new Answer(304, "")
+                : answerWithEntityTag(entityTag, body);
+    }
+
+    @Test
+    void reusesTheIssueListOnANotModifiedAnswer() {
+        responder = answerNotModifiedFor("\"list-1\"",
+                "[{\"number\":1,\"title\":\"One\",\"body\":\"text\",\"labels\":[{\"name\":\"factory\"}]}]");
+
+        List<Issue> first = client.openIssuesWithLabel("factory");
+        List<Issue> second = client.openIssuesWithLabel("factory");
+
+        assertThat(second).isEqualTo(first).extracting(Issue::number).containsExactly(1);
+        assertThat(requests.get(0).headers().get("If-None-Match")).isEmpty();
+        assertThat(requests.get(1).headers().get("If-None-Match")).isEqualTo("\"list-1\"");
+        assertThat(client.requestCounts()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "GET /repos/{o}/{r}/issues", 1,
+                "GET /repos/{o}/{r}/issues (304)", 1));
+    }
+
+    @Test
+    void reusesTheCommentsOnANotModifiedAnswer() {
+        responder = answerNotModifiedFor("\"comments-1\"",
+                "[{\"id\":9,\"user\":{\"login\":\"bot\"},\"body\":\"Hello\"}]");
+
+        client.comments(4);
+        List<IssueComment> second = client.comments(4);
+
+        assertThat(second).containsExactly(new IssueComment(9, "bot", "Hello"));
+        assertThat(requests.get(1).headers().get("If-None-Match")).isEqualTo("\"comments-1\"");
+        assertThat(client.requestCounts()).containsEntry("GET /repos/{o}/{r}/issues/{n}/comments (304)", 1);
+    }
+
+    @Test
+    void followsTheCachedNextLinkOnANotModifiedPage() {
+        responder = request -> {
+            boolean secondPage = request.target().contains("page=2");
+            String entityTag = secondPage ? "\"page-2\"" : "\"page-1\"";
+            if (entityTag.equals(request.headers().get("If-None-Match"))) {
+                return new Answer(304, "");
+            }
+            String body = "[{\"number\":" + (secondPage ? 2 : 1) + ",\"title\":\"T\",\"labels\":[]}]";
+            Map<String, String> headers = secondPage ? Map.of("ETag", entityTag)
+                    : Map.of("ETag", entityTag, "Link", "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"");
+            return new Answer(200, body, headers);
+        };
+
+        client.openIssuesWithLabel("factory");
+        List<Issue> second = client.openIssuesWithLabel("factory");
+
+        assertThat(second).extracting(Issue::number).containsExactly(1, 2);
+        assertThat(requests).hasSize(4);
+        assertThat(client.requestCounts()).containsEntry("GET /repos/{o}/{r}/issues (304)", 2);
+    }
+
+    @Test
+    void keepsTheEntityTagsOfTheLastTwoHundredLists() {
+        responder = request -> answerWithEntityTag("\"tag\"", "[]");
+        for (int issueNumber = 1; issueNumber <= HttpGitHubClient.CACHED_LIST_LIMIT + 1; issueNumber++) {
+            client.comments(issueNumber);
+        }
+        requests.clear();
+
+        client.comments(1);
+        client.comments(HttpGitHubClient.CACHED_LIST_LIMIT + 1);
+
+        assertThat(requests.get(0).headers().get("If-None-Match")).isEmpty();
+        assertThat(requests.get(1).headers().get("If-None-Match")).isEqualTo("\"tag\"");
+    }
+
+    @Test
+    void sendsNoEntityTagForTheEventsOrForOneIssue() {
+        responder = request -> answerWithEntityTag("\"tag\"",
+                request.target().contains("/events") ? "[]" : issueJson());
+
+        client.issue(4);
+        client.issue(4);
+        client.lastLabelActors(4);
+        client.lastLabelActors(4);
+
+        assertThat(requests).extracting(request -> request.headers().get("If-None-Match")).containsOnly("");
     }
 }

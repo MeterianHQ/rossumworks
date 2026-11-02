@@ -66,8 +66,14 @@ class GitHubRequestBudgetTest {
             "The GitHub rate limit is reached. The factory waits until 2026-11-01T10:20:00Z.";
     private static final int MEASURED_POLLS = 5;
     private static final String ISSUE_LIST_REQUEST = "GET /repos/{o}/{r}/issues";
+    private static final String NOT_MODIFIED = " (304)";
     /** The issue list has the labels, so an issue in work without a request label needs no other read. */
     private static final int MAXIMUM_REQUESTS_OF_AN_IDLE_POLL = 1;
+    /** The issue list, one read of the events for all request labels, and one read of the comments. */
+    private static final int MAXIMUM_REQUESTS_OF_A_POLL_WITH_REQUEST_LABELS = 3;
+    /** One read of the events gives the actors of all request labels of the issue. */
+    private static final int MAXIMUM_EVENT_READS_OF_ONE_ISSUE = 1;
+    private static final String EVENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/events";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
     private static final Logger WORKER_LOGGER = Logger.getLogger(Worker.class.getName());
@@ -196,13 +202,37 @@ class GitHubRequestBudgetTest {
         List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
 
         assertThat(countsByPoll).allSatisfy(counts -> {
-            assertThat(counts).containsOnlyKeys(ISSUE_LIST_REQUEST);
-            assertThat(sum(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_AN_IDLE_POLL);
+            assertThat(counts.keySet()).isSubsetOf(ISSUE_LIST_REQUEST, ISSUE_LIST_REQUEST + NOT_MODIFIED);
+            assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_AN_IDLE_POLL);
+        });
+    }
+
+    @Test
+    void anIssueInWorkWithRequestLabelsFromAnotherAccountStaysInTheBudget() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        fakeGitHub.addLabelBy(ISSUE, EnterRequests.ENTER_LABEL, "mallory");
+        fakeGitHub.addLabelBy(ISSUE, "factory:block", "mallory");
+        worker.pollOnce();
+
+        List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
+
+        assertThat(countsByPoll).allSatisfy(counts -> {
+            assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_REQUEST_LABELS);
+            assertThat(counts.getOrDefault(EVENTS_REQUEST, 0)).isLessThanOrEqualTo(MAXIMUM_EVENT_READS_OF_ONE_ISSUE);
         });
     }
 
     private static int sum(Map<String, Integer> counts) {
         return counts.values().stream().mapToInt(Integer::intValue).sum();
+    }
+
+    /** GitHub does not count a 304 answer against the rate limit. */
+    private static int sumCounted(Map<String, Integer> counts) {
+        return counts.entrySet().stream().filter(entry -> !entry.getKey().endsWith(NOT_MODIFIED))
+                .mapToInt(Map.Entry::getValue).sum();
     }
 
     private List<String> rateLimitLines() {

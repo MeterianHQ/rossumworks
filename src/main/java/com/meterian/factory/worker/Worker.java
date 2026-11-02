@@ -14,6 +14,7 @@ import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.ApprovalCheck;
+import com.meterian.factory.workflow.IssueLabelActors;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
@@ -80,8 +81,8 @@ public final class Worker {
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
         this.restartPreparation = new RestartPreparation(gitHub, layout);
-        this.ignoredLabelNote = new IgnoredLabelNote(gitHub, requests, workerLogin);
-        this.enterRequests = new EnterRequests(gitHub, requests, ignoredLabelNote, workflow);
+        this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
+        this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
     }
@@ -193,20 +194,22 @@ public final class Worker {
         }
     }
 
+    /** The events of the issue are read at most once in this check, and only for a request label. */
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
         int issueNumber = issue.number();
         if (isBlockInProgress(issueNumber)) {
             return Optional.empty();
         }
+        IssueLabelActors labelActors = requests.readLabelActorsOf(issueNumber);
         if (issue.labels().contains(BLOCK_LABEL)) {
-            if (requests.isGivenByAllowedAccount(issueNumber, BLOCK_LABEL)) {
+            if (labelActors.isGivenByAllowedAccount(BLOCK_LABEL)) {
                 requestBlock(issueNumber);
                 return Optional.empty();
             }
-            ignoredLabelNote.write(issueNumber, BLOCK_LABEL, gitHub.comments(issueNumber));
+            ignoredLabelNote.write(labelActors, BLOCK_LABEL, gitHub.comments(issueNumber));
         }
         if (isInWork(issueNumber)) {
-            if (enterRequests.isRequested(issue)) {
+            if (enterRequests.isRequested(issue, labelActors)) {
                 rememberEnterRequest(issueNumber);
             }
             return Optional.empty();
@@ -218,9 +221,10 @@ public final class Worker {
         }
         Optional<IssueRecord> record = StatusComment.findRecord(comments, workerLogin);
         if (record.isEmpty()) {
-            return takeIntoQueue(issue, comments);
+            return takeIntoQueue(issue, comments, labelActors);
         }
-        IssueRecord current = enterRequests.isRequested(issue) ? enterRequests.enter(record.get()) : record.get();
+        IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(record.get())
+                : record.get();
         current = liveRecordCheck.forgetEndedSession(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
     }
@@ -249,9 +253,10 @@ public final class Worker {
         return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
 
-    private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments) {
-        if (!requests.isGivenByAllowedAccount(issue.number(), FACTORY_LABEL)) {
-            ignoredLabelNote.write(issue.number(), FACTORY_LABEL, comments);
+    private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments,
+                                                IssueLabelActors labelActors) {
+        if (!labelActors.isGivenByAllowedAccount(FACTORY_LABEL)) {
+            ignoredLabelNote.write(labelActors, FACTORY_LABEL, comments);
             return Optional.empty();
         }
         IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));

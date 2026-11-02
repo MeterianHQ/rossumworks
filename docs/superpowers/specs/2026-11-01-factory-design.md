@@ -124,6 +124,11 @@ GitHub (issues, labels with the status, pull requests)
 - At the end of each poll, the worker logs one line with the number of its
   GitHub requests: the total and the 10 largest counts by path template. The
   requests of the issue threads count in the line of the next poll.
+- The worker reads little. It sends the last `ETag` for the issue list and
+  for the comments of an issue, and a `304 Not Modified` answer reuses the
+  cached body. It reads the events of an issue at most once in each check,
+  and only for a request label. The status label changes without a second
+  read of the issue.
 - The worker can stop and start again at any time. At start, it reads the
   state from GitHub and continues. A phase that ran when the worker
   stopped runs again from its start.

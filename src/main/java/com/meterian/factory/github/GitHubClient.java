@@ -19,8 +19,16 @@ public interface GitHubClient {
 
     void editComment(long commentId, String body);
 
+    /**
+     * Reads the events of the issue once, and returns the actor of the newest "labeled" event for each label. A
+     * label whose newest event has no actor is not in the map.
+     */
+    Map<String, String> lastLabelActors(int issueNumber);
+
     /** Returns the actor of the newest "labeled" event for this label. */
-    Optional<String> lastLabelActor(int issueNumber, String label);
+    default Optional<String> lastLabelActor(int issueNumber, String label) {
+        return Optional.ofNullable(lastLabelActors(issueNumber).get(label));
+    }
 
     /** Creates the label when it does not exist. Does nothing when it exists. */
     void ensureLabel(String label, String color, String description);

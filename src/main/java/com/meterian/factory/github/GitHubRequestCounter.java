@@ -17,8 +17,10 @@ final class GitHubRequestCounter {
         this.repositoryPath = repositoryPath;
     }
 
-    synchronized void count(String method, URI uri) {
-        counts.merge(method + " " + toPathTemplate(uri.getRawPath()), 1, Integer::sum);
+    /** A 304 answer has its own key, because GitHub does not count it against the rate limit. */
+    synchronized void count(String method, URI uri, boolean isNotModified) {
+        String key = method + " " + toPathTemplate(uri.getRawPath()) + (isNotModified ? " (304)" : "");
+        counts.merge(key, 1, Integer::sum);
     }
 
     synchronized Map<String, Integer> counts() {
