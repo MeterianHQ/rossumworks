@@ -3,6 +3,7 @@ package com.meterian.factory.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.agent.LiveContextReader;
+import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -61,6 +62,7 @@ class WebServerTest {
     private static final int FAST_ITERATIONS = 1000;
     private static final int ISSUE_NUMBER = 12;
     private static final String APPROVE_LABEL = "factory:approve";
+    private static final String LINK = "https://claude.ai/code/session_abc123";
     private static final String EXPECTED_POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; "
             + "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
@@ -69,6 +71,10 @@ class WebServerTest {
 
     /** The arguments of one call of the label writer. */
     private record LabelCall(LabelChange change, int issueNumber, String label) {
+    }
+
+    /** The arguments of one call of the phone link sender. */
+    private record SentLink(int issueNumber, String link) {
     }
 
     @TempDir
@@ -81,6 +87,8 @@ class WebServerTest {
     private final List<LabelCall> labelCalls = new CopyOnWriteArrayList<>();
     private volatile Optional<RuntimeException> labelFailure = Optional.empty();
     private final AtomicInteger earlyPollRequests = new AtomicInteger();
+    private final List<SentLink> sentLinks = new CopyOnWriteArrayList<>();
+    private volatile Optional<RuntimeException> sendFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private WebServer server;
@@ -89,8 +97,7 @@ class WebServerTest {
     void startServer() throws IOException {
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
-        PageActions actions = new PageActions(createLabelWriter(), pageRequests, liveSessions, board,
-                earlyPollRequests::incrementAndGet);
+        PageActions actions = createPageActions();
         WebSettings settings = new WebSettings("127.0.0.1", 0, PasswordHash.create(PASSWORD.toCharArray(),
                 FAST_ITERATIONS));
         server = new WebServer(settings, login, createModelSource(), new BoardPage(ZoneOffset.UTC), board, actions);
@@ -158,7 +165,13 @@ class WebServerTest {
     private static IssueRecord liveConversation() {
         return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(), LivePlace.PHONE));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
+                        LivePlace.PHONE));
+    }
+
+    private static IssueRecord liveConversationWithLink() {
+        return liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
+                Optional.of(LINK), LivePlace.PHONE));
     }
 
     private static Issue issue() {
@@ -628,5 +641,127 @@ class WebServerTest {
 
         assertThat(answer.statusCode()).isEqualTo(500);
         assertThat(answer.body()).contains("The action failed. See the log of the worker.").doesNotContain("broken");
+    }
+
+    @Test
+    void aTerminalActionFromAnotherDeviceIsNotPossible() {
+        recordCard(waitsForAnAnswer());
+
+        PageActions.ActionResult result = createPageActions()
+                .perform(ISSUE_NUMBER, PageAction.ENTER_TERMINAL, Optional.of(currentFingerprint()), false);
+
+        assertThat(result.outcome()).isEqualTo(PageActions.ActionOutcome.NOT_POSSIBLE);
+        assertThat(labelCalls).isEmpty();
+        assertThat(earlyPollRequests.get()).isZero();
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void anOpenTerminalFromAnotherDeviceIsNotPossible() {
+        recordCard(liveConversationWithLink());
+
+        PageActions.ActionResult result = createPageActions()
+                .perform(ISSUE_NUMBER, PageAction.OPEN_TERMINAL, Optional.of(currentFingerprint()), false);
+
+        assertThat(result.outcome()).isEqualTo(PageActions.ActionOutcome.NOT_POSSIBLE);
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    @Test
+    void anEnterInTheBrowserRedirectsToTheWaitPage() {
+        recordCard(waitsForAnAnswer());
+
+        HttpResponse<String> answer = postAction("/issues/12/enter-browser", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/live/12");
+        assertThat(labelCalls).containsExactly(added("factory:enter"));
+        assertThat(earlyPollRequests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void anEnterInTheTerminalRemembersThePlace() {
+        recordCard(waitsForAnAnswer());
+
+        HttpResponse<String> answer = postAction("/issues/12/enter-terminal", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/");
+        assertThat(pageRequests.isRemembered(ISSUE_NUMBER, "factory:enter")).isTrue();
+        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.TERMINAL);
+    }
+
+    @Test
+    void anEnterOnThePhoneAddsTheLabelOfEnter() {
+        recordCard(waitsForAnAnswer());
+
+        HttpResponse<String> answer = postAction("/issues/12/enter-phone", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(labelCalls).containsExactly(added("factory:enter"));
+        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.PHONE);
+    }
+
+    @Test
+    void openTerminalOpensTheTerminalWithoutAGitHubRequest() {
+        recordCard(liveConversationWithLink());
+
+        HttpResponse<String> answer = postAction("/issues/12/open-terminal", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/");
+        assertThat(liveSessions.openedTerminals()).containsExactly(ISSUE_NUMBER);
+        assertThat(labelCalls).isEmpty();
+        assertThat(sentLinks).isEmpty();
+        assertThat(earlyPollRequests.get()).isZero();
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenGives500WithTheMessage() {
+        recordCard(liveConversationWithLink());
+        liveSessions.failOpenTerminalWith(new LiveSessionException("The terminal command gnome-terminal failed."));
+
+        HttpResponse<String> answer = postAction("/issues/12/open-terminal", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(500);
+        assertThat(answer.body()).contains("The terminal command gnome-terminal failed.");
+        assertThat(earlyPollRequests.get()).isZero();
+    }
+
+    @Test
+    void sendToPhonePostsTheLink() {
+        recordCard(liveConversationWithLink());
+
+        HttpResponse<String> answer = postAction("/issues/12/send-to-phone", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/");
+        assertThat(sentLinks).containsExactly(new SentLink(ISSUE_NUMBER, LINK));
+        assertThat(labelCalls).isEmpty();
+        assertThat(earlyPollRequests.get()).isZero();
+    }
+
+    @Test
+    void aRefusedCommentGives502WithTheMessage() {
+        recordCard(liveConversationWithLink());
+        sendFailure = Optional.of(new GitHubException("GitHub answered 502 for POST /issues/12/comments"));
+
+        HttpResponse<String> answer = postAction("/issues/12/send-to-phone", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(502);
+        assertThat(answer.body())
+                .contains("GitHub refused the comment. GitHub answered 502 for POST /issues/12/comments");
+    }
+
+    private PageActions createPageActions() {
+        return new PageActions(createLabelWriter(), pageRequests, liveSessions, this::recordSentLink, board,
+                earlyPollRequests::incrementAndGet);
+    }
+
+    private void recordSentLink(int issueNumber, String link) {
+        sendFailure.ifPresent(failure -> {
+            throw failure;
+        });
+        sentLinks.add(new SentLink(issueNumber, link));
     }
 }

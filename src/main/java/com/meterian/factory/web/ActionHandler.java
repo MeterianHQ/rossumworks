@@ -2,7 +2,7 @@ package com.meterian.factory.web;
 
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.web.ActionFormReader.BodyTooLargeException;
-import com.meterian.factory.web.PageActions.ActionOutcome;
+import com.meterian.factory.web.PageActions.ActionResult;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import java.io.IOException;
@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
 
 /**
  * Serves POST /issues/n/action, the forms of the buttons. The form has one field, the fingerprint of the card.
- * After the action, the browser goes back to the page.
+ * After the action, the browser goes back to the page. After an Enter in the browser, it goes to the wait page
+ * of the live conversation.
  */
 final class ActionHandler implements HttpHandler {
 
@@ -22,6 +23,7 @@ final class ActionHandler implements HttpHandler {
     private static final String NOT_POSSIBLE_MESSAGE = "This action is not possible now.";
     private static final String UNKNOWN_ISSUE_MESSAGE = "This issue is no longer on the board.";
     private static final String REFUSED_LABEL_MESSAGE = "GitHub refused the label. ";
+    private static final String REFUSED_COMMENT_MESSAGE = "GitHub refused the comment. ";
     private static final String FAILED_ACTION_MESSAGE = "The action failed. See the log of the worker.";
 
     /** The issue and the action of one path. */
@@ -80,9 +82,11 @@ final class ActionHandler implements HttpHandler {
     private void performAction(HttpExchange exchange, ActionTarget target, Optional<String> state)
             throws IOException {
         try {
-            sendOutcome(exchange, actions.perform(target.issueNumber(), target.action(), state));
+            ActionResult result = actions.perform(target.issueNumber(), target.action(), state,
+                    ViewerLocation.isThisMachine(exchange));
+            sendResult(exchange, target, result);
         } catch (GitHubException exception) {
-            HttpAnswers.sendMessagePage(exchange, 502, REFUSED_LABEL_MESSAGE + exception.getMessage());
+            HttpAnswers.sendMessagePage(exchange, 502, describeRefusal(target.action()) + exception.getMessage());
         } catch (RuntimeException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "The action " + target.action().pathName() + " on the issue #"
                     + target.issueNumber() + " failed.", exception);
@@ -90,11 +94,22 @@ final class ActionHandler implements HttpHandler {
         }
     }
 
-    private static void sendOutcome(HttpExchange exchange, ActionOutcome outcome) throws IOException {
-        switch (outcome) {
-            case DONE -> HttpAnswers.sendRedirect(exchange, "/");
+    /** Send to Phone is the only action that reaches GitHub without a label: it posts a comment. */
+    private static String describeRefusal(PageAction action) {
+        return action.label().isPresent() ? REFUSED_LABEL_MESSAGE : REFUSED_COMMENT_MESSAGE;
+    }
+
+    private static void sendResult(HttpExchange exchange, ActionTarget target, ActionResult result)
+            throws IOException {
+        switch (result.outcome()) {
+            case DONE -> HttpAnswers.sendRedirect(exchange, findPageAfter(target));
             case NOT_POSSIBLE -> HttpAnswers.sendMessagePage(exchange, 409, NOT_POSSIBLE_MESSAGE);
             case UNKNOWN_ISSUE -> HttpAnswers.sendMessagePage(exchange, 404, UNKNOWN_ISSUE_MESSAGE);
+            case FAILED -> HttpAnswers.sendMessagePage(exchange, 500, result.failureMessage().orElseThrow());
         }
+    }
+
+    private static String findPageAfter(ActionTarget target) {
+        return target.action() == PageAction.ENTER_BROWSER ? "/live/" + target.issueNumber() : "/";
     }
 }

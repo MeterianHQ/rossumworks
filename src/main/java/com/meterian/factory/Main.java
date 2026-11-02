@@ -27,12 +27,14 @@ import com.meterian.factory.web.BoardPage;
 import com.meterian.factory.web.LabelWriter;
 import com.meterian.factory.web.PageActions;
 import com.meterian.factory.web.PageModelSource;
+import com.meterian.factory.web.PhoneLinkSender;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.web.login.PasswordLogin;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.LiveComment;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -321,8 +323,9 @@ public final class Main {
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
                 liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
-        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions,
-                createLabelWriter(gitHub), () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
+        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
+                createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
+                worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
                 UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
@@ -362,14 +365,20 @@ public final class Main {
         };
     }
 
+    /** The page sends the live link again with the comment of the worker: the mention notifies the phone. */
+    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub, FactoryConfiguration configuration) {
+        Optional<String> mentionedLogin = configuration.allowedAccounts().stream().findFirst();
+        return (issueNumber, link) -> gitHub.createComment(issueNumber, LiveComment.render(link, mentionedLogin));
+    }
+
     /**
-     * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
-     * client.
+     * Without a web section, the worker serves no page. The page gets only a label writer and a phone link
+     * sender, never the GitHub client.
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
                                                LiveSessions liveSessions, LabelWriter labels,
-                                               IntSupplier issuesInWork, Runnable earlyPollRequest,
-                                               Path claudeHome) {
+                                               PhoneLinkSender phoneLinkSender, IntSupplier issuesInWork,
+                                               Runnable earlyPollRequest, Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
@@ -377,7 +386,7 @@ public final class Main {
                         new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
                         Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(),
+                new PageActions(labels, shared.pageRequests(), liveSessions, phoneLinkSender, shared.board(),
                         earlyPollRequest)));
     }
 

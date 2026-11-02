@@ -229,7 +229,7 @@ class BoardPageTest {
         assertThat(html).contains(
                 "<form method=\"post\" action=\"/issues/12/approve\">" + state + "<button>Approve</button></form>");
         assertThat(html).contains(
-                "<form method=\"post\" action=\"/issues/12/enter\">" + state + "<button>Enter</button></form>");
+                "<form method=\"post\" action=\"/issues/12/enter-phone\">" + state + "<button>Phone</button></form>");
         assertThat(html).contains("action=\"/issues/12/block\"").contains("<button>Block</button>");
         assertThat(html).doesNotContain("/issues/12/continue").doesNotContain("<button>Continue</button>");
     }
@@ -273,7 +273,7 @@ class BoardPageTest {
                 Map.of(12, Set.of("factory:enter"))));
 
         assertThat(html).contains(requestLine(
-                "Enter sent. The worker opens the live conversation in a few seconds, or after the current step."));
+                "Enter sent. The link goes to your phone in a few seconds, or after the current step."));
     }
 
     @Test

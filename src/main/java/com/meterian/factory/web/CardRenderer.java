@@ -77,7 +77,8 @@ final class CardRenderer {
     /** A request of the page replaces the reason of the wait, so that the owner sees that the click arrived. */
     private void appendRequests(StringBuilder html, List<PageAction> pendingRequests) {
         for (PageAction action : pendingRequests) {
-            html.append("<p class=\"request\">").append(Html.escape(action.requestSentence())).append("</p>");
+            action.requestSentence().ifPresent(sentence ->
+                    html.append("<p class=\"request\">").append(Html.escape(sentence)).append("</p>"));
         }
     }
 
@@ -165,7 +166,8 @@ final class CardRenderer {
         String fingerprint = CardFingerprint.of(card);
         html.append("<div class=\"actions\">");
         for (PageAction action : PageAction.values()) {
-            if (action.isPossible(card, continueRequested, rememberedLabels)) {
+            // The card does not know the viewer yet: the server still refuses a terminal action from another device.
+            if (action.isPossible(card, continueRequested, rememberedLabels, true)) {
                 appendActionForm(html, card.issueNumber(), action, fingerprint);
             }
         }

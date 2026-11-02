@@ -10,7 +10,7 @@ public final class LiveComment {
     }
 
     /** The mention notifies the phone of the owner. Without a mention, the text ends after the last line. */
-    static String render(String link, Optional<String> mentionedLogin) {
+    public static String render(String link, Optional<String> mentionedLogin) {
         String text = "The live conversation is open: " + StatusComment.sanitizeLine(link)
                 + "\n\nType /factory:continue in the conversation when you are done.";
         return mentionedLogin.map(login -> text + "\n\n@" + login).orElse(text);
