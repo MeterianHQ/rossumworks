@@ -69,7 +69,8 @@ class PageModelSourceTest {
     private static IssueRecord liveRecord(int number) {
         return IssueRecord.queued(number).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(), LivePlace.PHONE));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
+                        LivePlace.PHONE));
     }
 
     private void writeSessionFile(IssueRecord record, long inputTokens) throws IOException {
@@ -85,7 +86,7 @@ class PageModelSourceTest {
     void readsTheValuesOfTheWorkerAndTheConfiguration() {
         usage.record(List.of(new UsageWindow("seven_day", 0.95, NOW.plus(Duration.ofDays(1)), "allowed", null)));
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.renderedAt()).isEqualTo(NOW);
         assertThat(model.issuesInWork()).isEqualTo(1);
@@ -103,7 +104,7 @@ class PageModelSourceTest {
         board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
         contexts.record(12, new ContextUsage(100, 1000));
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.contexts()).containsEntry(12, new ContextUsage(100, 1000));
     }
@@ -115,7 +116,7 @@ class PageModelSourceTest {
         contexts.record(12, new ContextUsage(100, 1000));
         writeSessionFile(record, 620);
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.contexts()).containsEntry(12, new ContextUsage(620, 1000));
     }
@@ -125,7 +126,7 @@ class PageModelSourceTest {
         board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), liveRecord(12));
         contexts.record(12, new ContextUsage(100, 1000));
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.contexts()).containsEntry(12, new ContextUsage(100, 1000));
     }
@@ -136,7 +137,7 @@ class PageModelSourceTest {
         board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), liveRecord(13));
         liveSessions.requestContinue(12);
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.continueRequested()).containsExactly(12);
     }
@@ -149,9 +150,27 @@ class PageModelSourceTest {
         pageRequests.remember(12, "factory:block");
         pageRequests.remember(99, "factory:enter");
 
-        PageModel model = source().read();
+        PageModel model = source().read(true);
 
         assertThat(model.rememberedLabels()).containsOnlyKeys(12)
                 .containsEntry(12, Set.of("factory:approve", "factory:block"));
+    }
+
+    @Test
+    void readsTheEnterPlaceOfEachCard() {
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), IssueRecord.queued(13));
+        pageRequests.rememberEnterPlace(12, LivePlace.TERMINAL);
+        pageRequests.rememberEnterPlace(99, LivePlace.BROWSER);
+
+        PageModel model = source().read(true);
+
+        assertThat(model.enterPlaces()).containsExactly(Map.entry(12, LivePlace.TERMINAL));
+    }
+
+    @Test
+    void keepsTheLocationOfTheViewer() {
+        assertThat(source().read(true).viewerOnThisMachine()).isTrue();
+        assertThat(source().read(false).viewerOnThisMachine()).isFalse();
     }
 }

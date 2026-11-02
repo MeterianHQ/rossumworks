@@ -54,9 +54,10 @@
     }
 
     // The button shows that the click arrived, and a second click is not possible. The button has no name,
-    // so a disabled button does not change the form data.
+    // so a disabled button does not change the form data. A form that opens a new tab keeps this tab usable:
+    // the new tab shows the wait.
     function showBusyButton(event) {
-        if (event.defaultPrevented) {
+        if (event.defaultPrevented || event.target.getAttribute("target") === "_blank") {
             return;
         }
         var button = event.target.querySelector("button");

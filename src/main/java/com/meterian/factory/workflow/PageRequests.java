@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** The requests that the web page made for the owner. They are in memory only, so a restart forgets them. */
@@ -37,6 +38,15 @@ public final class PageRequests {
     /** The page calls this method before it adds the label that enters the live conversation. */
     public void rememberEnterPlace(int issueNumber, LivePlace place) {
         placeByIssue.put(issueNumber, new PlaceRequest(place, clock.instant().plus(REQUEST_LIFETIME)));
+    }
+
+    /** Gives the remembered place and keeps it. Gives nothing when no place is remembered or it expired. */
+    public Optional<LivePlace> findEnterPlace(int issueNumber) {
+        PlaceRequest request = placeByIssue.get(issueNumber);
+        if (request == null || !clock.instant().isBefore(request.expiry())) {
+            return Optional.empty();
+        }
+        return Optional.of(request.place());
     }
 
     /** Gives the remembered place and forgets it. Gives PHONE when no place is remembered or it expired. */

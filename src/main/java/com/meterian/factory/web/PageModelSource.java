@@ -7,6 +7,7 @@ import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.PageRequests;
@@ -48,13 +49,18 @@ public final class PageModelSource {
         this.clock = clock;
     }
 
-    public PageModel read() {
+    /**
+     * Reads the values of the page for one viewer.
+     *
+     * @param viewerOnThisMachine true when the browser runs on the machine of the worker, see {@link ViewerLocation}
+     */
+    public PageModel read(boolean viewerOnThisMachine) {
         BoardSnapshot snapshot = board.snapshot();
         return new PageModel(snapshot, clock.instant(), issuesInWork.getAsInt(),
                 configuration.limits().parallelIssues(), configuration.limits().fixLoops(),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                configuration.target().fullName());
+                readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine);
     }
 
     private Map<Integer, ContextUsage> readContexts(BoardSnapshot snapshot) {
@@ -85,6 +91,15 @@ public final class PageModelSource {
             }
         }
         return labelsByIssue;
+    }
+
+    private Map<Integer, LivePlace> readEnterPlaces(BoardSnapshot snapshot) {
+        Map<Integer, LivePlace> placesByIssue = new HashMap<>();
+        for (IssueCard card : snapshot.cards()) {
+            pageRequests.findEnterPlace(card.issueNumber())
+                    .ifPresent(place -> placesByIssue.put(card.issueNumber(), place));
+        }
+        return placesByIssue;
     }
 
     private Set<Integer> readContinueRequests(BoardSnapshot snapshot) {

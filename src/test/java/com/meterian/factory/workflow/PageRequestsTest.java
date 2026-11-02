@@ -6,6 +6,7 @@ import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class PageRequestsTest {
@@ -29,5 +30,22 @@ class PageRequestsTest {
         clock.advance(Duration.ofHours(24).plusSeconds(1));
 
         assertThat(pageRequests.takeEnterPlace(ISSUE)).isEqualTo(LivePlace.PHONE);
+    }
+
+    @Test
+    void findsTheEnterPlaceAndKeepsIt() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.BROWSER);
+        assertThat(pageRequests.takeEnterPlace(ISSUE)).isEqualTo(LivePlace.BROWSER);
+    }
+
+    @Test
+    void findsNoExpiredEnterPlace() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        clock.advance(Duration.ofHours(24).plusSeconds(1));
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).isEmpty();
+        assertThat(pageRequests.findEnterPlace(ISSUE + 1)).isEqualTo(Optional.empty());
     }
 }

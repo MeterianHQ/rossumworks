@@ -51,8 +51,12 @@ class BoardPageTest {
     }
 
     private static IssueRecord liveRecord(int number, String link) {
-        return waitingRecord(number, WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.of(link), LivePlace.PHONE));
+        return liveRecord(number, link, LivePlace.PHONE);
+    }
+
+    private static IssueRecord liveRecord(int number, String link, LivePlace place) {
+        LiveSession live = new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.of(link), place);
+        return waitingRecord(number, WaitReason.LIVE_CONVERSATION).withLive(live);
     }
 
     private static PageModel model(List<IssueCard> cards) {
@@ -84,9 +88,28 @@ class BoardPageTest {
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+                Map.of(), true);
+    }
+
+    private static PageModel modelWithEnterPlaces(List<IssueCard> cards, Map<Integer, LivePlace> enterPlaces) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(),
+                Map.of(12, Set.of("factory:enter")), Set.of(), enterPlaces, true);
+    }
+
+    private static PageModel modelForAnotherDevice(List<IssueCard> cards) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(), Map.of(),
+                Set.of(), Map.of(), false);
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
+            Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
         return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, continueRequested, rememberedLabels, "MeterianHQ/target");
+                usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
+                viewerOnThisMachine);
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -140,7 +163,79 @@ class BoardPageTest {
 
         assertThat(html).contains("class=\"card waits\"");
         assertThat(html).contains(WaitReason.LIVE_CONVERSATION.sentence());
-        assertThat(html).contains("<a href=\"" + LINK + NEW_TAB + "Remote Control</a>");
+        assertThat(html).contains("<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p>");
+        assertThat(html).contains("<a href=\"" + LINK + "\" target=\"_blank\" rel=\"noopener noreferrer\"");
+    }
+
+    @Test
+    void theEnterButtonsAreOneGroupWithTooltips() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(model(List.of(card(record))));
+
+        assertThat(html).contains("<div class=\"enter-group\">");
+        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" target=\"_blank\">");
+        assertThat(html).contains("data-tip=\"" + PageAction.ENTER_TERMINAL.tooltip() + "\"",
+                "data-tip=\"" + PageAction.ENTER_BROWSER.tooltip() + "\"",
+                "data-tip=\"" + PageAction.ENTER_PHONE.tooltip() + "\"");
+        assertThat(html).contains("aria-label=\"Phone. " + PageAction.ENTER_PHONE.tooltip() + "\"");
+        assertThat(html).containsSubsequence("class=\"enter-group\"", "/enter-terminal", "/enter-browser",
+                "/enter-phone", "/approve", "/block");
+        assertThat(html).doesNotContain("\u2197");
+    }
+
+    @Test
+    void anotherDeviceHasNoTerminalButton() {
+        IssueRecord waiting = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelForAnotherDevice(List.of(card(waiting), card(liveRecord(13, LINK)))));
+
+        assertThat(html).contains("/issues/12/enter-browser", "/issues/12/enter-phone", "/issues/13/send-to-phone");
+        assertThat(html).doesNotContain("/enter-terminal").doesNotContain("/open-terminal");
+    }
+
+    @Test
+    void theLiveBoxMarksTheChosenPlace() {
+        String html = page.renderBoard(model(List.of(card(liveRecord(12, LINK, LivePlace.BROWSER)))));
+
+        assertThat(html).contains("<p class=\"open-label\">You opened it in a tab of this browser."
+                + " Open it again or somewhere else:</p>");
+        assertThat(html).contains("<a href=\"" + LINK + NEW_TAB.substring(0, NEW_TAB.length() - 1)
+                + " class=\"current\"");
+        assertThat(html).containsSubsequence("<div class=\"open-group\">", "/issues/12/open-terminal", LINK,
+                "/issues/12/send-to-phone");
+        assertThat(html).containsOnlyOnce("class=\"current\"");
+    }
+
+    @Test
+    void theLiveBoxMarksTheTerminalAsTheChosenPlace() {
+        String html = page.renderBoard(model(List.of(card(liveRecord(12, LINK, LivePlace.TERMINAL)))));
+
+        assertThat(html).contains("You opened it in a terminal on this machine.");
+        assertThat(html).containsSubsequence("/issues/12/open-terminal", "<button class=\"current\"", LINK);
+        assertThat(html).containsOnlyOnce("class=\"current\"");
+    }
+
+    @Test
+    void theLiveBoxHasNoBrowserLinkForAWrongLink() {
+        String html = page.renderBoard(model(List.of(card(liveRecord(12, "javascript:alert(1)")))));
+
+        assertThat(html).contains("You sent it to the phone.");
+        assertThat(html).doesNotContain("href=\"javascript").doesNotContain("Browser</a>");
+        assertThat(html).contains("javascript:alert(1)");
+    }
+
+    @Test
+    void anEnterShowsOnlyTheLineOfTheChosenPlace() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        List<IssueCard> cards = List.of(cardWithLabel(record, "factory:enter"));
+
+        String chosen = page.renderBoard(modelWithEnterPlaces(cards, Map.of(12, LivePlace.TERMINAL)));
+        String withoutPlace = page.renderBoard(modelWithEnterPlaces(cards, Map.of()));
+
+        assertThat(chosen).containsOnlyOnce("class=\"request\"")
+                .contains(requestLine(PageAction.ENTER_TERMINAL.requestSentence().orElseThrow()));
+        assertThat(withoutPlace).doesNotContain("class=\"request\"");
     }
 
     @Test
@@ -208,14 +303,16 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(List.of(card(record, "Fix the parser"))));
 
-        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/issues/12" + NEW_TAB + "#12 Fix the parser</a>");
+        assertThat(html).contains(
+                "<a href=\"https://github.com/MeterianHQ/target/issues/12" + NEW_TAB + "#12 Fix the parser</a>");
         assertThat(html).contains("<span class=\"phase\">implement</span>");
         assertThat(html).contains("<li class=\"review positive\" title=\"Correctness: positive\">Correctness</li>",
                 "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
                 "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
                 "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
         assertThat(html).contains("<dt>Fix loops</dt><dd>1 of 2</dd>", "<dt>Risk</dt><dd class=\"risk-low\">low</dd>");
-        assertThat(html).contains("<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
+        assertThat(html).contains(
+                "<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
     }
 
@@ -228,8 +325,7 @@ class BoardPageTest {
         String state = "<input type=\"hidden\" name=\"state\" value=\"" + CardFingerprint.of(card(record)) + "\">";
         assertThat(html).contains(
                 "<form method=\"post\" action=\"/issues/12/approve\">" + state + "<button>Approve</button></form>");
-        assertThat(html).contains(
-                "<form method=\"post\" action=\"/issues/12/enter-phone\">" + state + "<button>Phone</button></form>");
+        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-phone\">" + state + "<button");
         assertThat(html).contains("action=\"/issues/12/block\"").contains("<button>Block</button>");
         assertThat(html).doesNotContain("/issues/12/continue").doesNotContain("<button>Continue</button>");
     }
@@ -269,8 +365,8 @@ class BoardPageTest {
     void anEnterRequestShowsThatTheConversationOpensSoon() {
         IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
 
-        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
-                Map.of(12, Set.of("factory:enter"))));
+        String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
+                Map.of(12, LivePlace.PHONE)));
 
         assertThat(html).contains(requestLine(
                 "Enter sent. The link goes to your phone in a few seconds, or after the current step."));

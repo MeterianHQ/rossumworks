@@ -390,13 +390,91 @@ button {
     background: rgba(68, 147, 248, 0.12);
 }
 
-.live a {
-    font-weight: 600;
+/* The live conversation is open: the box gives the chosen place and the places where it opens again. */
+.live-box {
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(63, 185, 80, 0.4);
+    border-radius: 8px;
+    background: rgba(63, 185, 80, 0.08);
 }
 
-.live a::before {
-    content: "\25CF  ";
+.live-title {
+    margin: 0 0 0.4rem;
+    font-weight: 600;
     color: var(--green);
+}
+
+.live-title::before {
+    content: "\25CF  ";
+}
+
+.open-label {
+    margin: 0 0 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* The places are one joined group. The place that the owner chose has the class "current". */
+.open-group {
+    display: inline-flex;
+    flex-wrap: nowrap;
+}
+
+.open-group form {
+    display: flex;
+    margin: 0;
+}
+
+.open-group > a,
+.open-group button {
+    position: relative;
+    margin-left: -1px;
+    padding: 0.32rem 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--text);
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    border-radius: 0;
+    background: #21262d;
+}
+
+.open-group > a:first-child,
+.open-group > form:first-child button {
+    margin-left: 0;
+    border-radius: 6px 0 0 6px;
+}
+
+.open-group > a:last-child,
+.open-group > form:last-child button {
+    border-radius: 0 6px 6px 0;
+}
+
+.open-group > a:only-child,
+.open-group > form:only-child button {
+    border-radius: 6px;
+}
+
+.open-group > a:hover,
+.open-group button:hover {
+    background: #30363d;
+}
+
+.open-group .current {
+    z-index: 1;
+    color: #ffffff;
+    border-color: var(--blue);
+    background: #1f6feb;
+}
+
+.open-group .current:hover {
+    background: #388bfd;
+}
+
+.icon {
+    margin-right: 0.3rem;
 }
 
 .reviews {
@@ -508,8 +586,15 @@ button {
 .actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.4rem;
     margin-top: 0.6rem;
+}
+
+/* The Enter buttons are on their own row, and the other buttons go to the next row. */
+.actions .separator {
+    flex-basis: 100%;
+    height: 0;
 }
 
 .actions:empty {
@@ -543,7 +628,6 @@ button {
     background: #2ea043;
 }
 
-.actions form[action$="/enter"] button,
 .actions form[action$="/continue"] button {
     color: #ffffff;
     border-color: var(--blue);
@@ -561,16 +645,106 @@ button {
     background: #b62324;
 }
 
+/* The three Enter buttons are one row that never breaks. */
+.enter-group {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.enter-group button {
+    position: relative;
+    padding: 0.35rem 0.7rem;
+    white-space: nowrap;
+    color: #ffffff;
+    border-color: var(--blue);
+    background: #1f6feb;
+}
+
+.enter-group button:hover {
+    background: #388bfd;
+}
+
+/* The tooltip of a place shows above the button, after a short delay. It stays inside the card:
+   the first buttons align it to their left edge, and the last button aligns it to its right edge. */
+.enter-group button[data-tip]:not(.busy)::after,
+.open-group [data-tip]:not(.busy)::after {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 0;
+    z-index: 10;
+    width: 240px;
+    padding: 0.55rem 0.7rem;
+    content: attr(data-tip);
+    white-space: normal;
+    text-align: left;
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.35;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: #2d333b;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition: opacity 0.12s ease-out 0.25s, transform 0.12s ease-out 0.25s, visibility 0s linear 0.37s;
+    pointer-events: none;
+}
+
+.enter-group button[data-tip]:not(.busy)::before {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 1.2rem;
+    z-index: 11;
+    content: "";
+    border: 6px solid transparent;
+    border-top-color: #2d333b;
+    border-bottom: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease-out 0.25s, visibility 0s linear 0.37s;
+}
+
+.enter-group form:last-child button[data-tip]:not(.busy)::after,
+.open-group > a:last-child[data-tip]::after,
+.open-group > form:last-child button[data-tip]:not(.busy)::after {
+    right: 0;
+    left: auto;
+}
+
+.enter-group form:last-child button[data-tip]:not(.busy)::before {
+    right: 1.2rem;
+    left: auto;
+}
+
+.enter-group button[data-tip]:not(.busy):hover::after,
+.enter-group button[data-tip]:not(.busy):focus-visible::after,
+.enter-group button[data-tip]:not(.busy):hover::before,
+.enter-group button[data-tip]:not(.busy):focus-visible::before,
+.open-group [data-tip]:not(.busy):hover::after,
+.open-group [data-tip]:not(.busy):focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay: 0.25s, 0.25s, 0s;
+}
+
 /* page.js adds the class "busy" after a click: the label gives its place to a turning wheel.
    The selector is stronger than the rules of each action, and it comes after them, also for the hover. */
 .actions form[action] button.busy,
-.actions form[action] button.busy:hover {
+.actions form[action] button.busy:hover,
+.open-group form[action] button.busy,
+.open-group form[action] button.busy:hover {
     position: relative;
     color: transparent;
     cursor: progress;
 }
 
-.actions form[action] button.busy::after {
+.actions form[action] button.busy::after,
+.open-group form[action] button.busy::after {
     position: absolute;
     inset: 0;
     width: 0.85rem;
@@ -591,7 +765,8 @@ button {
 
 /* Without motion, the busy button shows three dots. */
 @media (prefers-reduced-motion: reduce) {
-    .actions form[action] button.busy::after {
+    .actions form[action] button.busy::after,
+    .open-group form[action] button.busy::after {
         width: auto;
         height: auto;
         content: "\2026";
