@@ -1,0 +1,93 @@
+body {
+    margin: 0;
+    padding: 1rem;
+    font-family: system-ui, sans-serif;
+    font-size: 15px;
+    color: #1f2328;
+    background: #f6f8fa;
+}
+
+header p {
+    margin: 0.2rem 0;
+}
+
+.warning {
+    padding: 0.4rem 0.6rem;
+    font-weight: bold;
+    color: #ffffff;
+    background: #d93f0b;
+}
+
+.columns {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(12rem, 1fr));
+    gap: 0.8rem;
+    margin-top: 1rem;
+}
+
+.column h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+}
+
+.card {
+    margin-bottom: 0.6rem;
+    padding: 0.6rem;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    background: #ffffff;
+}
+
+.card h3 {
+    margin: 0 0 0.3rem 0;
+    font-size: 0.95rem;
+}
+
+.card p {
+    margin: 0.2rem 0;
+}
+
+.waits {
+    border: 2px solid #bf8700;
+    background: #fff8c5;
+}
+
+.reason,
+.note {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.reason {
+    font-weight: bold;
+}
+
+.note {
+    color: #59636e;
+}
+
+.reviews {
+    margin: 0.2rem 0;
+    padding-left: 1.2rem;
+}
+
+meter {
+    width: 6rem;
+}
+
+.actions form {
+    display: inline-block;
+    margin: 0.3rem 0.3rem 0 0;
+}
+
+.actions button {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 800px) {
+    .columns {
+        grid-template-columns: 1fr;
+    }
+}

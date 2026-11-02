@@ -57,6 +57,11 @@ public final class TmuxLiveSessions implements LiveSessions {
     }
 
     /** On any failure after the start, the session is closed: the record never knows of a session that is left. */
+    /** Tells if the full text is a Remote Control link, with the same pattern that reads the link on the screen. */
+    public static boolean isRemoteControlLink(String text) {
+        return text != null && LINK.matcher(text).matches();
+    }
+
     @Override
     public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
         clearContinueRequest(issueNumber);
