@@ -5,6 +5,7 @@ import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meterian.factory.board.BoardState;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -26,6 +27,7 @@ import com.meterian.factory.testing.FakeGitHubServer;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.RequestReader;
@@ -149,11 +151,12 @@ class GitHubRequestBudgetTest {
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
+        BoardState board = new BoardState(clock);
         FactoryConfiguration configuration = new FactoryConfiguration(createTarget(), "main",
                 new Limits(1, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"));
+                temporaryDirectory.resolve("live"), Optional.empty());
         BuildRunner buildRunner = new BuildRunner();
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
@@ -161,11 +164,12 @@ class GitHubRequestBudgetTest {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
-                new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions);
+                new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
+                board, new ContextTracker());
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions, clock);
+                liveSessions, clock, board);
     }
 
     private Optional<IssueRecord> readRecord() {
