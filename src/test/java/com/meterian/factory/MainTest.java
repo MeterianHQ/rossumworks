@@ -291,7 +291,7 @@ class MainTest {
         return new FactoryConfiguration(target, "main", new Limits(2, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), workDirectory,
                 temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(), temporaryDirectory.resolve("live"),
-                web);
+                web, FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
     @Test

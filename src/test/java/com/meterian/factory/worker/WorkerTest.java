@@ -153,7 +153,8 @@ class WorkerTest {
                 new Limits(parallelIssues, 2, pollInterval, 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty());
+                temporaryDirectory.resolve("live"), Optional.empty(),
+                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
     private Worker createWorker(FakeAgentRunner agent, int parallelIssues) {

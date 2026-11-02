@@ -56,7 +56,8 @@ class PageModelSourceTest {
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty());
+                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
+                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
                 pageRequests, new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }

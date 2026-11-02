@@ -15,5 +15,8 @@ public record FactoryConfiguration(
         Path gatekeeperDirectory,
         Optional<Path> promptDirectory,
         Path liveDirectory,
-        Optional<WebSettings> web) {
+        Optional<WebSettings> web,
+        List<String> terminalCommand) {
+
+    public static final List<String> DEFAULT_TERMINAL_COMMAND = List.of("gnome-terminal", "--");
 }

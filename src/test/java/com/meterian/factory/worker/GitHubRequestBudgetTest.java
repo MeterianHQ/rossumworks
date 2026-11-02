@@ -156,7 +156,8 @@ class GitHubRequestBudgetTest {
                 new Limits(1, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty());
+                temporaryDirectory.resolve("live"), Optional.empty(),
+                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
         RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
