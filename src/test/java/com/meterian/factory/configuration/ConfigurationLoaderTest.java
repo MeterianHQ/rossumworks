@@ -3,6 +3,7 @@ package com.meterian.factory.configuration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.meterian.factory.web.login.PasswordHash;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -153,6 +154,73 @@ class ConfigurationLoaderTest {
         assertThatThrownBy(() -> ConfigurationLoader.load(temporaryDirectory.resolve("missing.yaml")))
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("missing.yaml");
+    }
+
+    private static final String WEAK_HASH = "pbkdf2-sha256:1000:AAAAAAAAAAAAAAAAAAAAAA==:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+    private String createStrongHash() {
+        return PasswordHash.create("correct horse battery".toCharArray(), 100_000).format();
+    }
+
+    @Test
+    void theWebSectionIsOptional() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION);
+
+        assertThat(configuration.web()).isEmpty();
+    }
+
+    @Test
+    void theWebPageListensOnTheLoopbackAddressByDefault() throws Exception {
+        String hash = createStrongHash();
+
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION
+                + "web:\n  password-hash: \"" + hash + "\"\n");
+
+        WebSettings web = configuration.web().orElseThrow();
+        assertThat(web.address()).isEqualTo("127.0.0.1");
+        assertThat(web.port()).isEqualTo(8090);
+        assertThat(web.passwordHash().format()).isEqualTo(hash);
+    }
+
+    @Test
+    void readsTheAddressAndThePort() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + MERGE_SECTION
+                + "web:\n  address: 0.0.0.0\n  port: 9000\n  password-hash: \"" + createStrongHash() + "\"\n");
+
+        assertThat(configuration.web().orElseThrow().address()).isEqualTo("0.0.0.0");
+        assertThat(configuration.web().orElseThrow().port()).isEqualTo(9000);
+    }
+
+    @Test
+    void aWebSectionNeedsAPasswordHash() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + "web:\n  port: 8090\n"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key web.password-hash is missing.");
+    }
+
+    @Test
+    void aHashInAnotherFormatIsRefused() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + "web:\n  password-hash: plain\n"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("web.password-hash is not valid. Make a new one with hash-password.");
+    }
+
+    @Test
+    void aWeakHashIsRefused() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION
+                + "web:\n  password-hash: \"" + WEAK_HASH + "\"\n"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("web.password-hash is too weak. Make a new one with hash-password.");
+    }
+
+    @Test
+    void aPortOutsideTheRangeIsRefused() {
+        for (int port : new int[] {0, 65536, -1}) {
+            assertThatThrownBy(() -> load(REQUIRED_KEYS + MERGE_SECTION + "web:\n  port: " + port
+                    + "\n  password-hash: \"" + createStrongHash() + "\"\n"))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessage("web.port must be from 1 to 65535");
+        }
     }
 
     private FactoryConfiguration load(String content) throws ConfigurationException, IOException {

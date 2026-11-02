@@ -19,13 +19,16 @@ import org.junit.jupiter.api.io.TempDir;
 
 class MainTest {
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>";
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+            + "       java -jar claude-ai-factory.jar hash-password";
 
     @TempDir
     Path temporaryDirectory;
 
     private final ByteArrayOutputStream errorBytes = new ByteArrayOutputStream();
     private final PrintStream errors = new PrintStream(errorBytes, true, StandardCharsets.UTF_8);
+    private final ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+    private final PrintStream output = new PrintStream(outputBytes, true, StandardCharsets.UTF_8);
 
     private int runMain(String[] arguments, Map<String, String> environment) {
         return Main.run(arguments, environment, errors,
@@ -190,5 +193,62 @@ class MainTest {
 
         assertThat(client.followRedirects()).isEqualTo(HttpClient.Redirect.NEVER);
         assertThat(client.connectTimeout()).contains(Duration.ofSeconds(30));
+    }
+
+    private int hashPassword(List<String> typedPasswords) {
+        List<String> remaining = new java.util.ArrayList<>(typedPasswords);
+        Main.PasswordSource passwords = prompt -> remaining.isEmpty()
+                ? Optional.empty() : Optional.of(remaining.remove(0).toCharArray());
+        return Main.hashPassword(passwords, output, errors);
+    }
+
+    private String outputText() {
+        return outputBytes.toString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void hashPasswordWritesTheHashLine() {
+        int exitCode = hashPassword(List.of("correct horse battery", "correct horse battery"));
+
+        assertThat(exitCode).isEqualTo(0);
+        String line = outputText().strip();
+        assertThat(line).startsWith("password-hash: pbkdf2-sha256:600000:");
+        assertThat(com.meterian.factory.web.login.PasswordHash.parse(line.substring("password-hash: ".length()))
+                .matches("correct horse battery".toCharArray())).isTrue();
+        assertThat(errorText()).isEmpty();
+    }
+
+    @Test
+    void hashPasswordRefusesTwoDifferentPasswords() {
+        int exitCode = hashPassword(List.of("correct horse battery", "another horse battery"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("The two passwords are not the same.")
+                .doesNotContain("horse");
+        assertThat(outputText()).doesNotContain("password-hash");
+    }
+
+    @Test
+    void hashPasswordRefusesAShortPassword() {
+        int exitCode = hashPassword(List.of("short", "short"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("The password must have 12 characters or more.");
+        assertThat(outputText()).doesNotContain("password-hash");
+    }
+
+    @Test
+    void hashPasswordNeedsATerminal() {
+        int exitCode = hashPassword(List.of());
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("Run hash-password in a terminal.");
+    }
+
+    @Test
+    void theHashPasswordCommandIsSelectedByItsName() {
+        assertThat(Main.isHashPasswordCommand(new String[] {"hash-password"})).isTrue();
+        assertThat(Main.isHashPasswordCommand(new String[] {"hash-password", "x"})).isFalse();
+        assertThat(Main.isHashPasswordCommand(new String[] {"run", "--config", "f"})).isFalse();
     }
 }

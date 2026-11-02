@@ -17,6 +17,7 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
@@ -26,6 +27,7 @@ import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
+import java.io.Console;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -46,14 +48,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/** The command line: java -jar claude-ai-factory.jar run --config <file>. */
+/** The command line: run --config <file>, or hash-password. */
 public final class Main {
 
     static final int EXIT_SUCCESS = 0;
     static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>";
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+            + "       java -jar claude-ai-factory.jar hash-password";
+    private static final int MINIMUM_PASSWORD_LENGTH = 12;
     private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
     private static final String TOKEN_VARIABLE = "FACTORY_GITHUB_TOKEN";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
@@ -76,7 +80,50 @@ public final class Main {
     }
 
     public static void main(String[] arguments) {
+        if (isHashPasswordCommand(arguments)) {
+            System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
+        }
         System.exit(run(arguments, System.getenv(), System.err));
+    }
+
+    static boolean isHashPasswordCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("hash-password");
+    }
+
+    /** Reads a password without echo. A test gives another source, so that it never uses the console. */
+    @FunctionalInterface
+    interface PasswordSource {
+        Optional<char[]> read(String prompt);
+    }
+
+    private static Optional<char[]> readPasswordFromConsole(String prompt) {
+        Console console = System.console();
+        return console == null ? Optional.empty() : Optional.ofNullable(console.readPassword("%s", prompt));
+    }
+
+    /** Asks for the password two times and writes the hash line. It never prints the password. */
+    static int hashPassword(PasswordSource passwords, PrintStream output, PrintStream errors) {
+        char[] password = passwords.read("Password: ").orElse(null);
+        if (password == null) {
+            errors.println("Run hash-password in a terminal.");
+            return EXIT_FAILURE;
+        }
+        char[] repeated = passwords.read("Repeat the password: ").orElse(new char[0]);
+        try {
+            if (!Arrays.equals(password, repeated)) {
+                errors.println("The two passwords are not the same.");
+                return EXIT_FAILURE;
+            }
+            if (password.length < MINIMUM_PASSWORD_LENGTH) {
+                errors.println("The password must have " + MINIMUM_PASSWORD_LENGTH + " characters or more.");
+                return EXIT_FAILURE;
+            }
+            output.println("password-hash: " + PasswordHash.create(password).format());
+            return EXIT_SUCCESS;
+        } finally {
+            Arrays.fill(password, '\0');
+            Arrays.fill(repeated, '\0');
+        }
     }
 
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
