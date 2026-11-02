@@ -140,17 +140,17 @@ final class CardRenderer {
         StringBuilder group = new StringBuilder();
         String fingerprint = CardFingerprint.of(card);
         if (isPossible(PageAction.OPEN_TERMINAL, card, model)) {
-            appendPlaceForm(group, card.issueNumber(), PageAction.OPEN_TERMINAL, LivePlace.TERMINAL,
-                    chosenPlace == LivePlace.TERMINAL, fingerprint);
+            appendPlaceForm(group, card.issueNumber(), PageAction.OPEN_TERMINAL, chosenPlace == LivePlace.TERMINAL,
+                    fingerprint);
         }
         if (TmuxLiveSessions.isRemoteControlLink(link)) {
             appendExternalLinkStart(group, link, createPlaceAttributes(chosenPlace == LivePlace.BROWSER,
                     "Browser", BROWSER_TOOLTIP));
-            group.append(createIcon(LivePlace.BROWSER)).append("Browser</a>");
+            group.append("Browser</a>");
         }
         if (isPossible(PageAction.SEND_TO_PHONE, card, model)) {
-            appendPlaceForm(group, card.issueNumber(), PageAction.SEND_TO_PHONE, LivePlace.PHONE,
-                    chosenPlace == LivePlace.PHONE, fingerprint);
+            appendPlaceForm(group, card.issueNumber(), PageAction.SEND_TO_PHONE, chosenPlace == LivePlace.PHONE,
+                    fingerprint);
         }
         return group.toString();
     }
@@ -224,8 +224,7 @@ final class CardRenderer {
         if (!enterActions.isEmpty()) {
             html.append("<div class=\"enter-group\">");
             for (PageAction action : enterActions) {
-                appendPlaceForm(html, card.issueNumber(), action, action.enterPlace().orElseThrow(), false,
-                        fingerprint);
+                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint);
             }
             html.append("</div><span class=\"separator\"></span>");
         }
@@ -244,11 +243,11 @@ final class CardRenderer {
     }
 
     /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */
-    private void appendPlaceForm(StringBuilder html, int issueNumber, PageAction action, LivePlace place,
-            boolean current, String fingerprint) {
+    private void appendPlaceForm(StringBuilder html, int issueNumber, PageAction action, boolean current,
+            String fingerprint) {
         appendFormStart(html, issueNumber, action, fingerprint);
         html.append("<button").append(createPlaceAttributes(current, action.buttonText(), action.tooltip()))
-                .append('>').append(createIcon(place)).append(action.buttonText()).append("</button></form>");
+                .append('>').append(action.buttonText()).append("</button></form>");
     }
 
     /** The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it. */
@@ -269,15 +268,6 @@ final class CardRenderer {
         String tooltipText = Html.escape(tooltip);
         return (current ? " class=\"current\"" : "") + " data-tip=\"" + tooltipText + "\" aria-label=\""
                 + Html.escape(name) + ". " + tooltipText + "\"";
-    }
-
-    private static String createIcon(LivePlace place) {
-        String symbol = switch (place) {
-            case TERMINAL -> "&#9638;";
-            case BROWSER -> "&#9741;";
-            case PHONE -> "&#9743;";
-        };
-        return "<span class=\"icon\" aria-hidden=\"true\">" + symbol + "</span>";
     }
 
     private static String capitalize(String constantName) {

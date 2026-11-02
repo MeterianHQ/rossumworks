@@ -181,7 +181,7 @@ class BoardPageTest {
         assertThat(html).contains("aria-label=\"Phone. " + PageAction.ENTER_PHONE.tooltip() + "\"");
         assertThat(html).containsSubsequence("class=\"enter-group\"", "/enter-terminal", "/enter-browser",
                 "/enter-phone", "/approve", "/block");
-        assertThat(html).doesNotContain("\u2197");
+        assertThat(html).doesNotContain("\u2197").doesNotContain("class=\"icon\"");
     }
 
     @Test
@@ -204,7 +204,7 @@ class BoardPageTest {
                 + " class=\"current\"");
         assertThat(html).containsSubsequence("<div class=\"open-group\">", "/issues/12/open-terminal", LINK,
                 "/issues/12/send-to-phone");
-        assertThat(html).containsOnlyOnce("class=\"current\"");
+        assertThat(html).containsOnlyOnce("class=\"current\"").doesNotContain("class=\"icon\"");
     }
 
     @Test
