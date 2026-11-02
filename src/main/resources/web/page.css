@@ -393,7 +393,7 @@ button {
 /* The live conversation is open: the box gives the chosen place and the places where it opens again. */
 .live-box {
     margin: 0.5rem 0;
-    padding: 0.5rem 0.6rem;
+    padding: 0.5rem 0.45rem;
     border: 1px solid rgba(63, 185, 80, 0.4);
     border-radius: 8px;
     background: rgba(63, 185, 80, 0.08);
@@ -415,14 +415,18 @@ button {
     color: var(--text-muted);
 }
 
-/* The places are one joined row of equal parts that fills the width of the card.
-   The place that the owner chose has the class "current". */
+/* The places are one joined row that fills the width of the card. Each part gets at least the width of its
+   name, and the parts share the extra space. The place that the owner chose has the class "current". */
 .enter-group,
 .open-group {
     position: relative;
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    display: flex;
+}
+
+.enter-group > *,
+.open-group > * {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .enter-group form,
@@ -431,14 +435,23 @@ button {
     margin: 0;
 }
 
-/* "form button" is stronger than ".actions button", which comes later. */
+.enter-group form button,
+.open-group form button {
+    width: 100%;
+}
+
+/* The open group uses the full width inside the border of the live box, so that the three names fit. */
+.open-group {
+    margin: 0 -0.45rem;
+}
+
+/* "form button" is stronger than ".actions button", which comes later. The ellipsis is only a safety net. */
 .enter-group form button,
 .open-group > a,
 .open-group button {
-    width: 100%;
-    padding: 0.32rem 0.3rem;
+    padding: 0.32rem 0.2rem;
     overflow: hidden;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 600;
     text-align: center;
     text-overflow: ellipsis;
