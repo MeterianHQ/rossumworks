@@ -526,6 +526,13 @@ the `seven_day` window, at 0.37. The worker keeps the last value of each
 window, with its time. The page shows no dollar cost, because the
 subscription has no cost for each run.
 
+Usage probe (owner decision, 2026-11-02): at its start, the worker runs
+one very short `claude -p` session with no tools, no MCP servers, and
+`--no-session-persistence`, and keeps its `rate_limit_event`. Thus the
+page and the usage threshold have a value before the first phase. The
+probe fails closed: a credential source that is not `none`, a session
+that fails, or a session longer than 2 minutes gives no value.
+
 ### 9.4 Actions (owner decision)
 
 The page has four action buttons. The Java worker does the work of each

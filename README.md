@@ -143,6 +143,11 @@ The header shows the health of the worker: its start time, the time of the last 
 work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
 percent and its time.
 
+At its start, the worker runs one very short `claude -p` session to read the usage, so that the page shows it
+before the first phase. This session has no tools, no MCP servers, and no saved session, and it uses about
+4,000 tokens. The worker keeps the values only when the session uses the subscription and ends with success.
+After each phase, the page shows the newest values. `claude` 2.1.316 gives only the weekly window.
+
 The board has one column for each status, in the order of the progress in time: Queued, In progress,
 In review, Waits for you, Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops, the risk, the context
 of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
