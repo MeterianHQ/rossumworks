@@ -87,14 +87,28 @@ The configuration of the worker keeps only what the repository cannot know:
 - the work directory;
 - the settings of this machine: the `claude` command, the parallel issues,
   the poll interval, the usage threshold, the web page (address, port,
-  password hash), and the terminal command of live mode.
+  password hash), and the terminal command of live mode
+  (`live.terminal-command`, from PR #12);
+- the isolation mode, the gatekeeper directory, and the live directory;
+- the build variables of this machine, for example `JAVA_HOME`. The worker
+  adds them to the build environment of `.factory`. A value of the machine
+  replaces a value of `.factory` with the same name;
+- the tools that the agents must never use (`claude.disallowed-tools`, for
+  example `git push` and `gh`). This list keeps the rule "the factory
+  never pushes to `main`" true.
 
 The worker clones the repositories into the work directory by itself. A
 path to a local clone is not a setting any more.
 
-My call: the parallel issues, the poll interval, and the usage threshold
-stay in the worker, because they describe the use of this machine and of
-the subscription, not the work of the repository.
+My calls:
+
+- The parallel issues, the poll interval, and the usage threshold stay in
+  the worker, because they describe the use of this machine and of the
+  subscription, not the work of the repository.
+- The allowed tools of the repository (`claude.allowed-tools`, for example
+  `Bash(./mvnw *)`) go into `.factory`, because they depend on the build of
+  the repository.
+- `prompts-directory` goes away: the prompts are in `.factory/prompts/`.
 
 ### 4.3 Where the worker reads it (owner decision)
 
@@ -104,6 +118,12 @@ repository. It reads it again when that branch gets a new commit.
 Each issue keeps the version that it started with. The record of the issue
 keeps the commit of that version. Only new issues get a new version. So a
 running issue never meets a state or a step that its workflow does not know.
+
+My call on the parts: an issue keeps the workflow, the prompts, the build,
+the allowed tools, the limits, and the merge target of its start version.
+The accounts always come from the newest version, because they say who can
+give a request now. So a removed account stops at once, also on a running
+issue.
 
 My calls:
 
@@ -118,7 +138,14 @@ My calls:
 - A record from before this change has no version commit. It runs with the
   built-in definition of today's workflow (section 5.4).
 
-### 4.4 The scratch folder of each worktree (my call)
+### 4.4 A change of `.factory` in the PR of an issue (owner decision)
+
+When the PR of an issue changes a file in `.factory`, the merge gate always
+waits for the approval of the owner, also when the risk is low and the
+change is small. The wait reason says that the PR changes the factory. A
+change of the factory itself is always a decision of the owner.
+
+### 4.5 The scratch folder of each worktree (my call)
 
 Today the worker and the agents use `.factory` in each worktree as a
 scratch folder: `question.md`, `description.md`, `fix-prompt.md`,
@@ -146,9 +173,27 @@ A workflow is a state machine:
 - A **loop** is a transition back to an earlier state, with a **limit**.
   When the limit is reached, the transition goes to its exit state. The
   record counts each loop.
-- A **wait** is a state that ends only on a request of the owner, for
-  example the label `factory:approve`, or Continue after a live
-  conversation.
+- A **wait** ends only on a request of the owner, for example the label
+  `factory:approve`, or Continue after a live conversation.
+
+My calls on states:
+
+- A state has a free name, so that a later workflow can add new states.
+  The record keeps the name of the current state in place of the enum
+  `Phase`. The status comment shows the name of the state where it shows
+  the phase today ("phase IMPLEMENT").
+- The states of the built-in definition have the names of today's phases:
+  `prepare`, `implement`, `build`, `review`, `risk`, `merge`, `done`. A
+  record from before this change maps its phase to the state of the same
+  name.
+- A wait, Blocked, and the fix-loop limit are not states. As today, they are
+  a status and a wait reason on the current state. An outcome can map to
+  `wait: <reason>` or `block`, and an approval or a Continue continues the
+  current state. So `ApprovalCheck`, live mode, and the restart rules keep
+  their logic. The code that tests a phase value today (for example
+  `Worker`, `LiveMode`, `RestartPreparation`, `IssueTextCheck`,
+  `FinalStepResult`, `ApprovalCheck`, `MergedIssue`) tests the step type of
+  the current state instead.
 
 ### 5.2 The step types of the first version
 
@@ -222,19 +267,21 @@ workflow:
     implement:
       status: in-progress
       step: { type: agent, prompt: prompts/implement.md, fix-prompt: prompts/fix.md }
-      on: { changed: build, question: ask-owner, no-change: blocked, failed: blocked }
+      on: { changed: build, question: { wait: question }, no-change: block, failed: block }
     build:
       status: in-progress
       step: { type: build }
       on: { passed: reviews, failed: fix-loop, not-forwarded: build }
     # ...
   loops:
-    fix-loop: { to: implement, limit: fix-loops, exit: fix-loop-limit }
+    fix-loop: { to: implement, limit: fix-loops, exit: { wait: fix-loop-limit } }
 limits:
   fix-loops: 2
 build:
   command: ./mvnw verify
   environment: { LANG: C.utf8 }
+claude:
+  allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(./mvnw *)"]
 merge:
   target-branch: main
 accounts:
@@ -294,7 +341,22 @@ the tool.
 
 - The exact names of the outcomes and the exact YAML shape, within
   section 5.
-- How to split `IssueWorkflow` into step types. The current methods are
+- How to split `IssueWorkflow` into step types.
+
+## 9. The upgrade (my call)
+
+There is no migration of the old configuration. The new worker refuses a
+configuration file of the old form, and its message names the command
+`claude-ai-factory create`. The create command writes the new configuration
+of the worker, and opens the PR `factory/setup` when `.factory` is missing.
+At the decision, no issue was in work, so no worktree or record of the old
+form exists.
+
+## 10. Small decisions of the builder check (my calls)
+
+- `git.excludeFactoryFolder` excludes `.factory-work` from now on.
+- The gatekeeper already accepts the branch `factory/setup`.
+- The `reviews` step can use only the four existing review kinds. The current methods are
   the natural boundaries.
 - How the record keeps the version: a field with the commit of `.factory`.
 - The order of the plans. My call: plan A is the engine, the definition,
