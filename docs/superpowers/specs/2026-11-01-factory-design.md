@@ -461,6 +461,95 @@ When the tmux session exits without `/factory:continue`, the worker keeps "Waits
 for you" and writes a note in the status comment. A new `factory:enter`
 opens a new live session.
 
+### 8.4 Where the conversation opens (owner decision)
+
+The owner chooses the place of the live conversation when they click
+Enter. There are three places:
+
+| Place | Where the conversation opens | Who opens it |
+|---|---|---|
+| Terminal | A terminal window on the machine of the worker, attached to the tmux session | The worker, with the terminal command |
+| Browser | A new tab of the browser that clicked, on the claude.ai conversation | The browser |
+| Phone | The phone of the owner, from the GitHub notification of the mention | GitHub |
+
+The owner decided on the page as follows. The mock of 2026-11-02 shows it.
+
+- **The Enter buttons.** The single Enter button becomes three buttons,
+  "Terminal", "Browser", and "Phone", in one row that never breaks, with
+  no label. Approve and Block go on the next row.
+- **Tooltips.** Each button has a tooltip that tells what happens. The
+  tooltip uses only CSS and a `data-tip` attribute, so the CSP does not
+  change. It shows after a short delay on a mouse hover or a keyboard
+  focus. It stays inside the card. The same text is in `aria-label`.
+  A phone shows no tooltip, so the names must be clear alone.
+- **Terminal only on this machine.** The page shows Terminal only when
+  the browser is on the machine of the worker: the remote address of the
+  request is `127.0.0.1` or `::1`. The server applies the same rule to
+  the POST.
+- **The open conversation.** While the session is open, the card shows a
+  green box "Live conversation open", a line that names the chosen
+  place, and one group of three joined buttons: Terminal, Browser, and
+  Phone. The chosen place is blue. Each button opens the conversation in
+  its place, also the blue one, for example a new terminal window after
+  the owner closed the first one. The first place always stays open.
+- **No arrow.** Browser has no "new tab" arrow. Its tooltip says that it
+  opens a new tab.
+
+My decisions on the details:
+
+- **The choice travels with the page request.** The label is still
+  `factory:enter`. The page remembers the chosen place with the page
+  request of the label (section 9.4). An Enter with no page request, for
+  example a label from the GitHub app, is Phone.
+- **The place goes into the record.** The live state of the record gets
+  the field `place`, so that the card shows the chosen place also after
+  a restart of the worker.
+- **The comment with the link is always posted**, because it is the
+  record on GitHub. Only Phone adds the mention of the owner, so only
+  Phone sends a notification.
+- **Terminal.** After the session shows its link, the worker runs the
+  terminal command with the tmux attach command as its last arguments:
+  `tmux -L claude-ai-factory attach -t factory-issue-<n>`. The command
+  comes only from the configuration (section 10), never from the
+  request. The issue number is an integer. The default is
+  `gnome-terminal --`. A command that does not start gives a note in the
+  record and a warning in the log. The Remote Control link still works.
+- **Browser.** The Enter button of Browser is a form with
+  `target="_blank"`. Its POST adds the label as the other forms do. The
+  answer is a wait page in the new tab: "The live conversation of #<n>
+  opens…". The wait page reads the state of the card from the server.
+  When the link is ready, the page goes to the link. The page goes only
+  to a link that matches the Remote Control pattern. The tab opens on the
+  click, so the browser does not block it. The wait page uses an external
+  script, because the CSP forbids inline scripts.
+- **The open buttons.** "Terminal" and "Phone" in the group are POST
+  forms with the same login, same-origin, and fingerprint checks as the
+  other actions. "Terminal" makes no GitHub request. "Phone" posts one
+  more comment with the mention. "Browser" is a plain link to the Remote
+  Control link, with `target="_blank"` and `rel="noopener noreferrer"`.
+- **Close a terminal window** with `Ctrl-b d`. `/exit` ends the session
+  without a continue (section 8.3).
+
+Known limits:
+
+- Terminal needs a desktop session with `DISPLAY` for the user of the
+  worker. On a server with no display, Terminal gives the note of the
+  failed command.
+- When two terminals of different sizes attach, tmux uses the smaller
+  size.
+- The first time, claude.ai can ask the browser for a new sign-in
+  ("Sign in again to verify your device") before it shows a Remote
+  Control session. The owner signs in. The factory never does.
+
+Test of 2026-11-02, with `claude` 2.1.316: one Remote Control session
+showed in two browser tabs and in the tmux terminal at the same time. A
+message sent from one tab, and its answer, showed in the other tab and in
+the terminal. So the open buttons can add a place while the first place
+stays open.
+
+Not in scope: a terminal inside the web page. It needs a shell in the
+browser, a new channel, and a weaker CSP.
+
 ## 9. Web page
 
 The worker serves the page. The page shows the state and has four action
@@ -644,6 +733,10 @@ One file for each factory. My decision: YAML, read with Jackson. It holds:
   - `port`: from 1 to 65535. The default is 8090.
   - `password-hash`: required in the section. The command
     `hash-password` makes it.
+- The terminal command of live mode (section 8.4), in the optional
+  section `live`: `terminal-command`, a list of arguments. The default is
+  `[gnome-terminal, --]`. The worker adds the tmux attach command after
+  these arguments.
 - The place of the prompts.
 
 ## 11. Reuse from the Fabro experiment
