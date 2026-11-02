@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.configuration.FactoryConfiguration;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -189,7 +190,8 @@ class TmuxLiveSessionsTest {
     @Test
     void openClosesTheSessionWhenATmuxCommandFailsAfterTheStart() throws Exception {
         TmuxLiveSessions sessions = new TmuxLiveSessions(settingsFor(Map.of()), liveFiles, System.getenv(),
-                SUCCESS_TIMEOUT, new TmuxCommand(tmuxThatFailsOnCapture().toString(), socketName));
+                SUCCESS_TIMEOUT, new TmuxCommand(tmuxThatFailsOnCapture().toString(), socketName),
+                new TerminalWindow(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND, socketName, System.getenv()));
 
         assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
                 .isInstanceOf(LiveSessionException.class)

@@ -311,7 +311,8 @@ public final class Main {
         RequestReader requests = createRequestReader(gitHub, configuration, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
-                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
+                configuration.terminalCommand());
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
                 liveSessions, shared);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());

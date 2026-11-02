@@ -283,6 +283,11 @@ class LiveModeTest {
         }
 
         @Override
+        public void openTerminal(int issueNumber) throws LiveSessionException {
+            delegate.openTerminal(issueNumber);
+        }
+
+        @Override
         public boolean isContinueRequested(int issueNumber) {
             return delegate.isContinueRequested(issueNumber);
         }

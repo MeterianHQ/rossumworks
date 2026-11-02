@@ -20,6 +20,8 @@ public final class FakeLiveSessions implements LiveSessions {
     private final List<Integer> closeCalls = new CopyOnWriteArrayList<>();
     private final Set<Integer> openIssues = ConcurrentHashMap.newKeySet();
     private final Set<Integer> continueRequests = ConcurrentHashMap.newKeySet();
+    private final List<Integer> openedTerminals = new CopyOnWriteArrayList<>();
+    private volatile LiveSessionException terminalFailure;
     private volatile boolean failsTheNextOpen;
     private volatile boolean failsTheNextClose;
     private volatile Runnable openingAction = () -> { };
@@ -59,6 +61,14 @@ public final class FakeLiveSessions implements LiveSessions {
     }
 
     @Override
+    public void openTerminal(int issueNumber) throws LiveSessionException {
+        openedTerminals.add(issueNumber);
+        if (terminalFailure != null) {
+            throw terminalFailure;
+        }
+    }
+
+    @Override
     public boolean isContinueRequested(int issueNumber) {
         return continueRequests.contains(issueNumber);
     }
@@ -70,6 +80,15 @@ public final class FakeLiveSessions implements LiveSessions {
 
     public List<OpenCall> openCalls() {
         return List.copyOf(openCalls);
+    }
+
+    public List<Integer> openedTerminals() {
+        return List.copyOf(openedTerminals);
+    }
+
+    /** Every open of a terminal throws this exception, until the failure is null. */
+    public void failOpenTerminalWith(LiveSessionException failure) {
+        terminalFailure = failure;
     }
 
     public List<Integer> closeCalls() {

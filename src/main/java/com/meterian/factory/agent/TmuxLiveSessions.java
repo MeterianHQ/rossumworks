@@ -1,6 +1,7 @@
 package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.configuration.FactoryConfiguration;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -35,25 +36,29 @@ public final class TmuxLiveSessions implements LiveSessions {
     private final Map<String, String> parentEnvironment;
     private final Duration openTimeout;
     private final TmuxCommand tmux;
+    private final TerminalWindow terminalWindow;
 
     public TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Map<String, String> parentEnvironment,
-            Duration openTimeout) {
-        this(settings, liveFiles, parentEnvironment, openTimeout, new TmuxCommand());
+            Duration openTimeout, List<String> terminalCommand) {
+        this(settings, liveFiles, parentEnvironment, openTimeout, new TmuxCommand(),
+                new TerminalWindow(terminalCommand, TmuxCommand.FACTORY_SERVER, parentEnvironment));
     }
 
     /** Uses the private tmux server with this socket name, for the tests. */
     TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Map<String, String> parentEnvironment,
             Duration openTimeout, String socketName) {
-        this(settings, liveFiles, parentEnvironment, openTimeout, new TmuxCommand(socketName));
+        this(settings, liveFiles, parentEnvironment, openTimeout, new TmuxCommand(socketName),
+                new TerminalWindow(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND, socketName, parentEnvironment));
     }
 
     TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Map<String, String> parentEnvironment,
-            Duration openTimeout, TmuxCommand tmux) {
+            Duration openTimeout, TmuxCommand tmux, TerminalWindow terminalWindow) {
         this.settings = settings;
         this.liveFiles = liveFiles;
         this.parentEnvironment = Map.copyOf(parentEnvironment);
         this.openTimeout = openTimeout;
         this.tmux = tmux;
+        this.terminalWindow = terminalWindow;
     }
 
     /** On any failure after the start, the session is closed: the record never knows of a session that is left. */
@@ -94,6 +99,14 @@ public final class TmuxLiveSessions implements LiveSessions {
         } catch (LiveSessionException exception) {
             throw new IllegalStateException(exception.getMessage(), exception);
         }
+    }
+
+    @Override
+    public void openTerminal(int issueNumber) throws LiveSessionException {
+        if (!hasSession(issueNumber)) {
+            throw new LiveSessionException("The live session of the issue #" + issueNumber + " is not open.");
+        }
+        terminalWindow.open(sessionName(issueNumber));
     }
 
     @Override
