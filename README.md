@@ -62,6 +62,47 @@ into the environment of your tmux server. To see a session, run
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no phase for the issue.
 
+### The three places
+
+The owner chooses where the live conversation opens. The page has one Enter button for each place. Each button
+has a tooltip that tells what happens.
+
+| Place | Where the conversation opens | Who opens it |
+|---|---|---|
+| Terminal | A terminal window on the machine of the worker, attached to the tmux session | The worker |
+| Browser | A new tab of the browser that clicked, on the claude.ai conversation | The browser |
+| Phone | The phone of the owner, from the GitHub notification of the mention | GitHub |
+
+- **Terminal.** After the session shows its link, the worker runs the terminal command. The last arguments are
+  the tmux attach command. The command comes only from the configuration, never from a request. The default is
+  `gnome-terminal --`. To change it, set `live.terminal-command` (see below). A command that does not start
+  gives a note in the record and a warning in the log. The Remote Control link still works. Terminal needs a
+  desktop session with `DISPLAY` for the user of the worker. Close the window with `Ctrl-b d`. Do not type
+  `/exit`: it ends the session without a continue.
+- **Browser.** The click opens a new tab with a wait page: "The live conversation of #<n> opens…". The wait
+  page asks the worker for the link. When the link is ready, the tab goes to the claude.ai conversation. The
+  tab goes only to a link of Remote Control. The first time, claude.ai can ask for a device sign-in.
+- **Phone.** The worker adds a comment with the link and the mention of the owner. GitHub sends the
+  notification to the phone. Only Phone sends a notification. For Terminal and Browser, the comment has no
+  mention.
+
+An Enter with no page request, for example a label from the GitHub app, is Phone. The comment with the link is
+always posted, because it is the record on GitHub.
+
+Terminal shows only to a browser on the machine of the worker. The worker decides this from the remote address
+of the request: `127.0.0.1` or `::1`. The server applies the same rule to the POST. A reverse proxy or a tunnel
+on the same host, for example `ssh -L`, `tailscale serve`, or `cloudflared`, makes every device look local.
+Then Terminal opens windows on the desktop for a remote viewer. Do not use Terminal behind such a proxy.
+
+The terminal command is an optional setting:
+
+```yaml
+live:
+  terminal-command: [gnome-terminal, --]   # optional; the worker adds the tmux attach command at the end
+```
+
+When two terminals of different sizes attach to one session, tmux uses the smaller size.
+
 ### Continue
 
 Type `/factory:continue` in the conversation. Do not type `/continue`: it is a command of Claude Code and
@@ -164,13 +205,26 @@ A button of an old page gets "This action is not possible now." when the card ch
 
 | Button | Label | Effect |
 |---|---|---|
-| Enter | `factory:enter` | Opens live mode. |
+| Terminal, Browser, Phone | `factory:enter` | Opens live mode in the chosen place. |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and stops the running `claude` process. |
 | Continue | (none) | Ends live mode, as `/factory:continue` in the conversation. |
 
-Enter, Approve, and Block add the label with the token of the worker. The worker accepts this label because
-the page asked for it. Continue writes the local marker and adds no label.
+The three Enter buttons are one joined row of three parts. They have no icons, because a card is 240 px wide.
+Each part has a tooltip. A phone shows no tooltip, so the names are clear alone. Approve and Block go on the
+next row. The three Enter buttons add the same label. Approve and Block add their label too, with the token of
+the worker. The worker accepts the label because the page asked for it. Continue writes the local marker and
+adds no label.
+
+After one Enter, the card shows only the request line of the chosen place. For Terminal, the line says that a
+terminal window opens on this machine. For Browser, it says that the new tab goes to the conversation. For
+Phone, it says that the link goes to the phone.
+
+While the session is open, the card shows a green box "Live conversation open". The box names the chosen place.
+It also has one joined group of three parts: Terminal, Browser, and Phone. The chosen place is blue. Each part
+opens the conversation again in its place, also the blue one. For example, Terminal opens a new window after
+the owner closed the first one. Terminal in the group makes no GitHub request. Phone posts one more comment
+with the mention. Browser is a link to the Remote Control link. It opens a new tab.
 
 After a click, the button shows a turning wheel and you cannot click it again. When you ask the browser for
 less motion, the button shows "…". After the action, the card shows a blue line, for example "Approval sent.

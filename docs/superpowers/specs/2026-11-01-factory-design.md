@@ -475,8 +475,10 @@ Enter. There are three places:
 The owner decided on the page as follows. The mock of 2026-11-02 shows it.
 
 - **The Enter buttons.** The single Enter button becomes three buttons,
-  "Terminal", "Browser", and "Phone", in one row that never breaks, with
-  no label. Approve and Block go on the next row.
+  "Terminal", "Browser", and "Phone". They are one joined row of three
+  parts with no icons, because a card is 240 px wide. Approve and Block go
+  on the next row. After one Enter, the card shows only the request line
+  of the chosen place.
 - **Tooltips.** Each button has a tooltip that tells what happens. The
   tooltip uses only CSS and a `data-tip` attribute, so the CSP does not
   change. It shows after a short delay on a mouse hover or a keyboard
