@@ -1,6 +1,6 @@
 # Workflow definitions in each repository: design
 
-Status: for the review of the owner, from the brainstorming of 2026-11-02. This
+Status: approved by the owner on 2026-11-02, after the brainstorming. This
 document adds to `2026-11-01-factory-design.md`. Where the two documents
 differ, this document is the newer decision.
 
