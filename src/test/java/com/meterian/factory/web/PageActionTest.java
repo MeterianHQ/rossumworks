@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
@@ -23,7 +24,7 @@ class PageActionTest {
     private static IssueRecord liveRecord(Optional<String> link) {
         return startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link, LivePlace.PHONE));
     }
 
     private static IssueCard card(IssueRecord record) {

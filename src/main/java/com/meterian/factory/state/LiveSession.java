@@ -7,18 +7,24 @@ public record LiveSession(
         String startHeadCommit,
         IssueStatus statusBefore,
         Optional<WaitReason> waitBefore,
-        Optional<String> link) {
+        Optional<String> link,
+        LivePlace place) {
 
     public LiveSession {
         waitBefore = waitBefore == null ? Optional.empty() : waitBefore;
         link = link == null ? Optional.empty() : link;
+        place = place == null ? LivePlace.PHONE : place;
     }
 
     public LiveSession withLink(String newLink) {
-        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.of(newLink));
+        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.of(newLink), place);
     }
 
     public LiveSession withoutLink() {
-        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.empty());
+        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.empty(), place);
+    }
+
+    public LiveSession withPlace(LivePlace newPlace) {
+        return new LiveSession(startHeadCommit, statusBefore, waitBefore, link, newPlace);
     }
 }

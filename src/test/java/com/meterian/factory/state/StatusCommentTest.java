@@ -160,8 +160,38 @@ class StatusCommentTest {
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(live);
     }
 
+    @Test
+    void aLiveSessionWithoutAPlaceIsPhone() {
+        IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x"));
+        String bodyWithoutPlace = StatusComment.render(live, LIMIT).replaceAll(",\\s*\"place\"\\s*:\\s*\"[A-Z]+\"", "");
+        IssueComment comment = new IssueComment(1, WORKER, bodyWithoutPlace);
+
+        assertThat(bodyWithoutPlace).doesNotContain("place");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().live().orElseThrow().place())
+                .isEqualTo(LivePlace.PHONE);
+    }
+
+    @Test
+    void thePlaceOfTheLiveSessionSurvivesTheRecordComment() {
+        IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x").withPlace(LivePlace.TERMINAL));
+        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(live, LIMIT));
+
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().live().orElseThrow().place())
+                .isEqualTo(LivePlace.TERMINAL);
+    }
+
+    @Test
+    void theLinkKeepsThePlace() {
+        LiveSession session = new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
+                LivePlace.BROWSER);
+
+        assertThat(session.withLink("l").place()).isEqualTo(LivePlace.BROWSER);
+        assertThat(session.withLink("l").withoutLink().place()).isEqualTo(LivePlace.BROWSER);
+    }
+
     private static LiveSession liveSession(String link) {
-        return new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.QUESTION), Optional.of(link));
+        return new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.QUESTION), Optional.of(link),
+                LivePlace.PHONE);
     }
 
     @Test

@@ -14,6 +14,7 @@ import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -67,7 +68,7 @@ class PageModelSourceTest {
     private static IssueRecord liveRecord(int number) {
         return IssueRecord.queued(number).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty()));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(), LivePlace.PHONE));
     }
 
     private void writeSessionFile(IssueRecord record, long inputTokens) throws IOException {

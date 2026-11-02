@@ -9,6 +9,7 @@ import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.ReviewKind;
@@ -51,7 +52,7 @@ class BoardPageTest {
 
     private static IssueRecord liveRecord(int number, String link) {
         return waitingRecord(number, WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.of(link)));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.of(link), LivePlace.PHONE));
     }
 
     private static PageModel model(List<IssueCard> cards) {

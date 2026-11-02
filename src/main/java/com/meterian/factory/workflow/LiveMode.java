@@ -8,6 +8,7 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
@@ -89,7 +90,8 @@ final class LiveMode {
     }
 
     private LiveSession captureStateBefore(IssueRecord record, Path worktree) {
-        return new LiveSession(git.headCommit(worktree), record.status(), record.waitReason(), Optional.empty());
+        return new LiveSession(git.headCommit(worktree), record.status(), record.waitReason(), Optional.empty(),
+                LivePlace.PHONE);
     }
 
     /** The record must never know less than tmux: when the comment fails, the session closes. */

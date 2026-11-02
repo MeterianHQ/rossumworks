@@ -14,6 +14,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
@@ -81,7 +82,7 @@ class LiveModeTest {
         IssueRecord live = createLiveMode().enter(waiting, worktree);
 
         assertThat(live.live()).contains(new LiveSession(git.headCommit(worktree), IssueStatus.WAITS_FOR_YOU,
-                Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.of(LINK)));
+                Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.of(LINK), LivePlace.PHONE));
         assertThat(live.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
