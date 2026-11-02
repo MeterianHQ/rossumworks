@@ -21,6 +21,7 @@ import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.ContextTracker;
+import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.BoardPage;
 import com.meterian.factory.web.LabelWriter;
@@ -322,6 +323,8 @@ public final class Main {
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions,
                 createLabelWriter(gitHub), () -> worker.issuesInWork().size(), claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
+        new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
+                UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
         try {
             worker.runUntilStopped();
