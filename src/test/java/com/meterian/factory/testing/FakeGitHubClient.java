@@ -58,6 +58,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private RuntimeException removeLabelFailureAfterTheMerge;
     private RuntimeException nextRemoveLabelFailure;
     private boolean failsTheNextIssueList;
+    private boolean failsTheNextPullRequestBodyEdit;
+    private Runnable pullRequestBodyEditAction = () -> { };
     private Runnable squashMergeAction = () -> { };
     private String commentEditTrigger;
     private Runnable commentEditAction = () -> { };
@@ -185,6 +187,16 @@ public final class FakeGitHubClient implements GitHubClient {
     /** Each body that editPullRequestBody wrote, in order. */
     public synchronized List<String> editedPullRequestBodies() {
         return List.copyOf(editedPullRequestBodies);
+    }
+
+    /** The next editPullRequestBody throws a GitHubException. */
+    public synchronized void failTheNextPullRequestBodyEdit() {
+        failsTheNextPullRequestBodyEdit = true;
+    }
+
+    /** Runs the action at each editPullRequestBody, before the edit. */
+    public synchronized void runOnPullRequestBodyEdit(Runnable action) {
+        pullRequestBodyEditAction = action;
     }
 
     /** Each label that removeLabel removed from an issue, in order. */
@@ -335,6 +347,11 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void editPullRequestBody(int pullRequestNumber, String body) {
+        pullRequestBodyEditAction.run();
+        if (failsTheNextPullRequestBodyEdit) {
+            failsTheNextPullRequestBodyEdit = false;
+            throw new GitHubException("GitHub answered 502 for PATCH /pulls/" + pullRequestNumber);
+        }
         pullRequests.replaceAll(pullRequest -> pullRequest.number() == pullRequestNumber
                 ? new PullRequest(pullRequestNumber, pullRequest.url(), pullRequest.headBranch(), body)
                 : pullRequest);

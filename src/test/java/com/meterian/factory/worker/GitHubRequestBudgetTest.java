@@ -265,10 +265,30 @@ class GitHubRequestBudgetTest {
     }
 
     @Test
+    void anIssueThreadStillPublishesItsRecordWhenFewRequestsRemain() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner()
+                .thenChangeFileAnd(() -> server.sendRateLimitHeaders(50, RESET))
+                .thenWaitForStop().thatFails();
+        worker = createWorker(agent);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+
+        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        int requestsBeforeThePolls = server.receivedRequestCount();
+        clock.set(RESET.minusSeconds(1));
+        worker.pollOnce();
+        worker.pollOnce();
+
+        assertThat(server.receivedRequestCount()).isEqualTo(requestsBeforeThePolls);
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+    }
+
+    /** The commit of the first run is the change of the phase, so a resumed run without a change does not block. */
+    @Test
     void aStepThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFileAnd(() -> server.refuseWithTheRateLimit(RESET))
-                .thenChangeFile().thenWaitForStop().thatFails();
+                .thenChangeNothing().thenWaitForStop().thatFails();
         worker = createWorker(agent);
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty());
@@ -286,6 +306,7 @@ class GitHubRequestBudgetTest {
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
         assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
         assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));
     }

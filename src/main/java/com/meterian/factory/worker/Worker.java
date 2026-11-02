@@ -96,12 +96,17 @@ public final class Worker {
             return;
         }
         try {
+            verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
             for (Issue issue : readLabeledIssues()) {
+                verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
-            startable.forEach(this::startIssue);
+            for (IssueRecord record : startable) {
+                verifyEnoughRequestsRemain();
+                startIssue(record);
+            }
         } catch (GitHubException exception) {
             logGitHubFailure("The poll", exception);
         } catch (RuntimeException exception) {
@@ -109,6 +114,16 @@ public final class Worker {
         } finally {
             logRequestCounts();
         }
+    }
+
+    /**
+     * The margin of the rate limit stops only the poll: the intake and new work. A running step keeps its
+     * requests, so that it can publish its result.
+     */
+    private void verifyEnoughRequestsRemain() {
+        gitHub.findLowRemainingReset().ifPresent(resetTime -> {
+            throw new GitHubRateLimitException("Few GitHub requests remain until " + resetTime + ".", resetTime);
+        });
     }
 
     /** The requests of the issue threads between two polls count in the line of the next poll. */

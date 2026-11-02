@@ -112,6 +112,14 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    public synchronized FakeAgentRunner thenApproveReviewOfTreeWithNote(String treeHash, String noteTitle,
+                                                                        String noteDetail) {
+        then(request -> writeResult(request, "{\"verdict\": \"approve\", \"tree\": \"" + treeHash
+                + "\", \"findings\": [], \"notes\": [{\"title\": \"" + noteTitle + "\", \"detail\": \""
+                + noteDetail + "\"}]}"));
+        return this;
+    }
+
     public synchronized FakeAgentRunner thenRejectReview(String findingTitle) {
         then(request -> writeResult(request, "{\"verdict\": \"reject\", \"tree\": \"" + currentTree(request)
                 + "\", \"findings\": [{\"title\": \"" + findingTitle + "\", \"detail\": \"Fix it.\"}]}"));

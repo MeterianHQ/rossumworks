@@ -527,20 +527,17 @@ class HttpGitHubClientTest {
     }
 
     @Test
-    void sendsNoRequestUntilTheResetWhenFewRequestsRemain() {
+    void reportsTheResetWhenFewRequestsRemainButStillSends() {
         responder = request -> new Answer(200, issueJson(), rateLimitHeaders(50, RESET));
 
-        assertThat(client.issue(4).number()).isEqualTo(4);
-        assertThatThrownBy(() -> client.issue(4))
-                .isInstanceOf(GitHubRateLimitException.class)
-                .satisfies(exception -> assertThat(((GitHubRateLimitException) exception).resetTime())
-                        .isEqualTo(RESET));
-        assertThat(requests).hasSize(1);
+        client.issue(4);
+        client.issue(4);
 
-        responder = request -> new Answer(200, issueJson(), rateLimitHeaders(5000, RESET.plusSeconds(3600)));
-        clock.set(RESET);
-        assertThat(client.issue(4).number()).isEqualTo(4);
         assertThat(requests).hasSize(2);
+        assertThat(client.findLowRemainingReset()).contains(RESET);
+
+        clock.set(RESET);
+        assertThat(client.findLowRemainingReset()).isEmpty();
     }
 
     @Test
@@ -551,6 +548,7 @@ class HttpGitHubClientTest {
         client.issue(4);
 
         assertThat(requests).hasSize(2);
+        assertThat(client.findLowRemainingReset()).isEmpty();
     }
 
     @Test
@@ -664,5 +662,35 @@ class HttpGitHubClientTest {
         client.lastLabelActors(4);
 
         assertThat(requests).extracting(request -> request.headers().get("If-None-Match")).containsOnly("");
+    }
+
+    private static String commentsJson(int firstId, int count) {
+        List<String> comments = new ArrayList<>();
+        for (int id = firstId; id < firstId + count; id++) {
+            comments.add("{\"id\":" + id + ",\"user\":{\"login\":\"bot\"},\"body\":\"c\"}");
+        }
+        return "[" + String.join(",", comments) + "]";
+    }
+
+    @Test
+    void readsTheNewPageAfterAFullLastPage() {
+        boolean[] hasTheNewComment = {false};
+        responder = request -> {
+            if (request.target().contains("page=2")) {
+                return new Answer(200, commentsJson(101, 1), Map.of("ETag", "\"page-2\""));
+            }
+            if ("\"page-1\"".equals(request.headers().get("If-None-Match"))) {
+                return new Answer(304, "");
+            }
+            Map<String, String> headers = hasTheNewComment[0]
+                    ? Map.of("ETag", "\"page-1\"", "Link", "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"")
+                    : Map.of("ETag", "\"page-1\"");
+            return new Answer(200, commentsJson(1, 100), headers);
+        };
+        assertThat(client.comments(4)).hasSize(100);
+
+        hasTheNewComment[0] = true;
+
+        assertThat(client.comments(4)).hasSize(101).last().extracting(IssueComment::id).isEqualTo(101L);
     }
 }

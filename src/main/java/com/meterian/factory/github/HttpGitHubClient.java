@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -30,6 +31,8 @@ public final class HttpGitHubClient implements GitHubClient {
     /** Enough for the issue list and the comments of many issues, and small in memory. */
     static final int CACHED_LIST_LIMIT = 200;
     private static final int NOT_MODIFIED = 304;
+    /** The page size of each list request, the maximum of GitHub. */
+    private static final int PAGE_SIZE = 100;
     private static final String API_VERSION = "2022-11-28";
     private static final Pattern NEXT_LINK = Pattern.compile("<([^>]+)>;\\s*rel=\"next\"");
 
@@ -81,6 +84,11 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public Optional<Instant> findLowRemainingReset() {
+        return rateLimit.findLowRemainingReset();
+    }
+
+    @Override
     public Map<String, Integer> takeRequestCounts() {
         return requestCounter.take();
     }
@@ -94,7 +102,7 @@ public final class HttpGitHubClient implements GitHubClient {
     public List<Issue> openIssuesWithLabel(String label) {
         List<Issue> issues = new ArrayList<>();
         for (JsonNode item : readAllPagesConditionally(repositoryPath + "/issues?labels=" + encode(label)
-                + "&state=open&per_page=100")) {
+                + "&state=open&per_page=" + PAGE_SIZE)) {
             if (!item.has("pull_request")) {
                 issues.add(toIssue(item));
             }
@@ -111,7 +119,7 @@ public final class HttpGitHubClient implements GitHubClient {
     public List<IssueComment> comments(int issueNumber) {
         List<IssueComment> comments = new ArrayList<>();
         for (JsonNode item : readAllPagesConditionally(repositoryPath + "/issues/" + issueNumber
-                + "/comments?per_page=100")) {
+                + "/comments?per_page=" + PAGE_SIZE)) {
             comments.add(new IssueComment(item.path("id").asLong(), item.path("user").path("login").asText(),
                     item.path("body").asText("")));
         }
@@ -133,7 +141,8 @@ public final class HttpGitHubClient implements GitHubClient {
     public Map<String, String> lastLabelActors(int issueNumber) {
         Map<String, String> newestTimes = new HashMap<>();
         Map<String, String> newestActors = new HashMap<>();
-        for (JsonNode event : readAllPages(repositoryPath + "/issues/" + issueNumber + "/events?per_page=100")) {
+        String eventsPath = repositoryPath + "/issues/" + issueNumber + "/events?per_page=" + PAGE_SIZE;
+        for (JsonNode event : readAllPages(eventsPath)) {
             if (!"labeled".equals(event.path("event").asText())) {
                 continue;
             }
@@ -191,7 +200,7 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public Optional<PullRequest> openPullRequest(String headBranch) {
         String head = encode(repositoryOwner() + ":" + headBranch);
-        return readAllPages(repositoryPath + "/pulls?head=" + head + "&state=open&per_page=100").stream()
+        return readAllPages(repositoryPath + "/pulls?head=" + head + "&state=open&per_page=" + PAGE_SIZE).stream()
                 .findFirst().map(this::toPullRequest);
     }
 
@@ -301,10 +310,21 @@ public final class HttpGitHubClient implements GitHubClient {
         ConditionalRequestCache.CachedPage page = new ConditionalRequestCache.CachedPage(
                 response.headers().firstValue("ETag").orElse(""), response.body(),
                 response.headers().firstValue("Link"));
-        if (!page.entityTag().isEmpty()) {
+        if (!page.entityTag().isEmpty() && !isFullLastPage(page)) {
             conditionalCache.store(cacheKey, page);
+        } else {
+            conditionalCache.remove(cacheKey);
         }
         return page;
+    }
+
+    /**
+     * A full page without a next link can get a next page later, and a 304 answer would hide it. So such a page
+     * is never cached.
+     */
+    private boolean isFullLastPage(ConditionalRequestCache.CachedPage page) {
+        boolean hasNextPage = NEXT_LINK.matcher(page.link().orElse("")).find();
+        return !hasNextPage && parse(page.body()).size() >= PAGE_SIZE;
     }
 
     private URI nextPage(Optional<String> linkHeader) {

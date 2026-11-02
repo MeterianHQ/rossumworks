@@ -1,6 +1,7 @@
 package com.meterian.factory.github;
 
 import com.meterian.factory.state.IssueStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,5 +77,13 @@ public interface GitHubClient {
      */
     default Map<String, Integer> takeRequestCounts() {
         return Map.of();
+    }
+
+    /**
+     * Returns the reset time of the rate-limit window when few requests remain in it. The poll then starts no
+     * work. A client that does not read the rate limit returns empty.
+     */
+    default Optional<Instant> findLowRemainingReset() {
+        return Optional.empty();
     }
 }

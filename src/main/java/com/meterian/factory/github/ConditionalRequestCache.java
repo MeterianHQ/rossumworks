@@ -32,4 +32,8 @@ final class ConditionalRequestCache {
     synchronized void store(String pathAndQuery, CachedPage page) {
         pages.put(pathAndQuery, page);
     }
+
+    synchronized void remove(String pathAndQuery) {
+        pages.remove(pathAndQuery);
+    }
 }

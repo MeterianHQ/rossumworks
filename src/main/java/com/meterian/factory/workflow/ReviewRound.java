@@ -57,7 +57,9 @@ final class ReviewRound {
             ReviewResult result = completed.get();
             Verdict verdict = judge(result, treeHash);
             reviewed = reviewed.withReview(kind, verdict);
-            result.notes().forEach(note -> notes.add(new ReviewNote(kind, note)));
+            if (isForThisTree(result, treeHash)) {
+                result.notes().forEach(note -> notes.add(new ReviewNote(kind, note)));
+            }
             if (verdict == Verdict.REJECT) {
                 findings.addAll(describeRejection(kind, result, treeHash));
             }
@@ -78,8 +80,13 @@ final class ReviewRound {
     }
 
     private static Verdict judge(ReviewResult result, String treeHash) {
-        boolean isForThisTree = !result.treeHash().isEmpty() && result.treeHash().equals(treeHash);
-        return result.verdict() == Verdict.APPROVE && isForThisTree ? Verdict.APPROVE : Verdict.REJECT;
+        return result.verdict() == Verdict.APPROVE && isForThisTree(result, treeHash) ? Verdict.APPROVE
+                : Verdict.REJECT;
+    }
+
+    /** The notes of a result for another tree are not about this change, so they are dropped. */
+    private static boolean isForThisTree(ReviewResult result, String treeHash) {
+        return !result.treeHash().isEmpty() && result.treeHash().equals(treeHash);
     }
 
     private static List<Finding> describeRejection(ReviewKind kind, ReviewResult result, String treeHash) {

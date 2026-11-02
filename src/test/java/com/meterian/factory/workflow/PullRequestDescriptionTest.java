@@ -176,4 +176,17 @@ class PullRequestDescriptionTest {
         assertThat(line).isEqualTo("- correctness: "
                 + ("Long: " + "a".repeat(2_000)).substring(0, PullRequestDescription.MAXIMUM_NOTE_CHARACTERS) + " (cut)");
     }
+
+    @Test
+    void keepsTheTextAfterANotesHeadingOfTheAgent() throws IOException {
+        writeDescription("Intro.\n\n## Notes of the reviews\n\nThe agent text after the heading.");
+        String body = PullRequestDescription.bodyFor(7, worktree);
+        ReviewNote note = new ReviewNote(ReviewKind.CORRECTNESS, new Finding("Info", "A note."));
+
+        String withNote = PullRequestDescription.withReviewNotes(body, List.of(note));
+        String afterARoundWithoutNotes = PullRequestDescription.withReviewNotes(withNote, List.of());
+
+        assertThat(withNote).contains("The agent text after the heading.", LAST_LINE, "- correctness: Info: A note.");
+        assertThat(afterARoundWithoutNotes).isEqualTo(body).contains("The agent text after the heading.", LAST_LINE);
+    }
 }
