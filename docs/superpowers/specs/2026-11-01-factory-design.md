@@ -482,8 +482,9 @@ GitHub client. They get only a label writer, for the actions.
   window that the CLI reported, with its percent and the time of the
   value.
 - **Kanban board:** one column for each status label (section 5.2), in
-  this order: Waits for you, In progress, In review, Queued, Blocked,
-  Done. "Waits for you" is first, so that it is at the top on the phone.
+  the order of the progress in time: Queued, In progress, In review,
+  Waits for you, Blocked, Done. On the phone, "Waits for you" is at the
+  top.
   The cards in "Done" show the date of the merge.
 - **Done cards in memory:** the merge date is the time when the worker
   first saw the status Done. The column keeps the 20 newest cards. A

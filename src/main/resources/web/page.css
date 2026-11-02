@@ -552,10 +552,14 @@ button {
     background: #b62324;
 }
 
-/* On a phone, the columns go one under the other, and the page scrolls. */
+/* On a phone, the columns go one under the other, and "Waits for you" is at the top. */
 @media (max-width: 800px) {
     #board {
         height: auto;
+    }
+
+    .status-waits-for-you {
+        order: -1;
     }
 
     .columns {

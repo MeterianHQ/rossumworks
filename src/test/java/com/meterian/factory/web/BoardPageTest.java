@@ -123,7 +123,7 @@ class BoardPageTest {
     }
 
     @Test
-    void theWaitsForYouColumnIsFirst() {
+    void theColumnsFollowTheProgressInTime() {
         List<IssueCard> cards = List.of(
                 card(record(3, IssueStatus.DONE)), card(record(4, IssueStatus.BLOCKED)),
                 card(record(5, IssueStatus.QUEUED)), card(record(6, IssueStatus.IN_REVIEW)),
@@ -131,8 +131,8 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(cards));
 
-        assertThat(html).containsSubsequence(columnName("Waits for you"), "#8 ", columnName("In progress"), "#7 ",
-                columnName("In review"), "#6 ", columnName("Queued"), "#5 ", columnName("Blocked"), "#4 ",
+        assertThat(html).containsSubsequence(columnName("Queued"), "#5 ", columnName("In progress"), "#7 ",
+                columnName("In review"), "#6 ", columnName("Waits for you"), "#8 ", columnName("Blocked"), "#4 ",
                 columnName("Done"), "#3 ");
     }
 

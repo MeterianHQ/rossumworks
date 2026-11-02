@@ -18,9 +18,9 @@ import java.util.Locale;
  */
 public final class BoardPage {
 
-    /** "Waits for you" is first, so that it is at the top on the phone. */
-    private static final List<IssueStatus> COLUMNS = List.of(IssueStatus.WAITS_FOR_YOU, IssueStatus.IN_PROGRESS,
-            IssueStatus.IN_REVIEW, IssueStatus.QUEUED, IssueStatus.BLOCKED, IssueStatus.DONE);
+    /** The columns follow the progress in time. On a phone, page.css puts "Waits for you" at the top. */
+    private static final List<IssueStatus> COLUMNS = List.of(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS,
+            IssueStatus.IN_REVIEW, IssueStatus.WAITS_FOR_YOU, IssueStatus.BLOCKED, IssueStatus.DONE);
     private static final int OLD_CHECK_POLL_INTERVALS = 3;
 
     private final DateTimeFormatter timeFormat;

@@ -143,12 +143,13 @@ The header shows the health of the worker: its start time, the time of the last 
 work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
 percent and its time.
 
-The board has one column for each status, in this order: Waits for you, In progress, In review, Queued,
-Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops, the risk, the context
+The board has one column for each status, in the order of the progress in time: Queued, In progress,
+In review, Waits for you, Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops, the risk, the context
 of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
 The column "Done" keeps the 20 newest cards.
 The page updates itself when the state changes.
-The page uses a dark theme. On a narrow screen, the columns go one under the other.
+The page uses a dark theme. On a narrow screen, the columns go one under the other, and "Waits for you" is at
+the top.
 
 ### Actions
 
