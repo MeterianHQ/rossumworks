@@ -758,6 +758,88 @@ class WebServerTest {
                 earlyPollRequests::incrementAndGet);
     }
 
+    @Test
+    void theWaitPageNeedsTheLogin() {
+        HttpResponse<String> answer = get("/live/12", Optional.empty());
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/login");
+    }
+
+    @Test
+    void theWaitPageNamesTheIssue() {
+        HttpResponse<String> answer = get("/live/12", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(200);
+        assertThat(answer.body()).contains("data-issue=\"12\"").contains("src=\"/live.js\"")
+                .contains("<title>Claude AI Factory \u2014 #12</title>")
+                .doesNotContainPattern("<script>\\s*\\S");
+    }
+
+    @Test
+    void theWaitPageShowsForAnUnknownIssue() {
+        assertThat(get("/live/99", logIn()).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void aNumberThatIsNotAnIssueNumberGives404() {
+        assertThat(get("/live/abc", logIn()).statusCode()).isEqualTo(404);
+        assertThat(get("/live/1234567890/link", logIn()).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void theLinkNeedsTheLogin() {
+        assertThat(get("/live/12/link", Optional.empty()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void theLinkIsMissingBeforeTheSessionOpens() {
+        recordCard(liveConversation());
+
+        assertThat(get("/live/12/link", logIn()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void theLinkIsMissingForAnUnknownIssue() {
+        assertThat(get("/live/99/link", logIn()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void theLinkComesWhenTheSessionIsOpen() {
+        recordCard(liveConversationWithLink());
+
+        HttpResponse<String> answer = get("/live/12/link", logIn());
+
+        assertThat(answer.statusCode()).isEqualTo(200);
+        assertThat(answer.headers().firstValue("Content-Type")).contains("application/json");
+        assertThat(answer.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(answer.body()).isEqualTo("{\"link\":\"https://claude.ai/code/session_abc123\"}");
+    }
+
+    @Test
+    void aLinkThatIsNotRemoteControlIsNeverGiven() {
+        recordCard(liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
+                Optional.of("javascript:alert(1)"), LivePlace.PHONE)));
+
+        assertThat(get("/live/12/link", logIn()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void theWaitPageAcceptsOnlyGet() {
+        HttpResponse<String> answer = post("/live/12/link", logIn(), sameOrigin());
+
+        assertThat(answer.statusCode()).isEqualTo(405);
+    }
+
+    @Test
+    void theScriptOfTheWaitPageIsServed() {
+        HttpResponse<String> answer = get("/live.js", Optional.empty());
+
+        assertThat(answer.statusCode()).isEqualTo(200);
+        assertThat(answer.headers().firstValue("Content-Type")).hasValueSatisfying(
+                value -> assertThat(value).startsWith("text/javascript"));
+    }
+
     private void recordSentLink(int issueNumber, String link) {
         sendFailure.ifPresent(failure -> {
             throw failure;

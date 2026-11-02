@@ -23,6 +23,7 @@ public final class WebServer {
     private final HttpHandler loginHandler;
     private final HttpHandler eventsHandler;
     private final HttpHandler actionHandler;
+    private final HttpHandler liveHandler;
     private HttpServer server;
     private ExecutorService executor;
 
@@ -33,6 +34,7 @@ public final class WebServer {
         this.loginHandler = new LoginHandler(login);
         this.eventsHandler = new EventsHandler(login, board);
         this.actionHandler = new ActionHandler(login, actions);
+        this.liveHandler = new LiveHandler(login, board);
     }
 
     public synchronized void start() throws IOException {
@@ -46,8 +48,10 @@ public final class WebServer {
         addContext("/login", loginHandler);
         addContext("/events", eventsHandler);
         addContext("/issues/", actionHandler);
+        addContext("/live/", liveHandler);
         addContext("/page.css", new ResourceHandler("page.css", "text/css; charset=utf-8"));
         addContext("/page.js", new ResourceHandler("page.js", "text/javascript; charset=utf-8"));
+        addContext("/live.js", new ResourceHandler("live.js", "text/javascript; charset=utf-8"));
         server.start();
     }
 
