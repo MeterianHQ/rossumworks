@@ -7,7 +7,7 @@ import java.util.List;
 /** The way the worker tells the board what it sees. */
 public interface BoardUpdates {
 
-    /** Does nothing. Tests that do not look at the board use it. */
+    /** Does nothing. Only the tests that do not look at the board use it: Main always gives a BoardState. */
     BoardUpdates IGNORED = new BoardUpdates() {
         @Override
         public void recordPoll(List<Issue> labeledIssues) {

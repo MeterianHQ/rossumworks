@@ -464,7 +464,15 @@ opens a new live session.
 ## 9. Web page
 
 The worker serves the page. The page shows the state and has four action
-buttons (section 9.4).
+buttons (section 9.4). Without a `web` section in the configuration, the
+worker serves no page.
+
+The page makes no GitHub request of its own. The account has a shared
+limit of 5,000 requests for each hour, and the pilot hit it. The worker
+keeps the board in memory. Each poll and each change of an issue record
+updates it. The page shows only this board and the data from the agent
+runs (the context and the usage). The classes of the page never get the
+GitHub client. They get only a label adder, for the actions.
 
 ### 9.1 Content
 
@@ -473,8 +481,13 @@ buttons (section 9.4).
   against the limit, for example "2 of 2". The usage shows each limit
   window that the CLI reported, with its percent and the time of the
   value.
-- **Kanban board:** one column for each status label (section 5.2). The cards
-  in "Done" show the date of the merge.
+- **Kanban board:** one column for each status label (section 5.2), in
+  this order: Waits for you, In progress, In review, Queued, Blocked,
+  Done. "Waits for you" is first, so that it is at the top on the phone.
+  The cards in "Done" show the date of the merge.
+- **Done cards in memory:** the merge date is the time when the worker
+  first saw the status Done. The column keeps the 20 newest cards. A
+  restart loses them, because a list of the closed issues costs requests.
 - **Card:** the issue number and title, and the current phase. The card
   also shows the four review results (positive or negative), the fix-loop
   count, the risk level, and a context bar (for example "62%"). It has
@@ -494,6 +507,14 @@ use is the sum of the three counts of the last turn. The bar shows this
 sum as a percent of the context window. In live mode, the worker reads
 the same counts from the local session file. Verified on `claude`
 2.1.316: a short run gave 26,262 tokens of 1,000,000.
+
+The session file is
+`<claude-home>/projects/<folder>/<session-uuid>.jsonl`. The claude home
+is `$CLAUDE_CONFIG_DIR` when it is set, else `~/.claude`. The folder is
+the absolute worktree path, with each character that is not a letter or
+a digit changed to `-`. The worker reads only the end of the file and
+takes the newest assistant turn. The window is the context window of the
+newest auto run. Without a known window, the card shows no bar.
 
 ### 9.3 Usage
 
@@ -528,7 +549,22 @@ My decisions on "Block":
   the agent, and then clicks "Continue".
 
 A button shows only when its action is possible, for example "Approve"
-only for the reason "merge needs approval".
+only for the reason "merge needs approval". The worker checks the same
+rule again when it gets the action. An action that is no longer possible
+adds no label.
+
+An action costs only the requests that it needs. Enter, Approve, and
+Block add one label. Continue writes the local marker of section 8.2 and
+makes no request. The worker acts on a label at its next poll, so Block
+stops the `claude` process after one poll interval at most.
+
+My decision on the label of the worker account: the page adds the label
+with the token of the worker. Usually the worker accepts a label only
+from an account of `accounts.allowed`. A label from the worker account is
+also accepted when the page asked for this label on this issue in the
+last 24 hours. The worker keeps these page requests in memory only. After
+a restart, a page label that the poll did not read yet is ignored with
+the usual note, and the owner clicks again (fail closed).
 
 ### 9.5 Access
 
@@ -551,7 +587,9 @@ My decisions on the details:
 - Each action is a `POST` request. With `SameSite=Strict`, another site
   cannot send an action in the name of the owner.
 - After 5 wrong passwords, the worker refuses new attempts for 15
-  minutes.
+  minutes. The lock is for the whole worker, not for one device.
+- The sessions are in memory. A restart of the worker asks for the
+  password again.
 - Known limit: on the LAN the traffic is plain HTTP. Another device on
   the LAN can read the password and the cookie. The owner accepts this
   for the first version.
@@ -569,7 +607,13 @@ One file for each factory. My decision: YAML, read with Jackson. It holds:
   give requests (section 6.0).
 - The parallel limit, the fix-loop limit, the poll interval, and the
   usage threshold.
-- The web page address and port, and the hash of the login password.
+- The web page address and port, and the hash of the login password,
+  in the optional section `web`:
+  - `address`: the default is `127.0.0.1`. The value `0.0.0.0` opens the
+    page to the LAN, and the worker writes a warning about plain HTTP.
+  - `port`: from 1 to 65535. The default is 8090.
+  - `password-hash`: required in the section. The command
+    `hash-password` makes it.
 - The place of the prompts.
 
 ## 11. Reuse from the Fabro experiment

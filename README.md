@@ -106,3 +106,72 @@ credential variable.
   network.
 - When the session ends without `/factory:continue`, the issue keeps the status "Waits for you". The worker
   writes a note in the status comment. Add the label `factory:enter` to open a new session.
+
+## Web page
+
+The worker can serve a web page with the board of the factory. Without a `web` section in the
+configuration, the worker serves no page.
+
+### Setup
+
+1. Make the hash of a password: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar hash-password`.
+   The command asks for the password two times. The password must have 12 characters or more.
+2. Copy the output line `password-hash: pbkdf2-sha256:...` into the `web` section of the configuration:
+
+```yaml
+web:
+  address: 127.0.0.1    # optional; 0.0.0.0 opens the page to the LAN
+  port: 8090            # optional
+  password-hash: "pbkdf2-sha256:600000:..."
+```
+
+3. Start the worker. It writes the address of the page, for example `The web page is at http://127.0.0.1:8090/`.
+   An address that is not a loopback address also gives a warning about plain HTTP.
+
+The configuration holds only the hash, never the password. When the port is in use, the worker stops with
+exit code 1.
+
+### Login
+
+The page asks for the password once on each device. A correct password gives a session cookie for 30 days.
+The page, the board, and the events all need the login. After 5 wrong passwords, the worker refuses new
+attempts for 15 minutes, also the correct password.
+
+### Content
+
+The header shows the health of the worker: its start time, the time of the last GitHub check, the issues in
+work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
+percent and its time.
+
+The board has one column for each status, in this order: Waits for you, In progress, In review, Queued,
+Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops, the risk, the context
+of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
+The column "Done" keeps the 20 newest cards.
+The page updates itself when the state changes.
+
+### Actions
+
+A button shows only when its action is possible. The worker checks the rule again when you click.
+
+| Button | Label | Effect |
+|---|---|---|
+| Enter | `factory:enter` | Opens live mode. |
+| Approve | `factory:approve` | Approves a merge that waits for the owner. |
+| Block | `factory:block` | Takes the issue out of the factory and stops the running `claude` process. |
+| Continue | (none) | Ends live mode, as `/factory:continue` in the conversation. |
+
+Enter, Approve, and Block add the label with the token of the worker. The worker accepts this label because
+the page asked for it. Continue writes the local marker and adds no label.
+
+The page makes no GitHub request of its own. It shows the state from the last poll of the worker. An action
+makes only one request: it adds one label.
+
+### Known limits
+
+- The page uses plain HTTP. On the LAN, another device can read the password and the cookie.
+- A restart of the worker asks for the password again. It also loses the cards in "Done".
+- The lock after 5 wrong passwords is for the whole worker, not for one device.
+- Block acts at the next poll of the worker, so after one poll interval at most.
+- A browser opens about 6 connections to one address. Many tabs of the page in one browser can stop the
+  updates.
+- A label that the page adds just before a restart is ignored with a note. Click the button again.
