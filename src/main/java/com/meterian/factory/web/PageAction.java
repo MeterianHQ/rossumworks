@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * for this label: a label that the worker ignored keeps the button, so that the owner can click again.
  */
 public enum PageAction {
-    ENTER("enter", "Enter", "factory:enter", "Enter sent. The live conversation opens in a few seconds."),
+    ENTER("enter", "Enter", "factory:enter", "Enter sent. The worker opens the live conversation in a few seconds, or after the current step."),
     APPROVE("approve", "Approve", "factory:approve", "Approval sent. The worker takes it in a few seconds."),
     BLOCK("block", "Block", "factory:block", "Block sent. The worker stops the issue in a few seconds."),
     CONTINUE("continue", "Continue", null, "Continue sent. The factory takes the issue back in a few seconds.");
@@ -90,10 +90,9 @@ public enum PageAction {
     public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
         IssueRecord record = card.record();
         return switch (this) {
-            case ENTER -> isRequestedLabelOnTheCard(card, rememberedLabels)
-                    && record.live().flatMap(live -> live.link()).isEmpty();
+            case ENTER -> isRequestedLabelOnTheCard(card, rememberedLabels) && isEnterPossible(record);
             case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
-            case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && record.status() != IssueStatus.BLOCKED;
+            case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && isBlockPossible(record);
             case CONTINUE -> continueRequested && record.live().isPresent();
         };
     }

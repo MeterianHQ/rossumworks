@@ -271,7 +271,8 @@ class BoardPageTest {
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, Set.of("factory:enter"))));
 
-        assertThat(html).contains(requestLine("Enter sent. The live conversation opens in a few seconds."));
+        assertThat(html).contains(requestLine(
+                "Enter sent. The worker opens the live conversation in a few seconds, or after the current step."));
     }
 
     @Test
@@ -290,6 +291,47 @@ class BoardPageTest {
                 Map.of(12, Set.of("factory:block"))));
 
         assertThat(html).contains(requestLine("Block sent. The worker stops the issue in a few seconds."));
+    }
+
+    @Test
+    void aBlockRequestEndsWhenTheIssueIsBlocked() {
+        IssueRecord record = record(12, IssueStatus.BLOCKED);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
+                Map.of(12, Set.of("factory:block"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void aBlockRequestEndsWhenTheIssueIsDone() {
+        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
+                Map.of(12, Set.of("factory:block"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void anEnterRequestEndsWhenTheIssueIsDone() {
+        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
+                Map.of(12, Set.of("factory:enter"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
+    void aRememberedLabelThatIsNotOnTheCardShowsNoRequest() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(card(record)),
+                Map.of(12, Set.of("factory:approve"))));
+
+        assertThat(html).doesNotContain("class=\"request\"")
+                .contains(WaitReason.MERGE_NEEDS_APPROVAL.sentence());
     }
 
     @Test

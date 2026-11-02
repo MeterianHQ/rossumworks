@@ -561,14 +561,16 @@ button {
     background: #b62324;
 }
 
-/* page.js adds the class "busy" after a click: the label gives its place to a turning wheel. */
-.actions button.busy {
+/* page.js adds the class "busy" after a click: the label gives its place to a turning wheel.
+   The selector is stronger than the rules of each action, and it comes after them, also for the hover. */
+.actions form[action] button.busy,
+.actions form[action] button.busy:hover {
     position: relative;
     color: transparent;
     cursor: progress;
 }
 
-.actions button.busy::after {
+.actions form[action] button.busy::after {
     position: absolute;
     inset: 0;
     width: 0.85rem;
@@ -589,7 +591,7 @@ button {
 
 /* Without motion, the busy button shows three dots. */
 @media (prefers-reduced-motion: reduce) {
-    .actions button.busy::after {
+    .actions form[action] button.busy::after {
         width: auto;
         height: auto;
         content: "\2026";

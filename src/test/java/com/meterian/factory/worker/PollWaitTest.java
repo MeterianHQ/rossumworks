@@ -59,6 +59,21 @@ class PollWaitTest {
     }
 
     @Test
+    void aRequestDuringTheEarlyDelayGivesOneMoreEarlyPoll() throws Exception {
+        PollWait wait = new PollWait(LONG_INTERVAL, Duration.ofMillis(500));
+        wait.requestEarlyPoll();
+        CompletableFuture<Void> firstWait = CompletableFuture.runAsync(() -> awaitQuietly(wait));
+        Thread.sleep(100);
+        wait.requestEarlyPoll();
+        firstWait.get(5, TimeUnit.SECONDS);
+        long start = System.nanoTime();
+
+        wait.awaitNextPoll();
+
+        assertThat(elapsedSince(start)).isLessThan(Duration.ofSeconds(5));
+    }
+
+    @Test
     void aStopEndsTheWaitAtOnce() throws Exception {
         PollWait wait = new PollWait(LONG_INTERVAL, LONG_INTERVAL);
         CompletableFuture<Void> waiting = CompletableFuture.runAsync(() -> awaitQuietly(wait));

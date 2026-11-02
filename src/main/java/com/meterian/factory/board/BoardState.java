@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,10 +25,14 @@ import java.util.stream.Stream;
 public final class BoardState implements BoardUpdates {
 
     static final int MAXIMUM_DONE_CARDS = 20;
+    /** A label from the page stays on the card for this many polls when no poll shows it. */
+    private static final int POLLS_FOR_A_PAGE_LABEL = 2;
 
     private final Clock clock;
     private final Instant workerStartedAt;
     private final Map<Integer, IssueCard> cardsByNumber = new LinkedHashMap<>();
+    /** The labels that the page added and that no poll showed yet, with the polls that remain for each. */
+    private final Map<Integer, Map<String, Integer>> pageLabelsByNumber = new HashMap<>();
     private Optional<Instant> lastCheckAt = Optional.empty();
     private long version;
 
@@ -42,6 +47,7 @@ public final class BoardState implements BoardUpdates {
         Map<Integer, Issue> issuesByNumber = new LinkedHashMap<>();
         labeledIssues.forEach(issue -> issuesByNumber.put(issue.number(), issue));
         cardsByNumber.values().removeIf(card -> isGone(card, issuesByNumber));
+        pageLabelsByNumber.keySet().retainAll(issuesByNumber.keySet());
         issuesByNumber.values().forEach(this::refreshCard);
         markChanged();
     }
@@ -64,6 +70,7 @@ public final class BoardState implements BoardUpdates {
         if (card == null) {
             return;
         }
+        pageLabelsByNumber.computeIfAbsent(issueNumber, number -> new HashMap<>()).put(label, POLLS_FOR_A_PAGE_LABEL);
         Set<String> labels = new HashSet<>(card.labels());
         labels.add(label);
         cardsByNumber.put(issueNumber,
@@ -98,9 +105,26 @@ public final class BoardState implements BoardUpdates {
     private void refreshCard(Issue issue) {
         IssueCard card = cardsByNumber.get(issue.number());
         if (card != null) {
+            Set<String> labels = new HashSet<>(issue.labels());
+            labels.addAll(keepPageLabelsNotShownYet(issue));
             cardsByNumber.put(issue.number(),
-                    new IssueCard(issue.number(), issue.title(), issue.labels(), card.record(), card.doneAt()));
+                    new IssueCard(issue.number(), issue.title(), labels, card.record(), card.doneAt()));
         }
+    }
+
+    /**
+     * GitHub can show a new label in the list of issues a few seconds late. So a label from the page stays on the
+     * card until a poll shows it, or for {@link #POLLS_FOR_A_PAGE_LABEL} polls.
+     */
+    private Set<String> keepPageLabelsNotShownYet(Issue issue) {
+        Map<String, Integer> pageLabels = pageLabelsByNumber.getOrDefault(issue.number(), new HashMap<>());
+        pageLabels.keySet().removeAll(issue.labels());
+        pageLabels.replaceAll((label, remainingPolls) -> remainingPolls - 1);
+        pageLabels.values().removeIf(remainingPolls -> remainingPolls <= 0);
+        if (pageLabels.isEmpty()) {
+            pageLabelsByNumber.remove(issue.number());
+        }
+        return Set.copyOf(pageLabels.keySet());
     }
 
     private Optional<Instant> findDoneTime(int issueNumber, IssueRecord record) {

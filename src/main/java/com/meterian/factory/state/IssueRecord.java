@@ -232,6 +232,17 @@ public record IssueRecord(
                 reviewedHeadCommit, 0, Optional.empty(), live, afterConversation);
     }
 
+    /** Moves the note to the end when the list has it already, so that the card shows it as the newest note. */
+    public IssueRecord withNewestNote(String note) {
+        List<String> newNotes = new ArrayList<>(notes);
+        newNotes.remove(note);
+        newNotes.add(note);
+        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
+                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
+                statusCommentId, newNotes, agentSessionStarted, failedReviewRounds, conflictedPaths,
+                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation);
+    }
+
     public IssueRecord withNote(String note) {
         if (notes.contains(note)) {
             return this;

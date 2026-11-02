@@ -48,23 +48,25 @@ final class PollWait {
     void awaitNextPoll() throws InterruptedException {
         lock.lock();
         try {
-            waitUntilTimeoutOrEarlyPoll(pollInterval.toNanos());
+            waitUntilTimeoutOrEarlyPoll();
             if (earlyPollRequested) {
                 earlyPollRequested = false;
-                waitUntilTimeoutOrStop(earlyPollDelay.toNanos());
+                waitUntilTimeoutOrStop();
             }
         } finally {
             lock.unlock();
         }
     }
 
-    private void waitUntilTimeoutOrEarlyPoll(long remainingNanos) throws InterruptedException {
+    private void waitUntilTimeoutOrEarlyPoll() throws InterruptedException {
+        long remainingNanos = pollInterval.toNanos();
         while (!stopped && !earlyPollRequested && remainingNanos > 0) {
             remainingNanos = changed.awaitNanos(remainingNanos);
         }
     }
 
-    private void waitUntilTimeoutOrStop(long remainingNanos) throws InterruptedException {
+    private void waitUntilTimeoutOrStop() throws InterruptedException {
+        long remainingNanos = earlyPollDelay.toNanos();
         while (!stopped && remainingNanos > 0) {
             remainingNanos = changed.awaitNanos(remainingNanos);
         }

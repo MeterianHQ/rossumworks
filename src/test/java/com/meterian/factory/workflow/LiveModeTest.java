@@ -211,6 +211,18 @@ class LiveModeTest {
     }
 
     @Test
+    void aSecondConversationWithoutChangesMakesTheNoteTheNewestNoteAgain() {
+        LiveMode liveMode = createLiveMode();
+        IssueRecord firstLive = liveMode.enter(waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
+        IssueRecord afterFirst = liveMode.continueWork(issue, firstLive, worktree).withNote("Another note.");
+        IssueRecord secondLive = liveMode.enter(afterFirst, worktree);
+
+        IssueRecord continued = liveMode.continueWork(issue, secondLive, worktree);
+
+        assertThat(continued.notes()).containsExactly("Another note.", LiveMode.NO_CHANGE_NOTE);
+    }
+
+    @Test
     void continueInBuildWithoutChangesGoesBackToTheBuild() {
         LiveMode liveMode = createLiveMode();
         IssueRecord live = liveMode.enter(recordInPhase(Phase.BUILD), worktree);

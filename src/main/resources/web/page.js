@@ -73,6 +73,7 @@
         }
     }
 
+    // The order matters: showBusyButton must see the result of the confirm of Block.
     document.addEventListener("submit", confirmBlock);
     document.addEventListener("submit", showBusyButton);
     window.addEventListener("pageshow", refreshBoardFromHistory);

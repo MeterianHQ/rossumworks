@@ -144,7 +144,7 @@ final class LiveMode {
 
     /** /factory:continue is never an approval, so the issue waits for the label again. */
     private static IssueRecord restoreTheWait(IssueRecord record, LiveSession live) {
-        IssueRecord restored = record.withStatus(live.statusBefore()).withNote(NO_CHANGE_NOTE);
+        IssueRecord restored = record.withStatus(live.statusBefore()).withNewestNote(NO_CHANGE_NOTE);
         return live.waitBefore().map(restored::withWaitReason).orElseGet(restored::withoutWaitReason);
     }
 

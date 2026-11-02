@@ -24,7 +24,7 @@ public final class PageActions {
     private final Runnable earlyPollRequest;
     private final ReentrantLock actionLock = new ReentrantLock();
 
-    /** @param earlyPollRequest asks the worker for a poll at once, see {@code Worker.requestEarlyPoll} */
+    /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
     public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board,
             Runnable earlyPollRequest) {
         this.labels = labels;
