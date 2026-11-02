@@ -3,10 +3,32 @@ package com.meterian.factory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.configuration.IsolationMode;
+import com.meterian.factory.configuration.Limits;
+import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.WebSettings;
+import com.meterian.factory.github.Issue;
+import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.FakeGitHubClient;
+import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.web.CardFingerprint;
+import com.meterian.factory.web.WebServer;
+import com.meterian.factory.web.login.PasswordHash;
+import com.meterian.factory.workflow.RequestReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,18 +36,22 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MainTest {
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>";
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+            + "       java -jar claude-ai-factory.jar hash-password";
 
     @TempDir
     Path temporaryDirectory;
 
     private final ByteArrayOutputStream errorBytes = new ByteArrayOutputStream();
     private final PrintStream errors = new PrintStream(errorBytes, true, StandardCharsets.UTF_8);
+    private final ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+    private final PrintStream output = new PrintStream(outputBytes, true, StandardCharsets.UTF_8);
 
     private int runMain(String[] arguments, Map<String, String> environment) {
         return Main.run(arguments, environment, errors,
@@ -190,5 +216,173 @@ class MainTest {
 
         assertThat(client.followRedirects()).isEqualTo(HttpClient.Redirect.NEVER);
         assertThat(client.connectTimeout()).contains(Duration.ofSeconds(30));
+    }
+
+    private int hashPassword(List<String> typedPasswords) {
+        List<String> remaining = new java.util.ArrayList<>(typedPasswords);
+        Main.PasswordSource passwords = prompt -> remaining.isEmpty()
+                ? Optional.empty() : Optional.of(remaining.remove(0).toCharArray());
+        return Main.hashPassword(passwords, output, errors);
+    }
+
+    private String outputText() {
+        return outputBytes.toString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void hashPasswordWritesTheHashLine() {
+        int exitCode = hashPassword(List.of("correct horse battery", "correct horse battery"));
+
+        assertThat(exitCode).isEqualTo(0);
+        String line = outputText().strip();
+        assertThat(line).startsWith("password-hash: pbkdf2-sha256:600000:");
+        assertThat(com.meterian.factory.web.login.PasswordHash.parse(line.substring("password-hash: ".length()))
+                .matches("correct horse battery".toCharArray())).isTrue();
+        assertThat(errorText()).isEmpty();
+    }
+
+    @Test
+    void hashPasswordRefusesTwoDifferentPasswords() {
+        int exitCode = hashPassword(List.of("correct horse battery", "another horse battery"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("The two passwords are not the same.")
+                .doesNotContain("horse");
+        assertThat(outputText()).doesNotContain("password-hash");
+    }
+
+    @Test
+    void hashPasswordRefusesAShortPassword() {
+        int exitCode = hashPassword(List.of("short", "short"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("The password must have 12 characters or more.");
+        assertThat(outputText()).doesNotContain("password-hash");
+    }
+
+    @Test
+    void hashPasswordNeedsATerminal() {
+        int exitCode = hashPassword(List.of());
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("Run hash-password in a terminal.");
+    }
+
+    @Test
+    void theHashPasswordCommandIsSelectedByItsName() {
+        assertThat(Main.isHashPasswordCommand(new String[] {"hash-password"})).isTrue();
+        assertThat(Main.isHashPasswordCommand(new String[] {"hash-password", "x"})).isFalse();
+        assertThat(Main.isHashPasswordCommand(new String[] {"run", "--config", "f"})).isFalse();
+    }
+
+    private static final String PASSWORD = "correct horse battery";
+    private static final int FAST_ITERATIONS = 1000;
+    private static final String LAN_WARNING = "The web page is open to the LAN with plain HTTP. "
+            + "Another device on the LAN can read the password and the cookie.";
+
+    private static WebSettings webSettings(String address, int port) {
+        return new WebSettings(address, port, PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS));
+    }
+
+    private FactoryConfiguration configuration(Optional<WebSettings> web) {
+        Path workDirectory = temporaryDirectory.resolve("work");
+        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
+                "true", Map.of());
+        return new FactoryConfiguration(target, "main", new Limits(2, 2, Duration.ofSeconds(60), 0.90),
+                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), workDirectory,
+                temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(), temporaryDirectory.resolve("live"),
+                web);
+    }
+
+    @Test
+    void describesTheWebAddress() {
+        assertThat(Main.describeWebAddress(webSettings("127.0.0.1", 8090))).isEqualTo("http://127.0.0.1:8090/");
+        assertThat(Main.describeWebAddress(webSettings("::1", 8090))).isEqualTo("http://[::1]:8090/");
+    }
+
+    @Test
+    void warnsWhenThePageIsOpenToTheLan() {
+        assertThat(Main.findWebWarning(webSettings("0.0.0.0", 8090))).contains(LAN_WARNING);
+        assertThat(Main.findWebWarning(webSettings("192.168.1.20", 8090))).contains(LAN_WARNING);
+        assertThat(Main.findWebWarning(webSettings("127.0.0.1", 8090))).isEmpty();
+        assertThat(Main.findWebWarning(webSettings("::1", 8090))).isEmpty();
+    }
+
+    @Test
+    void findsTheClaudeHome() {
+        assertThat(Main.findClaudeHome(Map.of("CLAUDE_CONFIG_DIR", "/opt/claude-home"), Path.of("/home/u")))
+                .isEqualTo(Path.of("/opt/claude-home"));
+        assertThat(Main.findClaudeHome(Map.of("CLAUDE_CONFIG_DIR", " "), Path.of("/home/u")))
+                .isEqualTo(Path.of("/home/u/.claude"));
+        assertThat(Main.findClaudeHome(Map.of(), Path.of("/home/u"))).isEqualTo(Path.of("/home/u/.claude"));
+    }
+
+    @Test
+    void makesNoWebServerWithoutAWebSection() {
+        FactoryConfiguration configuration = configuration(Optional.empty());
+
+        Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
+                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0, temporaryDirectory.resolve("claude-home"));
+
+        assertThat(server).isEmpty();
+    }
+
+    @Test
+    void aPortInUseStopsTheStart() throws IOException {
+        try (ServerSocket occupied = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            int port = occupied.getLocalPort();
+            FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
+            WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
+                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), () -> 0,
+                    temporaryDirectory.resolve("claude-home")).orElseThrow();
+
+            assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
+                    .isInstanceOf(Main.StartupException.class)
+                    .hasMessageStartingWith("The web page cannot listen on 127.0.0.1:" + port + ": ");
+        }
+    }
+
+    @Test
+    void thePageSharesTheBoardAndThePageRequestsWithTheWorker() throws Exception {
+        FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", 0)));
+        Main.SharedState shared = Main.SharedState.create(configuration);
+        FakeGitHubClient gitHub = new FakeGitHubClient();
+        gitHub.addIssue(12, "Fix the login", "body");
+        RequestReader requests = Main.createRequestReader(gitHub, configuration, "factory-bot", shared);
+        shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
+                IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
+                        .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
+        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
+                Main.createLabelWriter(gitHub), () -> 1, temporaryDirectory.resolve("claude-home")).orElseThrow();
+        Main.startWebServer(server, configuration.web().orElseThrow(), errors);
+        try {
+            HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+            URI base = URI.create("http://127.0.0.1:" + server.port());
+            String cookie = logIn(client, base);
+            String fingerprint = CardFingerprint.of(shared.board().snapshot().cards().getFirst());
+
+            HttpResponse<String> approve = client.send(HttpRequest.newBuilder(base.resolve("/issues/12/approve"))
+                    .POST(HttpRequest.BodyPublishers.ofString("state=" + fingerprint))
+                    .header("Content-Type", "application/x-www-form-urlencoded").header("Cookie", cookie).build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertThat(approve.statusCode()).isEqualTo(303);
+            assertThat(gitHub.lastLabelActor(12, "factory:approve")).contains("factory-bot");
+            assertThat(requests.isGivenByAllowedAccount(12, "factory:approve")).isTrue();
+            assertThat(shared.board().snapshot().cards().getFirst().labels()).contains("factory:approve");
+            assertThat(errorText()).contains("The web page is at http://127.0.0.1:" + server.port() + "/")
+                    .doesNotContain("open to the LAN");
+        } finally {
+            server.stop();
+        }
+    }
+
+    private static String logIn(HttpClient client, URI base) throws Exception {
+        HttpResponse<String> login = client.send(HttpRequest.newBuilder(base.resolve("/login"))
+                .POST(HttpRequest.BodyPublishers.ofString("password=" + PASSWORD.replace(' ', '+')))
+                .header("Content-Type", "application/x-www-form-urlencoded").build(),
+                HttpResponse.BodyHandlers.ofString());
+        String setCookie = login.headers().firstValue("Set-Cookie").orElseThrow();
+        return setCookie.substring(0, setCookie.indexOf(';'));
     }
 }

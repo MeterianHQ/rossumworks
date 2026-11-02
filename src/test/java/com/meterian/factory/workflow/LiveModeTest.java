@@ -265,5 +265,10 @@ class LiveModeTest {
         public void clearContinueRequest(int issueNumber) {
             delegate.clearContinueRequest(issueNumber);
         }
+
+        @Override
+        public void requestContinue(int issueNumber) {
+            delegate.requestContinue(issueNumber);
+        }
     }
 }

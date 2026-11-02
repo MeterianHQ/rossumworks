@@ -5,10 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.meterian.factory.agent.UsageWindow;
-import java.time.Clock;
+import com.meterian.factory.testing.MutableClock;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -119,33 +117,5 @@ class UsageTrackerTest {
 
     private static UsageWindow window(String name, double utilization, Instant resetsAt, String status) {
         return new UsageWindow(name, utilization, resetsAt, status, NOW);
-    }
-
-    private static final class MutableClock extends Clock {
-
-        private volatile Instant instant;
-
-        MutableClock(Instant instant) {
-            this.instant = instant;
-        }
-
-        void set(Instant newInstant) {
-            instant = newInstant;
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return instant;
-        }
     }
 }

@@ -7,6 +7,7 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
+import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.build.BuildOutcome;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -29,6 +30,7 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -75,7 +77,7 @@ public final class IssueWorkflow {
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
                          RequestReader requests, WorkspaceLayout layout, String workerLogin,
-                         LiveSessions liveSessions) {
+                         LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.git = git;
@@ -87,7 +89,7 @@ public final class IssueWorkflow {
         this.workspace = new IssueWorkspace(configuration, git);
         this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch(),
                 configuration.gatekeeperDirectory().toAbsolutePath());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops());
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
         this.forwardCheckFailure = new ForwardCheckFailure(statusPublisher);
         this.fixLoop = new FixLoop(prompts, ownerApproval, conflictResolution, configuration.limits().fixLoops());
         this.reviewedCommit = new ReviewedCommit(git, configuration.target().cloneDirectory(),
@@ -95,7 +97,7 @@ public final class IssueWorkflow {
         this.issueTextCheck = new IssueTextCheck(ownerApproval);
         this.approvalCheck = new ApprovalCheck(ownerApproval, issueTextCheck);
         this.layout = layout;
-        this.phaseRunner = new PhaseRunner(agentRunner, usage);
+        this.phaseRunner = new PhaseRunner(agentRunner, usage, contexts);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
         this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts());
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);

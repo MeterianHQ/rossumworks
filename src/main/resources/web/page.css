@@ -1,0 +1,573 @@
+/* The page uses a dark theme. All the colors are in these variables. */
+:root {
+    color-scheme: dark;
+    --background: #0d1117;
+    --surface: #161b22;
+    --surface-raised: #1c2330;
+    --border: #2d333b;
+    --border-strong: #444c56;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --link: #79b8ff;
+    --blue: #4493f8;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #a371f7;
+    --grey: #6e7681;
+    --radius: 10px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text);
+    background: var(--background);
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+button {
+    font: inherit;
+    cursor: pointer;
+}
+
+/* The login page */
+
+.login-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1.5rem;
+    background: radial-gradient(circle at 50% 0%, #1f2a3d 0%, var(--background) 60%);
+}
+
+.login {
+    width: 100%;
+    max-width: 24rem;
+}
+
+.login-box {
+    padding: 2.2rem 2rem 2rem;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.login-mark {
+    width: 3rem;
+    height: 3rem;
+    margin: 0 auto 1rem;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--purple), var(--blue));
+}
+
+.login-box h1 {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 650;
+}
+
+.login-subtitle {
+    margin: 0.4rem 0 1.5rem;
+    color: var(--text-muted);
+}
+
+.login-message {
+    margin: 0 0 1.2rem;
+    padding: 0.6rem 0.8rem;
+    color: #ffd8d3;
+    border: 1px solid rgba(248, 81, 73, 0.5);
+    border-radius: 8px;
+    background: rgba(248, 81, 73, 0.12);
+}
+
+.login-box .message {
+    margin: 0 0 1rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.login-box form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.login-box label {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.login-box input {
+    padding: 0.65rem 0.75rem;
+    font: inherit;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--background);
+}
+
+.login-box input:focus {
+    outline: 2px solid var(--blue);
+    outline-offset: 1px;
+    border-color: var(--blue);
+}
+
+.login-box button {
+    margin-top: 0.6rem;
+    padding: 0.7rem;
+    font-weight: 600;
+    color: #ffffff;
+    border: 0;
+    border-radius: 8px;
+    background: var(--blue);
+}
+
+.login-box button:hover {
+    background: #5aa2ff;
+}
+
+/* The board page */
+
+#board {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+}
+
+.brand h1 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 650;
+}
+
+.repository {
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85rem;
+}
+
+.health {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    min-width: 7.5rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-raised);
+}
+
+.tile-label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tile-value {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.tile-note {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.usage meter {
+    width: 5rem;
+    height: 0.6rem;
+    vertical-align: middle;
+}
+
+.warning,
+.notice {
+    margin: 0;
+    padding: 0.5rem 1.2rem;
+    font-weight: 600;
+}
+
+.warning {
+    color: #ffffff;
+    background: #b62324;
+}
+
+.notice {
+    color: #1b1300;
+    background: var(--yellow);
+}
+
+.columns {
+    display: grid;
+    flex: 1;
+    grid-template-columns: repeat(6, minmax(15rem, 1fr));
+    gap: 0.8rem;
+    min-height: 0;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--column-color, var(--grey));
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.status-waits-for-you {
+    --column-color: var(--yellow);
+}
+
+.status-in-progress {
+    --column-color: var(--blue);
+}
+
+.status-in-review {
+    --column-color: var(--purple);
+}
+
+.status-queued {
+    --column-color: var(--grey);
+}
+
+.status-blocked {
+    --column-color: var(--red);
+}
+
+.status-done {
+    --column-color: var(--green);
+}
+
+.column h2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0;
+    padding: 0.7rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+}
+
+.count {
+    min-width: 1.6rem;
+    padding: 0.05rem 0.5rem;
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text);
+    border-radius: 999px;
+    background: var(--border-strong);
+}
+
+.cards {
+    flex: 1;
+    min-height: 0;
+    padding: 0.7rem;
+    overflow-y: auto;
+}
+
+.empty {
+    margin: 1.5rem 0;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.card {
+    margin-bottom: 0.7rem;
+    padding: 0.75rem 0.8rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--column-color, var(--grey));
+    border-radius: 8px;
+    background: var(--surface-raised);
+}
+
+.card:hover {
+    border-color: var(--border-strong);
+    border-left-color: var(--column-color, var(--grey));
+}
+
+.card.waits {
+    box-shadow: 0 0 0 1px rgba(210, 153, 34, 0.45);
+}
+
+.card-head {
+    margin-bottom: 0.3rem;
+}
+
+.phase {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--column-color, var(--grey));
+    border: 1px solid currentColor;
+    border-radius: 999px;
+}
+
+.card h3 {
+    margin: 0 0 0.45rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.card h3 a {
+    color: var(--text);
+}
+
+.card p {
+    margin: 0.35rem 0;
+}
+
+.reason {
+    padding: 0.4rem 0.55rem;
+    font-weight: 600;
+    color: #f2cc60;
+    border-radius: 6px;
+    background: rgba(210, 153, 34, 0.12);
+}
+
+.live a {
+    font-weight: 600;
+}
+
+.live a::before {
+    content: "\25CF  ";
+    color: var(--green);
+}
+
+.reviews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0.45rem 0;
+    padding: 0;
+    list-style: none;
+}
+
+.review {
+    padding: 0.05rem 0.45rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-muted);
+}
+
+.review::before {
+    margin-right: 0.25rem;
+    content: "\2013";
+}
+
+.review.positive {
+    color: var(--green);
+    border-color: rgba(63, 185, 80, 0.5);
+    background: rgba(63, 185, 80, 0.1);
+}
+
+.review.positive::before {
+    content: "\2713";
+}
+
+.review.negative {
+    color: var(--red);
+    border-color: rgba(248, 81, 73, 0.5);
+    background: rgba(248, 81, 73, 0.1);
+}
+
+.review.negative::before {
+    content: "\2717";
+}
+
+.facts {
+    display: flex;
+    gap: 1.2rem;
+    margin: 0.4rem 0;
+}
+
+.facts div {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.facts dt {
+    color: var(--text-muted);
+}
+
+.facts dd {
+    margin: 0;
+    font-weight: 600;
+}
+
+.risk-low {
+    color: var(--green);
+}
+
+.risk-medium {
+    color: var(--yellow);
+}
+
+.risk-high {
+    color: var(--red);
+}
+
+.context {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.context-label {
+    color: var(--text-muted);
+}
+
+.context meter {
+    flex: 1;
+    height: 0.55rem;
+}
+
+.context-value {
+    font-weight: 600;
+}
+
+.note {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.done {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+.actions:empty {
+    display: none;
+}
+
+.actions form {
+    margin: 0;
+}
+
+.actions button {
+    padding: 0.35rem 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: #21262d;
+}
+
+.actions button:hover {
+    background: #30363d;
+}
+
+.actions form[action$="/approve"] button {
+    color: #ffffff;
+    border-color: #2ea043;
+    background: #238636;
+}
+
+.actions form[action$="/approve"] button:hover {
+    background: #2ea043;
+}
+
+.actions form[action$="/enter"] button,
+.actions form[action$="/continue"] button {
+    color: #ffffff;
+    border-color: var(--blue);
+    background: #1f6feb;
+}
+
+.actions form[action$="/block"] button {
+    color: var(--red);
+    border-color: rgba(248, 81, 73, 0.5);
+    background: transparent;
+}
+
+.actions form[action$="/block"] button:hover {
+    color: #ffffff;
+    background: #b62324;
+}
+
+/* On a phone, the columns go one under the other, and "Waits for you" is at the top. */
+@media (max-width: 800px) {
+    #board {
+        height: auto;
+    }
+
+    .status-waits-for-you {
+        order: -1;
+    }
+
+    .columns {
+        grid-template-columns: 1fr;
+        overflow-x: visible;
+    }
+
+    .cards {
+        overflow-y: visible;
+    }
+}

@@ -1,13 +1,16 @@
 package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
+import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
+import com.meterian.factory.board.BoardState;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -17,23 +20,37 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.web.BoardPage;
+import com.meterian.factory.web.LabelWriter;
+import com.meterian.factory.web.PageActions;
+import com.meterian.factory.web.PageModelSource;
+import com.meterian.factory.web.WebServer;
+import com.meterian.factory.web.login.PasswordHash;
+import com.meterian.factory.web.login.PasswordLogin;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
+import java.io.Console;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -42,15 +59,18 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntSupplier;
 
-/** The command line: java -jar claude-ai-factory.jar run --config <file>. */
+/** The command line: run --config <file>, or hash-password. */
 public final class Main {
 
     static final int EXIT_SUCCESS = 0;
     static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>";
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+            + "       java -jar claude-ai-factory.jar hash-password";
+    private static final int MINIMUM_PASSWORD_LENGTH = 12;
     private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
     private static final String TOKEN_VARIABLE = "FACTORY_GITHUB_TOKEN";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
@@ -59,6 +79,9 @@ public final class Main {
     private static final Duration LOOP_END_TIMEOUT = Duration.ofMinutes(1);
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration TOKEN_COMMAND_TIMEOUT = Duration.ofSeconds(30);
+    private static final String CLAUDE_HOME_VARIABLE = "CLAUDE_CONFIG_DIR";
+    private static final String LAN_WARNING = "The web page is open to the LAN with plain HTTP. "
+            + "Another device on the LAN can read the password and the cookie.";
     private static final System.Logger LOGGER = System.getLogger(Main.class.getName());
 
     /** A check before the start failed. The message tells the owner what to do. */
@@ -69,11 +92,64 @@ public final class Main {
         }
     }
 
+    /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
+    record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage) {
+
+        static SharedState create(FactoryConfiguration configuration) {
+            return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
+                    new PageRequests(Clock.systemUTC()),
+                    new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()));
+        }
+    }
+
     private Main() {
     }
 
     public static void main(String[] arguments) {
+        if (isHashPasswordCommand(arguments)) {
+            System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
+        }
         System.exit(run(arguments, System.getenv(), System.err));
+    }
+
+    static boolean isHashPasswordCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("hash-password");
+    }
+
+    /** Reads a password without echo. A test gives another source, so that it never uses the console. */
+    @FunctionalInterface
+    interface PasswordSource {
+        Optional<char[]> read(String prompt);
+    }
+
+    private static Optional<char[]> readPasswordFromConsole(String prompt) {
+        Console console = System.console();
+        return console == null ? Optional.empty() : Optional.ofNullable(console.readPassword("%s", prompt));
+    }
+
+    /** Asks for the password two times and writes the hash line. It never prints the password. */
+    static int hashPassword(PasswordSource passwords, PrintStream output, PrintStream errors) {
+        char[] password = passwords.read("Password: ").orElse(null);
+        if (password == null) {
+            errors.println("Run hash-password in a terminal.");
+            return EXIT_FAILURE;
+        }
+        char[] repeated = passwords.read("Repeat the password: ").orElse(new char[0]);
+        try {
+            if (!Arrays.equals(password, repeated)) {
+                errors.println("The two passwords are not the same.");
+                return EXIT_FAILURE;
+            }
+            if (password.length < MINIMUM_PASSWORD_LENGTH) {
+                errors.println("The password must have " + MINIMUM_PASSWORD_LENGTH + " characters or more.");
+                return EXIT_FAILURE;
+            }
+            output.println("password-hash: " + PasswordHash.create(password).format());
+            return EXIT_SUCCESS;
+        } finally {
+            Arrays.fill(password, '\0');
+            Arrays.fill(repeated, '\0');
+        }
     }
 
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
@@ -229,27 +305,128 @@ public final class Main {
         LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
+        SharedState shared = SharedState.create(configuration);
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
-        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
+        RequestReader requests = createRequestReader(gitHub, configuration, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
-                liveSessions);
+                liveSessions, shared);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions, Clock.systemUTC());
-        Runtime.getRuntime().addShutdownHook(createShutdownHook(worker));
-        worker.runUntilStopped();
-        worker.shutDown(LOOP_END_TIMEOUT);
+                liveSessions, Clock.systemUTC(), shared.board());
+        Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
+        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions,
+                createLabelWriter(gitHub), () -> worker.issuesInWork().size(), claudeHome);
+        startWebServerIfPresent(webServer, configuration, errors, worker);
+        Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
+        try {
+            worker.runUntilStopped();
+            worker.shutDown(LOOP_END_TIMEOUT);
+        } finally {
+            webServer.ifPresent(WebServer::stop);
+        }
         if (!worker.foundAnApiKey()) {
             errors.println("The factory stopped.");
             return EXIT_SUCCESS;
         }
         errors.println("The factory stopped: a claude session used an API key.");
         return EXIT_API_KEY;
+    }
+
+    /** The same page requests go to the reader and to the page, so that the reader accepts a label of the page. */
+    static RequestReader createRequestReader(GitHubClient gitHub, FactoryConfiguration configuration,
+                                             String workerLogin, SharedState shared) {
+        return new RequestReader(gitHub, configuration.allowedAccounts(), workerLogin, shared.pageRequests());
+    }
+
+    /** The page gets only these two label requests of the GitHub client. A 404 on a remove is not an error. */
+    static LabelWriter createLabelWriter(GitHubClient gitHub) {
+        return new LabelWriter() {
+            @Override
+            public void addLabel(int issueNumber, String label) {
+                gitHub.addLabel(issueNumber, label);
+            }
+
+            @Override
+            public void removeLabel(int issueNumber, String label) {
+                gitHub.removeLabel(issueNumber, label);
+            }
+        };
+    }
+
+    /**
+     * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
+     * client.
+     */
+    static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
+                                               LiveSessions liveSessions, LabelWriter labels,
+                                               IntSupplier issuesInWork, Path claudeHome) {
+        return configuration.web().map(settings -> new WebServer(settings,
+                new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
+                new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
+                        new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
+                        new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
+                        Clock.systemUTC()),
+                new BoardPage(ZoneId.systemDefault()), shared.board(),
+                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board())));
+    }
+
+    /** A web server that cannot start stops the worker before its first poll. */
+    private static void startWebServerIfPresent(Optional<WebServer> webServer, FactoryConfiguration configuration,
+                                                PrintStream errors, Worker worker) throws StartupException {
+        if (webServer.isEmpty()) {
+            return;
+        }
+        try {
+            startWebServer(webServer.get(), configuration.web().orElseThrow(), errors);
+        } catch (StartupException exception) {
+            worker.shutDown(SHUTDOWN_TIMEOUT);
+            throw exception;
+        }
+    }
+
+    static void startWebServer(WebServer webServer, WebSettings settings, PrintStream errors)
+            throws StartupException {
+        try {
+            webServer.start();
+        } catch (IOException exception) {
+            throw new StartupException("The web page cannot listen on " + settings.address() + ":" + settings.port()
+                    + ": " + exception.getMessage());
+        }
+        errors.println("The web page is at " + describeWebAddress(settings.address(), webServer.port()));
+        findWebWarning(settings).ifPresent(errors::println);
+    }
+
+    static String describeWebAddress(WebSettings settings) {
+        return describeWebAddress(settings.address(), settings.port());
+    }
+
+    private static String describeWebAddress(String address, int port) {
+        String host = address.contains(":") ? "[" + address + "]" : address;
+        return "http://" + host + ":" + port + "/";
+    }
+
+    /** Only a loopback address keeps the plain HTTP on this computer. An address that is not known also warns. */
+    static Optional<String> findWebWarning(WebSettings settings) {
+        return isLoopbackAddress(settings.address()) ? Optional.empty() : Optional.of(LAN_WARNING);
+    }
+
+    private static boolean isLoopbackAddress(String address) {
+        try {
+            return InetAddress.getByName(address).isLoopbackAddress();
+        } catch (UnknownHostException exception) {
+            return false;
+        }
+    }
+
+    /** The claude home holds the session files of the live sessions. */
+    static Path findClaudeHome(Map<String, String> environment, Path userHome) {
+        String configured = environment.getOrDefault(CLAUDE_HOME_VARIABLE, "");
+        return configured.isBlank() ? userHome.resolve(".claude") : Path.of(configured.strip());
     }
 
     /** The install runs before the first poll: a live folder that is not private stops the start. */
@@ -272,22 +449,24 @@ public final class Main {
     }
 
     /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
-    static Thread createShutdownHook(Worker worker) {
-        return new Thread(() -> worker.shutDown(SHUTDOWN_TIMEOUT), "factory-shutdown");
+    static Thread createShutdownHook(Worker worker, Optional<WebServer> webServer) {
+        return new Thread(() -> {
+            webServer.ifPresent(WebServer::stop);
+            worker.shutDown(SHUTDOWN_TIMEOUT);
+        }, "factory-shutdown");
     }
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 RequestReader requests, String workerLogin,
-                                                LiveSessions liveSessions) {
+                                                LiveSessions liveSessions, SharedState shared) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
                 configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
-        UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger, usage,
-                requests, layout, workerLogin, liveSessions);
+        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
+                shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts());
     }
 }

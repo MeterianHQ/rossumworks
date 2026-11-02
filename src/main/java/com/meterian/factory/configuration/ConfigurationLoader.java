@@ -2,15 +2,20 @@ package com.meterian.factory.configuration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import com.meterian.factory.web.login.PasswordHash;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 public final class ConfigurationLoader {
 
     /** A shorter interval uses up the rate limit of the GitHub API. */
     private static final Duration MINIMUM_POLL_INTERVAL = Duration.ofSeconds(10);
+
+    /** A hash with fewer iterations is too quick to guess. */
+    private static final int MINIMUM_HASH_ITERATIONS = 100_000;
 
     private ConfigurationLoader() {
     }
@@ -29,7 +34,8 @@ public final class ConfigurationLoader {
                 workDirectory,
                 root.requirePath("gatekeeper-directory"),
                 root.findPath("prompts-directory"),
-                root.findPath("live-directory").orElse(workDirectory.resolve("live")));
+                root.findPath("live-directory").orElse(workDirectory.resolve("live")),
+                readWebSettings(root));
     }
 
     private static JsonNode readTree(Path file) throws ConfigurationException {
@@ -134,5 +140,38 @@ public final class ConfigurationLoader {
                 section.findText("command").orElse(ClaudeSettings.DEFAULT_COMMAND),
                 section.findTextList("allowed-tools").orElse(ClaudeSettings.DEFAULT_ALLOWED_TOOLS),
                 section.findTextList("disallowed-tools").orElse(ClaudeSettings.DEFAULT_DISALLOWED_TOOLS));
+    }
+
+    private static Optional<WebSettings> readWebSettings(ConfigurationSection root) throws ConfigurationException {
+        ConfigurationSection section = root.findSection("web").orElse(null);
+        if (section == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new WebSettings(
+                section.findText("address").orElse(WebSettings.DEFAULT_ADDRESS),
+                readPort(section),
+                readPasswordHash(section)));
+    }
+
+    private static int readPort(ConfigurationSection section) throws ConfigurationException {
+        int port = section.findInteger("port").orElse(WebSettings.DEFAULT_PORT);
+        if (port < 1 || port > 65535) {
+            throw new ConfigurationException("web.port must be from 1 to 65535");
+        }
+        return port;
+    }
+
+    private static PasswordHash readPasswordHash(ConfigurationSection section) throws ConfigurationException {
+        String text = section.requireText("password-hash");
+        PasswordHash hash;
+        try {
+            hash = PasswordHash.parse(text);
+        } catch (IllegalArgumentException exception) {
+            throw new ConfigurationException("web.password-hash is not valid. Make a new one with hash-password.");
+        }
+        if (hash.iterations() < MINIMUM_HASH_ITERATIONS) {
+            throw new ConfigurationException("web.password-hash is too weak. Make a new one with hash-password.");
+        }
+        return hash;
     }
 }

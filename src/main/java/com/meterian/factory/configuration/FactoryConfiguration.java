@@ -14,5 +14,6 @@ public record FactoryConfiguration(
         Path workDirectory,
         Path gatekeeperDirectory,
         Optional<Path> promptDirectory,
-        Path liveDirectory) {
+        Path liveDirectory,
+        Optional<WebSettings> web) {
 }

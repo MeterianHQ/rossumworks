@@ -17,4 +17,7 @@ public interface LiveSessions {
     boolean isContinueRequested(int issueNumber);
 
     void clearContinueRequest(int issueNumber);
+
+    /** Acts as the hook: the owner asks for the continue from the web page. */
+    void requestContinue(int issueNumber);
 }

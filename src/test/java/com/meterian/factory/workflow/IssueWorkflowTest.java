@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.UsageWindow;
+import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -34,6 +35,7 @@ import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -111,12 +113,13 @@ class IssueWorkflowTest {
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
                 List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"));
+                temporaryDirectory.resolve("live"), Optional.empty());
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
                 buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
-                new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions);
+                new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
+                BoardUpdates.IGNORED, new ContextTracker());
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {

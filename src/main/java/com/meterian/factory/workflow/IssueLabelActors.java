@@ -3,7 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.github.GitHubClient;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 /**
  * The actors of the request labels of one issue. The first check reads the events, and the other checks use the
@@ -13,13 +13,14 @@ public final class IssueLabelActors {
 
     private final GitHubClient gitHub;
     private final int issueNumber;
-    private final Predicate<String> isAllowed;
+    private final BiPredicate<String, String> isAcceptedActorOfLabel;
     private Map<String, String> actorsByLabel;
 
-    IssueLabelActors(GitHubClient gitHub, int issueNumber, Predicate<String> isAllowed) {
+    /** The rule gets the label first and the actor second. */
+    IssueLabelActors(GitHubClient gitHub, int issueNumber, BiPredicate<String, String> isAcceptedActorOfLabel) {
         this.gitHub = gitHub;
         this.issueNumber = issueNumber;
-        this.isAllowed = isAllowed;
+        this.isAcceptedActorOfLabel = isAcceptedActorOfLabel;
     }
 
     public int issueNumber() {
@@ -35,6 +36,6 @@ public final class IssueLabelActors {
     }
 
     public boolean isGivenByAllowedAccount(String label) {
-        return findActor(label).filter(isAllowed).isPresent();
+        return findActor(label).filter(actor -> isAcceptedActorOfLabel.test(label, actor)).isPresent();
     }
 }
