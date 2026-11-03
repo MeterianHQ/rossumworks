@@ -27,6 +27,9 @@ public interface Git {
     /** Returns the hash of the commit that the reference points to. */
     String commitOf(Path repository, String reference);
 
+    /** Returns the hashes of the newest commits that change the path in the history of the reference, newest first. */
+    List<String> commitsOfPath(Path repository, String reference, String path, int limit);
+
     /** Returns the hash of the commit that the reference points to: git rev-parse reference^{commit}. */
     String resolveCommit(Path repository, String reference);
 

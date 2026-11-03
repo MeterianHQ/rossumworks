@@ -134,6 +134,40 @@ class DefinitionVersionsTest {
     }
 
     @Test
+    void takesTheNewestGoodVersionAfterARestartWithABrokenHead() {
+        String older = commitDefinition(author, mainFileWithAccounts("alice"));
+        String good = commitDefinition(author, mainFileWithAccounts("alice, bob"));
+        String broken = commitDefinition(author, BROKEN_MAIN_FILE);
+        assertThat(older).isNotEqualTo(good);
+        DefinitionVersions afterRestart = createVersions();
+
+        afterRestart.refresh();
+
+        assertThat(afterRestart.current()).hasValueSatisfying(
+                version -> assertThat(version.commit()).isEqualTo(good));
+        assertThat(afterRestart.allowedAccounts()).containsExactly("alice", "bob");
+        assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
+                .startsWith("The .factory of " + shortCommit(broken) + " does not load: ")
+                .endsWith(". The factory keeps the version " + shortCommit(good) + "."));
+    }
+
+    @Test
+    void stopsTheWalkBackAfterTheLimitOfCommits() {
+        commitDefinition(author, builtInMainFile());
+        for (int count = 0; count < 20; count++) {
+            commitDefinition(author, BROKEN_MAIN_FILE + "# " + count + "\n");
+        }
+        DefinitionVersions afterRestart = createVersions();
+
+        afterRestart.refresh();
+
+        assertThat(afterRestart.current()).isEmpty();
+        assertThat(afterRestart.allowedAccounts()).isEmpty();
+        assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
+                .endsWith(". The factory takes no new issue."));
+    }
+
+    @Test
     void keepsTheVersionOfAnIssueAfterANewCommit() {
         String first = commitDefinition(author, builtInMainFile());
         DefinitionVersions versions = createVersions();

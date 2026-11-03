@@ -117,6 +117,12 @@ public final class ProcessGit implements Git {
         return run(repository, "rev-parse", "--verify", reference + "^{commit}").trim();
     }
 
+    @Override
+    public List<String> commitsOfPath(Path repository, String reference, String path, int limit) {
+        String output = run(repository, "log", "--format=%H", "-n", String.valueOf(limit), reference, "--", path);
+        return output.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+    }
+
     /** The blob is read raw with cat-file: a textconv or a filter of the repository never runs. */
     @Override
     public Optional<String> showFile(Path repository, String commit, String path) {

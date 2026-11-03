@@ -439,6 +439,20 @@ class ProcessGitTest {
     }
 
     @Test
+    void commitsOfPathGivesTheNewestCommitsThatChangeThePath() {
+        String first = git.headCommit(clone);
+        commitFile(clone, "a.txt", "second\n", "Second commit");
+        String second = git.headCommit(clone);
+        commitFile(clone, "b.txt", "b\n", "Other file");
+        commitFile(clone, "a.txt", "fourth\n", "Fourth commit");
+        String fourth = git.headCommit(clone);
+
+        assertThat(git.commitsOfPath(clone, "HEAD", "a.txt", 10)).containsExactly(fourth, second, first);
+        assertThat(git.commitsOfPath(clone, "HEAD", "a.txt", 2)).containsExactly(fourth, second);
+        assertThat(git.commitsOfPath(clone, "HEAD", "missing.txt", 10)).isEmpty();
+    }
+
+    @Test
     void resolveCommitGivesTheCommitOfTheReference() {
         commitFile(clone, "b.txt", "b\n", "Second commit");
         run(clone, "push", "-q", "origin", "main");

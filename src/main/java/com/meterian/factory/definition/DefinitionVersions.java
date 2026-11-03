@@ -19,6 +19,8 @@ public final class DefinitionVersions implements DefinitionLookup {
     private static final System.Logger LOGGER = System.getLogger(DefinitionVersions.class.getName());
     private static final String ORIGIN = "origin";
     private static final int SHORT_COMMIT_LENGTH = 7;
+    private static final int WALK_BACK_LIMIT = 20;
+    private static final String FOLDER = ".factory";
 
     private final Git git;
     private final Path clone;
@@ -57,10 +59,38 @@ public final class DefinitionVersions implements DefinitionLookup {
                     + "version of .factory: {1}", shorten(commit), exception.getMessage());
             return;
         } catch (IllegalStateException exception) {
+            if (current.isEmpty()) {
+                current = findNewestGoodVersionBefore(commit);
+            }
             warning = Optional.of(describeFailure(commit, exception.getMessage()));
             LOGGER.log(System.Logger.Level.WARNING, warning.get());
         }
         newestCommit = commit;
+    }
+
+    /**
+     * After a start, the newest commit can fail while an older commit loads. This reads the history of the folder
+     * .factory, newest first, within the limit, and takes the first commit that loads. Fail closed: no commit gives
+     * no version.
+     */
+    private Optional<DefinitionVersion> findNewestGoodVersionBefore(String failedCommit) {
+        List<String> commits;
+        try {
+            commits = git.commitsOfPath(clone, failedCommit, FOLDER, WALK_BACK_LIMIT);
+        } catch (GitException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The history of .factory before {0} cannot be read: {1}",
+                    shorten(failedCommit), exception.getMessage());
+            return Optional.empty();
+        }
+        for (String commit : commits) {
+            try {
+                return Optional.of(new DefinitionVersion(commit, definitionOfCommit(commit)));
+            } catch (IllegalStateException exception) {
+                LOGGER.log(System.Logger.Level.INFO, "The version {0} of .factory does not load: {1}",
+                        shorten(commit), exception.getMessage());
+            }
+        }
+        return Optional.empty();
     }
 
     public Optional<DefinitionVersion> current() {
