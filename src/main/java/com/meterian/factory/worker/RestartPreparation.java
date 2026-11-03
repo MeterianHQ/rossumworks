@@ -31,14 +31,20 @@ final class RestartPreparation {
     /**
      * A restart runs the step again from its start. Without the worktree, the issue goes back to the start state
      * in a new session, and the results that belong to the old worktree go away. The fix-loop count stays. A pull
-     * request that GitHub merged makes the issue go to the finish state, so the change never gets made again.
+     * request that GitHub merged makes the issue go to the finish state, so the change never gets made again. A
+     * record whose definition does not load stays as it is: the workflow blocks it with the reason.
      */
     IssueRecord prepare(IssueRecord record) {
         boolean needsWorktree = STEPS_WITH_A_WORKTREE.contains(record.step());
         if (!needsWorktree || Files.isDirectory(layout.worktree(record.issueNumber()))) {
             return record;
         }
-        WorkflowDefinition workflow = definitions.definitionOf(record).workflow();
+        WorkflowDefinition workflow;
+        try {
+            workflow = definitions.definitionOf(record).workflow();
+        } catch (IllegalStateException exception) {
+            return record;
+        }
         if (record.pullRequestNumber().map(gitHub::isMerged).orElse(false)) {
             return moveTo(record, workflow.stateWithStep(StepType.FINISH));
         }

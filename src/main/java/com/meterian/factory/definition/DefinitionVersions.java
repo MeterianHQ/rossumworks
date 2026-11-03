@@ -39,20 +39,28 @@ public final class DefinitionVersions implements DefinitionLookup {
         this.builtIn = builtIn;
     }
 
-    /** Reads origin/<default branch>. A new commit that loads becomes the current version. */
+    /**
+     * Reads origin/<default branch>. A new commit that loads becomes the current version. A failure of git keeps
+     * the current version, and the next refresh reads the same commit again.
+     */
     public synchronized void refresh() {
         Optional<String> fetched = fetchNewestCommit();
         if (fetched.isEmpty() || fetched.get().equals(newestCommit)) {
             return;
         }
-        newestCommit = fetched.get();
+        String commit = fetched.get();
         try {
-            current = Optional.of(new DefinitionVersion(newestCommit, definitionOfCommit(newestCommit)));
+            current = Optional.of(new DefinitionVersion(commit, definitionOfCommit(commit)));
             warning = Optional.empty();
+        } catch (UnreadableCommitException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The read of .factory of {0} failed, so the factory keeps its "
+                    + "version of .factory: {1}", shorten(commit), exception.getMessage());
+            return;
         } catch (IllegalStateException exception) {
-            warning = Optional.of(describeFailure(newestCommit, exception.getMessage()));
+            warning = Optional.of(describeFailure(commit, exception.getMessage()));
             LOGGER.log(System.Logger.Level.WARNING, warning.get());
         }
+        newestCommit = commit;
     }
 
     public Optional<DefinitionVersion> current() {
@@ -106,6 +114,7 @@ public final class DefinitionVersions implements DefinitionLookup {
         return loadCommit(commit);
     }
 
+    /** Only a failure of the content is kept: a failure of git can go away, so the next read tries again. */
     private FactoryDefinition loadCommit(String commit) {
         try {
             FactoryDefinition definition = DefinitionLoader.load(new GitDefinitionFiles(git, clone, commit));
@@ -113,8 +122,19 @@ public final class DefinitionVersions implements DefinitionLookup {
             return definition;
         } catch (DefinitionException exception) {
             String reason = describeReason(exception.getMessage());
+            if (exception.getCause() instanceof GitException) {
+                throw new UnreadableCommitException(reason, exception);
+            }
             failuresByCommit.put(commit, reason);
             throw new IllegalStateException(reason, exception);
+        }
+    }
+
+    /** Git did not read the folder .factory of the commit. The content of the commit is not known. */
+    private static final class UnreadableCommitException extends IllegalStateException {
+
+        UnreadableCommitException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

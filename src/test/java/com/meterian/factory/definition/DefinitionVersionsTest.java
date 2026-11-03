@@ -10,9 +10,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.git.Git;
+import com.meterian.factory.git.GitException;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.state.IssueRecord;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.BeforeAll;
@@ -185,6 +189,37 @@ class DefinitionVersionsTest {
         versions.refresh();
 
         assertThat(versions.allowedAccounts()).containsExactly("alice");
+    }
+
+    @Test
+    void readsTheCommitAgainAfterAFailureOfGit() {
+        String commit = commitDefinition(author, builtInMainFile());
+        DefinitionVersions versions = new DefinitionVersions(failTheFirstShowFile(git), clone, "main", builtIn);
+
+        versions.refresh();
+        assertThat(versions.current()).isEmpty();
+        assertThat(versions.warning()).isEmpty();
+
+        versions.refresh();
+
+        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.commit()).isEqualTo(commit));
+        assertThat(versions.warning()).isEmpty();
+    }
+
+    /** A git that fails the first read of a file, as a lock file or a full disk can do. */
+    private static Git failTheFirstShowFile(Git delegate) {
+        AtomicBoolean failed = new AtomicBoolean();
+        return (Git) Proxy.newProxyInstance(Git.class.getClassLoader(), new Class<?>[] {Git.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("showFile") && failed.compareAndSet(false, true)) {
+                        throw new GitException("git cat-file failed: the index is locked");
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                });
     }
 
     @Test

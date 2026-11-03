@@ -34,6 +34,7 @@ import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
@@ -285,6 +286,27 @@ class WorkerTest {
         assertThat(readRecord(ISSUE)).isEmpty();
         assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body).containsExactly(
                 "The label factory from bbossola is ignored: the account is not in accounts.allowed.");
+    }
+
+    @Test
+    void blocksARecordWhoseDefinitionDoesNotLoadAndStartsTheNextIssue() throws InterruptedException {
+        String broken = commitDefinition(clone, "version: 1\nworkflow: [\n");
+        IssueRecord unloadable = RecordStates.move(IssueRecord.queued(ISSUE).withAgentSessionStarted()
+                .withStatus(IssueStatus.IN_PROGRESS), "implement").withDefinitionCommit(broken);
+        gitHub.addCommentBy(ISSUE, WORKER_LOGIN, StatusComment.render(unloadable, 2));
+        addLabeledIssue(STRANGER_ISSUE);
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
+                .thenAssessRisk("low", true), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow();
+        assertThat(blocked.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(blocked.notes()).anySatisfy(note -> assertThat(note)
+                .startsWith("The definition " + broken.substring(0, 7) + " of the issue does not load: "));
+        assertThat(readRecord(STRANGER_ISSUE).orElseThrow().status()).isNotEqualTo(IssueStatus.QUEUED);
+        assertThat(worker.issuesInWork()).isEmpty();
     }
 
     @Test
