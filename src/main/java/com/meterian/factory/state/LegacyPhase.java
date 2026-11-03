@@ -1,6 +1,6 @@
 package com.meterian.factory.state;
 
-/** The phases of the records from before the states. Only the JSON reader and the code of today's transitions use it. */
+/** The phases of the records from before the states. Only the JSON reader uses it. */
 public enum LegacyPhase {
     PREPARE("prepare", StepType.PREPARE),
     IMPLEMENT("implement", StepType.AGENT),
@@ -24,9 +24,5 @@ public enum LegacyPhase {
 
     public StepType stepType() {
         return stepType;
-    }
-
-    public IssueRecord applyTo(IssueRecord record) {
-        return record.withState(stateName, stepType);
     }
 }

@@ -1,9 +1,9 @@
 package com.meterian.factory.workflow;
 
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.LegacyPhase;
 import com.meterian.factory.state.WaitReason;
 import java.util.EnumSet;
 import java.util.Optional;
@@ -17,10 +17,12 @@ public final class ApprovalCheck {
 
     private final OwnerApproval ownerApproval;
     private final IssueTextCheck issueTextCheck;
+    private final DefinitionLookup definitions;
 
-    ApprovalCheck(OwnerApproval ownerApproval, IssueTextCheck issueTextCheck) {
+    ApprovalCheck(OwnerApproval ownerApproval, IssueTextCheck issueTextCheck, DefinitionLookup definitions) {
         this.ownerApproval = ownerApproval;
         this.issueTextCheck = issueTextCheck;
+        this.definitions = definitions;
     }
 
     public static boolean waitsForApproval(IssueRecord record) {
@@ -28,7 +30,10 @@ public final class ApprovalCheck {
                 && record.waitReason().filter(APPROVABLE_REASONS::contains).isPresent();
     }
 
-    /** A label from an account that is not allowed gets a note, and the issue keeps waiting. */
+    /**
+     * A label from an account that is not allowed gets a note, and the issue keeps waiting. An approved merge
+     * stays in its state and gets the status of the state again.
+     */
     IssueRecord continueAfterApproval(Issue issue, IssueRecord record) {
         if (!waitsForApproval(record)) {
             return record;
@@ -39,6 +44,6 @@ public final class ApprovalCheck {
         if (record.waitReason().equals(Optional.of(WaitReason.ISSUE_TEXT_CHANGED))) {
             return issueTextCheck.acceptNewText(issue, record);
         }
-        return LegacyPhase.MERGE.applyTo(record.withoutWaitReason().withStatus(IssueStatus.IN_REVIEW));
+        return record.withoutWaitReason().withStatus(definitions.currentStateOf(record).status());
     }
 }

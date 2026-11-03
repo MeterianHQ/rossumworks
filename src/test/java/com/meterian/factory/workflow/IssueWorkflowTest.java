@@ -25,6 +25,12 @@ import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.ClasspathDefinitionFiles;
+import com.meterian.factory.definition.DefinitionException;
+import com.meterian.factory.definition.DefinitionFiles;
+import com.meterian.factory.definition.DefinitionLoader;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
@@ -109,6 +115,10 @@ class IssueWorkflowTest {
     }
 
     private IssueWorkflow createWorkflow(String buildCommand) {
+        return createWorkflow(buildCommand, DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
+    }
+
+    private IssueWorkflow createWorkflow(String buildCommand, DefinitionLookup definitions) {
         TargetRepository target = createTarget(buildCommand);
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
@@ -119,7 +129,7 @@ class IssueWorkflowTest {
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"),
-                buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
+                definitions, buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
                 BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
     }
@@ -420,6 +430,24 @@ class IssueWorkflowTest {
         assertThat(record.waitReason()).contains(WaitReason.FIX_LOOP_LIMIT);
         assertThat(agent.requests()).hasSize(3);
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.BLOCKED);
+    }
+
+    @Test
+    void followsADefinitionWithAnotherFixLoopLimit() throws Exception {
+        agent.thenChangeFile().thenChangeFile().thenChangeFile();
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithFixLoopLimit(1));
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("false", definitions), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FIX_LOOP_LIMIT);
+        assertThat(agent.requests()).hasSize(2);
+    }
+
+    private static FactoryDefinition loadBuiltInWithFixLoopLimit(int limit) throws DefinitionException {
+        DefinitionFiles builtIn = new ClasspathDefinitionFiles();
+        String mainFile = builtIn.read("factory.yaml").orElseThrow().replace("fix-loops: 2", "fix-loops: " + limit);
+        return DefinitionLoader.load(path -> path.equals("factory.yaml") ? Optional.of(mainFile) : builtIn.read(path));
     }
 
     @Test

@@ -4,6 +4,8 @@ import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
@@ -11,7 +13,6 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.LegacyPhase;
 import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
@@ -51,6 +52,7 @@ public final class Worker {
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
+    private final DefinitionLookup definitions;
     private final PhaseStopper phaseStopper;
     private final RequestReader requests;
     private final String workerLogin;
@@ -74,11 +76,13 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock, BoardUpdates board) {
+                  DefinitionLookup definitions, PhaseStopper phaseStopper, RequestReader requests,
+                  String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
+                  BoardUpdates board) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
+        this.definitions = definitions;
         this.phaseStopper = phaseStopper;
         this.requests = requests;
         this.workerLogin = workerLogin;
@@ -86,7 +90,7 @@ public final class Worker {
         this.board = board;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
-        this.restartPreparation = new RestartPreparation(gitHub, layout);
+        this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
@@ -452,7 +456,7 @@ public final class Worker {
             IssueRecord base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
             if (isMergedOnGitHub(base)) {
-                noteBlockWithoutEffect(LegacyPhase.DONE.applyTo(base), onGitHub);
+                noteBlockWithoutEffect(moveToFinishState(base), onGitHub);
                 return;
             }
             IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
@@ -476,6 +480,15 @@ public final class Worker {
         int issueNumber = done.issueNumber();
         statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), done.withNote(DONE_BLOCK_NOTE));
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
+    }
+
+    private IssueRecord moveToFinishState(IssueRecord record) {
+        StateDefinition finish = finishStateOf(record);
+        return record.withState(finish.name(), finish.step().type());
+    }
+
+    private StateDefinition finishStateOf(IssueRecord record) {
+        return definitions.definitionOf(record).workflow().stateWithStep(StepType.FINISH);
     }
 
     /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
@@ -507,7 +520,7 @@ public final class Worker {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
             IssueRecord base = onGitHub.orElse(kept);
             if (isMergedOnGitHub(base)) {
-                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, exception);
+                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, finishStateOf(base).name(), exception);
                 statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), noted);
                 return;
             }

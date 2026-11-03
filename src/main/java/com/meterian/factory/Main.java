@@ -12,6 +12,7 @@ import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -317,13 +318,14 @@ public final class Main {
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
-                liveSessions, shared);
+                liveSessions, shared, definitions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions, Clock.systemUTC(), shared.board());
+        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, requests, workerLogin,
+                executor, liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
@@ -476,14 +478,15 @@ public final class Main {
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 RequestReader requests, String workerLogin,
-                                                LiveSessions liveSessions, SharedState shared) {
+                                                LiveSessions liveSessions, SharedState shared,
+                                                DefinitionLookup definitions) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
                 configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
         PromptLibrary prompts = new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
+        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, definitions, buildRunner, merger,
                 shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
                 shared.pageRequests());
     }

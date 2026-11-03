@@ -22,6 +22,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
@@ -65,6 +66,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class WorkerTest {
+
+    private static final DefinitionLookup DEFINITIONS = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final int ISSUE = 7;
     private static final int STRANGER_ISSUE = 8;
@@ -173,7 +176,7 @@ class WorkerTest {
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), buildRunner, merger,
+                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), DEFINITIONS, buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests);
@@ -181,7 +184,7 @@ class WorkerTest {
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, DEFINITIONS, phaseStopper, requests, WORKER_LOGIN, executor,
                 liveSessions, Clock.systemUTC(), board);
     }
 

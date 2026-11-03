@@ -2,6 +2,8 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
@@ -10,7 +12,6 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.LegacyPhase;
 import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Files;
@@ -42,10 +43,12 @@ final class LiveMode {
     private final OwnerApproval ownerApproval;
     private final List<String> allowedAccounts;
     private final PageRequests pageRequests;
+    private final DefinitionLookup definitions;
 
     LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             List<String> allowedAccounts, PageRequests pageRequests) {
+             List<String> allowedAccounts, PageRequests pageRequests, DefinitionLookup definitions) {
         this.pageRequests = pageRequests;
+        this.definitions = definitions;
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
@@ -134,10 +137,8 @@ final class LiveMode {
         if (live.waitBefore().filter(APPROVAL_WAITS::contains).isPresent()) {
             return restoreTheWait(record, live);
         }
-        if (record.step() == StepType.AGENT) {
-            return record.withAfterConversation().withStatus(IssueStatus.IN_PROGRESS).withoutWaitReason();
-        }
-        return record.withStatus(statusOfTheStep(record.step())).withoutWaitReason();
+        IssueRecord continued = record.step() == StepType.AGENT ? record.withAfterConversation() : record;
+        return continued.withStatus(definitions.currentStateOf(record).status()).withoutWaitReason();
     }
 
     /**
@@ -158,21 +159,13 @@ final class LiveMode {
         }
         ownerApproval.withdraw(record.issueNumber());
         IssueRecord cleared = record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason();
-        return LegacyPhase.BUILD.applyTo(cleared).withStatus(IssueStatus.IN_PROGRESS);
+        StateDefinition build = definitions.definitionOf(record).workflow().stateWithStep(StepType.BUILD);
+        return cleared.withState(build.name(), build.step().type()).withStatus(build.status());
     }
 
     /** /factory:continue is never an approval, so the issue waits for the label again. */
     private static IssueRecord restoreTheWait(IssueRecord record, LiveSession live) {
         IssueRecord restored = record.withStatus(live.statusBefore()).withNewestNote(NO_CHANGE_NOTE);
         return live.waitBefore().map(restored::withWaitReason).orElseGet(restored::withoutWaitReason);
-    }
-
-    /** A blocked issue starts again in the phase where it stopped. */
-    private static IssueStatus statusOfTheStep(StepType step) {
-        return switch (step) {
-            case PREPARE, AGENT, BUILD -> IssueStatus.IN_PROGRESS;
-            case REVIEWS, RISK, MERGE_GATE -> IssueStatus.IN_REVIEW;
-            case FINISH -> IssueStatus.DONE;
-        };
     }
 }

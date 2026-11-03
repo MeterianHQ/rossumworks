@@ -1,5 +1,6 @@
 package com.meterian.factory.workflow;
 
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
@@ -16,9 +17,11 @@ final class IssueTextCheck {
             EnumSet.of(StepType.AGENT, StepType.REVIEWS, StepType.RISK);
 
     private final OwnerApproval ownerApproval;
+    private final DefinitionLookup definitions;
 
-    IssueTextCheck(OwnerApproval ownerApproval) {
+    IssueTextCheck(OwnerApproval ownerApproval, DefinitionLookup definitions) {
         this.ownerApproval = ownerApproval;
+        this.definitions = definitions;
     }
 
     /** Fail closed: a record without a hash counts as a change. */
@@ -35,10 +38,10 @@ final class IssueTextCheck {
                 .withNote(WaitReason.ISSUE_TEXT_CHANGED.sentence());
     }
 
-    /** The approval is used up here, so it cannot also approve the merge. */
+    /** The approval is used up here, so it cannot also approve the merge. The issue stays in its state. */
     IssueRecord acceptNewText(Issue issue, IssueRecord record) {
         ownerApproval.withdraw(record.issueNumber());
-        IssueStatus status = record.step() == StepType.AGENT ? IssueStatus.IN_PROGRESS : IssueStatus.IN_REVIEW;
+        IssueStatus status = definitions.currentStateOf(record).status();
         return record.withIssueTextHash(IssueText.computeHash(issue)).withoutWaitReason().withStatus(status);
     }
 }

@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
@@ -64,7 +66,8 @@ class LiveModeTest {
 
     private LiveMode createLiveMode(LiveSessions sessions) {
         OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests);
+        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
     private LiveMode createLiveMode() {

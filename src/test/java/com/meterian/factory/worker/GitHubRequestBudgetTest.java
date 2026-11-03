@@ -18,6 +18,7 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
@@ -60,6 +61,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 /** Counts the REST requests of the real HttpGitHubClient against a local fake GitHub, poll by poll. */
 class GitHubRequestBudgetTest {
+
+    private static final DefinitionLookup DEFINITIONS = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final int ISSUE = 7;
     private static final String WORKER_LOGIN = "factory-bot";
@@ -166,12 +169,12 @@ class GitHubRequestBudgetTest {
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), buildRunner, merger,
+                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), DEFINITIONS, buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), new PageRequests(Clock.systemUTC()));
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, DEFINITIONS, phaseStopper, requests, WORKER_LOGIN, executor,
                 liveSessions, clock, board);
     }
 
