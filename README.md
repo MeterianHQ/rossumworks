@@ -26,18 +26,16 @@ of the repository. A file with the old form (the keys `target`, `merge`, `accoun
 ## .factory
 
 The folder `.factory` of the repository holds the definition of the factory: the workflow, the prompts, the
-build, the limits, the merge target, and the allowed tools. The main file is
-`.factory/factory.yaml`. The file [`src/main/resources/factory/factory.yaml`](src/main/resources/factory/factory.yaml)
-is the example of the format.
+build, the limits, the merge target, and the allowed tools. The main file is `.factory/factory.yaml`.
+
+[docs/factory-definition.md](docs/factory-definition.md) explains the YAML of the definition: each key, the
+states, the transitions, the loops, the step types and their outcomes, the prompts, and the rules of the
+loader.
 
 Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
-Copy the folder `src/main/resources/factory/` to `.factory`.
+Copy the folder [`src/main/resources/factory/`](src/main/resources/factory/) to `.factory`, and then change it.
 
-## The workflow definition
-
-The folder `.factory` of the target repository holds the workflow, the prompts, the build, the limits, the
-merge target, and the allowed tools. The main file is `.factory/factory.yaml`. The jar
-contains the built-in definition in `src/main/resources/factory`, as an example of the format.
+How the worker reads `.factory`:
 
 - At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
   newest commit with git, never from the worktree of an issue.
