@@ -143,6 +143,15 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public boolean changesPath(Path worktree, String baseReference, String path) {
+        GitProcess.Result result = execute(worktree, "diff", "--quiet", baseReference + "...HEAD", "--", path);
+        if (result.exitCode() > 1) {
+            throw createFailure(List.of("diff", "--quiet", baseReference + "...HEAD", "--", path), result);
+        }
+        return result.exitCode() == 1;
+    }
+
+    @Override
     public boolean hasUncommittedChanges(Path worktree) {
         return !run(worktree, "status", "--porcelain").isBlank();
     }

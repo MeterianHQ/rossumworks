@@ -13,7 +13,8 @@ public enum StepType {
     BUILD("build", Set.of("passed", "failed")),
     REVIEWS("reviews", Set.of("approved", "rejected")),
     RISK("risk", Set.of("assessed")),
-    MERGE_GATE("merge-gate", Set.of("merged", "needs-approval", "needs-new-reviews", "conflict")),
+    MERGE_GATE("merge-gate", Set.of("merged", "needs-approval", "needs-new-reviews", "conflict",
+            "factory-changed")),
     FINISH("finish", Set.of());
 
     private final String yamlName;

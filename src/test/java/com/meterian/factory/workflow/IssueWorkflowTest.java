@@ -258,6 +258,38 @@ class IssueWorkflowTest {
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain("factory", APPROVE_LABEL);
     }
 
+    private static FakeAgentRunner.Action writeFactoryFile() {
+        return request -> {
+            Path prompts = request.workingDirectory().resolve(".factory/prompts");
+            Files.createDirectories(prompts);
+            Files.writeString(prompts.resolve("fix.md"), "Fix the issue.\n");
+        };
+    }
+
+    @Test
+    void waitsForTheOwnerWhenThePullRequestChangesTheFactory() throws ApiKeyDetectedException {
+        agent.then(writeFactoryFile()).thenApproveAllReviews().thenAssessRisk("low", true);
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.FACTORY_CHANGE_NEEDS_APPROVAL);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void mergesAChangeOfTheFactoryAfterTheApproval() throws ApiKeyDetectedException {
+        agent.then(writeFactoryFile()).thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = advanceUntilWaiting(workflow, queuedRecord());
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
     @Test
     void ignoresAnApprovalFromAnotherAccount() throws ApiKeyDetectedException {
         IssueWorkflow workflow = createWorkflow("true");

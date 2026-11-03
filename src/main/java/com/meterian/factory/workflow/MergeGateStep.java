@@ -10,6 +10,8 @@ import java.util.List;
 
 final class MergeGateStep implements Step {
 
+    private static final String DEFINITION_FOLDER = ".factory";
+
     private final StepServices services;
     private final VersionServices version;
 
@@ -27,6 +29,9 @@ final class MergeGateStep implements Step {
         boolean isApproved = services.ownerApproval().isGiven(issue);
         IssueRecord noted = isApproved ? record : services.ownerApproval().noteIgnoredLabel(issue, record);
         boolean questionOpen = new FactoryFolder(worktree).hasQuestion();
+        if (!isApproved && changesDefinitionFolder(worktree)) {
+            return StepResult.endWith(noted, "factory-changed");
+        }
         MergeDecision decision = MergeGate.decide(noted, services.git().treeHash(worktree), questionOpen, isApproved);
         return switch (decision) {
             case MergeDecision.NeedsOwner needsOwner -> StepResult.endWith(noted, "needs-approval");
@@ -57,6 +62,10 @@ final class MergeGateStep implements Step {
         ConflictResolution.OpenedMerge openedMerge = version.conflictResolution().openMerge(worktree, needsFix);
         IssueRecord withConflict = record.withConflictedPaths(openedMerge.conflictedPaths());
         return StepResult.endWithFindings(withConflict, "conflict", List.of(openedMerge.finding()));
+    }
+
+    private boolean changesDefinitionFolder(Path worktree) {
+        return services.git().changesPath(worktree, version.mergeTargetReference(), DEFINITION_FOLDER);
     }
 
     private boolean isMergedOnGitHub(IssueRecord record) {

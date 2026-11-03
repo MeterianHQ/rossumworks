@@ -59,6 +59,7 @@ class DefinitionLoaderTest {
                     needs-approval: { wait: merge-needs-approval }
                     needs-new-reviews: { to: build, keep-status: true }
                     conflict: fix-loop
+                    factory-changed: { wait: factory-change-needs-approval }
                 done:
                   status: done
                   step: { type: finish }

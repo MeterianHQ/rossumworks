@@ -42,6 +42,9 @@ public interface Git {
     /** Returns the hash of the commit of HEAD. */
     String headCommit(Path worktree);
 
+    /** True when HEAD differs from the merge base with the base reference in the path: git diff base...HEAD. */
+    boolean changesPath(Path worktree, String baseReference, String path);
+
     boolean hasUncommittedChanges(Path worktree);
 
     /** Adds all changes, except the scratch folder .factory-work, and commits them. */

@@ -13,7 +13,8 @@ import java.util.Set;
 public final class ApprovalCheck {
 
     private static final Set<WaitReason> APPROVABLE_REASONS =
-            EnumSet.of(WaitReason.MERGE_NEEDS_APPROVAL, WaitReason.ISSUE_TEXT_CHANGED);
+            EnumSet.of(WaitReason.MERGE_NEEDS_APPROVAL, WaitReason.FACTORY_CHANGE_NEEDS_APPROVAL,
+                    WaitReason.ISSUE_TEXT_CHANGED);
 
     private final OwnerApproval ownerApproval;
     private final IssueTextCheck issueTextCheck;

@@ -37,7 +37,8 @@ class BuiltInDefinitionTest {
                 Map.entry("merged", new Transition.GoTo("done", true)),
                 Map.entry("needs-approval", new Transition.Wait(WaitReason.MERGE_NEEDS_APPROVAL)),
                 Map.entry("needs-new-reviews", new Transition.GoTo("build", true)),
-                Map.entry("conflict", new Transition.EnterLoop("fix-loop")));
+                Map.entry("conflict", new Transition.EnterLoop("fix-loop")),
+                Map.entry("factory-changed", new Transition.Wait(WaitReason.FACTORY_CHANGE_NEEDS_APPROVAL)));
         assertThat(transitionsOf("done")).isEmpty();
     }
 

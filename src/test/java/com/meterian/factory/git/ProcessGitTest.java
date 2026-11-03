@@ -122,6 +122,26 @@ class ProcessGitTest {
     }
 
     @Test
+    void changesPathIgnoresTheScratchFolder() throws IOException {
+        Path worktree = temporaryDirectory.resolve("worktree");
+        git.addWorktree(clone, worktree, "factory/issue-3", "main");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
+        Files.writeString(worktree.resolve("fix.txt"), "fix\n");
+        run(worktree, "add", "-A", "-f");
+        run(worktree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Fix");
+
+        assertThat(git.changesPath(worktree, "main", ".factory")).isFalse();
+
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.writeString(worktree.resolve(".factory/factory.yaml"), "name: factory\n");
+        run(worktree, "add", "-A", "-f");
+        run(worktree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Definition");
+
+        assertThat(git.changesPath(worktree, "main", ".factory")).isTrue();
+    }
+
+    @Test
     void failsWithTheCommandInTheMessage() {
         Path notRepository = temporaryDirectory.resolve("plain");
         assertThat(notRepository.toFile().mkdir()).isTrue();
