@@ -34,6 +34,22 @@ class ProcessGitTest {
     }
 
     @Test
+    void clonesARepositoryIntoARelativeDestination() throws IOException {
+        Path relativeParent = Path.of("target", "clone-test-" + System.nanoTime());
+        Path relativeDestination = relativeParent.resolve("work").resolve("repository");
+        Files.createDirectories(relativeDestination.getParent());
+        try {
+            git.cloneRepository(temporaryDirectory.resolve("origin.git").toString(), relativeDestination);
+
+            assertThat(relativeDestination.toAbsolutePath().resolve(".git")).isDirectory();
+            assertThat(relativeDestination.toAbsolutePath().resolve("a.txt")).isRegularFile();
+            assertThat(relativeDestination.toAbsolutePath().getParent().resolve("work")).doesNotExist();
+        } finally {
+            deleteRecursively(relativeParent);
+        }
+    }
+
+    @Test
     void treeHashDoesNotChangeWithAnEmptyCommit() {
         String before = git.treeHash(clone);
 
