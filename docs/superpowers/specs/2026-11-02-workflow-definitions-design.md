@@ -236,8 +236,11 @@ The first definition must express exactly today's sequence:
 - The merge gate → finish when the merge is automatic. Else a wait for the
   approval of the owner, then the merge.
 - The fix loop → implement with the fix prompt, at most `fix-loops` times
-  (default 2), then a wait with the reason "fix-loop limit".
+  (default 2). Then the issue is Blocked with the reason "fix-loop limit".
 - finish → Done.
+
+The retry of the forward and the retry of a failed review session stay
+inside the code of the step (section 5.2). The definition does not name them.
 
 The names of the states, the statuses, the wait reasons, and the texts of
 the status comment stay the same, so the page and the records do not

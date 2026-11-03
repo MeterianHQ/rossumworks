@@ -58,6 +58,29 @@ class TransitionRunnerTest {
                   status: in-review
                   step: { type: build }
                   on: { passed: done, failed: fix-loop }
+                review:
+                  status: in-review
+                  step:
+                    type: reviews
+                    prompts:
+                      correctness: prompts/review-correctness.md
+                      security: prompts/review-security.md
+                      architecture: prompts/review-architecture.md
+                      quality: prompts/review-quality.md
+                  on: { approved: risk, rejected: fix-loop }
+                risk:
+                  status: in-review
+                  step: { type: risk, prompts: { risk: prompts/risk.md } }
+                  on: { assessed: merge }
+                merge:
+                  status: in-review
+                  step: { type: merge-gate }
+                  on:
+                    merged: done
+                    needs-approval: { wait: merge-needs-approval }
+                    needs-new-reviews: build
+                    conflict: fix-loop
+                    factory-changed: { wait: factory-change-needs-approval }
                 done:
                   status: done
                   step: { type: finish }
@@ -99,7 +122,8 @@ class TransitionRunnerTest {
     private static FactoryDefinition loadSmallDefinition() throws DefinitionException {
         Map<String, String> files = new HashMap<>();
         files.put("factory.yaml", SMALL_YAML);
-        for (String name : List.of("implement", "fix", "continue")) {
+        for (String name : List.of("implement", "fix", "continue", "review-correctness", "review-security",
+                "review-architecture", "review-quality", "risk")) {
             files.put("prompts/" + name + ".md", "text of prompts/" + name + ".md");
         }
         return DefinitionLoader.load(path -> Optional.ofNullable(files.get(path)));

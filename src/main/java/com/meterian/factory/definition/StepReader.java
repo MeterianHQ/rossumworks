@@ -45,12 +45,6 @@ final class StepReader {
                 throw DefinitionNode.createFailure("state " + stateName + " has the unknown prompt " + key);
             }
         }
-        if (type == StepType.REVIEWS) {
-            if (keys.isEmpty()) {
-                throw DefinitionNode.createFailure("state " + stateName + " needs at least one review prompt");
-            }
-            return;
-        }
         for (String key : allowed) {
             if (!keys.contains(key)) {
                 throw DefinitionNode.createFailure("state " + stateName + " needs the prompt " + key);

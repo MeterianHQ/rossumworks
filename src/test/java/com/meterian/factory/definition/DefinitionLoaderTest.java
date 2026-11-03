@@ -46,6 +46,8 @@ class DefinitionLoaderTest {
                     prompts:
                       correctness: prompts/review-correctness.md
                       security: prompts/review-security.md
+                      architecture: prompts/review-architecture.md
+                      quality: prompts/review-quality.md
                   on: { approved: risk, rejected: fix-loop }
                 risk:
                   status: in-review
@@ -99,7 +101,7 @@ class DefinitionLoaderTest {
                 .isEqualTo(new Transition.GoTo("done", true));
         assertThat(workflow.state("merge").status()).isEqualTo(IssueStatus.IN_REVIEW);
         assertThat(workflow.state("review").step().reviewKinds())
-                .containsExactly(ReviewKind.CORRECTNESS, ReviewKind.SECURITY);
+                .containsExactly(ReviewKind.CORRECTNESS, ReviewKind.SECURITY, ReviewKind.ARCHITECTURE, ReviewKind.QUALITY);
         assertThat(workflow.stateWithStep(StepType.FINISH).name()).isEqualTo("done");
         LoopDefinition loop = workflow.loop("fix-loop").orElseThrow();
         assertThat(loop.limit()).isEqualTo(2);
@@ -199,6 +201,39 @@ class DefinitionLoaderTest {
     }
 
     @Test
+    void refusesAWorkflowWithoutAStateOfAnEngineStepType() {
+        String withoutRisk = VALID_YAML
+                .replace("    risk:\n      status: in-review\n      step: { type: risk, prompts: { risk: prompts/risk.md } }\n      on: { assessed: merge }\n", "")
+                .replace("approved: risk", "approved: merge");
+        assertRefused(withoutRisk, "needs exactly one state with the step type risk, but it has 0");
+    }
+
+    @Test
+    void refusesAWorkflowWithTwoStatesOfAnEngineStepType() {
+        String secondRisk = VALID_YAML.replace("    merge:\n",
+                "    second-risk:\n      status: in-review\n      step: { type: risk, prompts: { risk: prompts/risk.md } }\n      on: { assessed: merge }\n    merge:\n");
+        assertRefused(secondRisk, "needs exactly one state with the step type risk, but it has 2");
+    }
+
+    @Test
+    void refusesAReviewsStepWithoutAllReviewKinds() {
+        assertRefused(VALID_YAML.replace("          quality: prompts/review-quality.md\n", ""),
+                "state review needs the prompt quality");
+    }
+
+    @Test
+    void refusesALoopExitThatEntersALoop() {
+        assertRefused(VALID_YAML.replace("exit: { block: fix-loop-limit }", "exit: fix-loop"),
+                "loop fix-loop exit cannot enter a loop");
+    }
+
+    @Test
+    void refusesAStartStateThatIsNotAPrepareStep() {
+        assertRefused(VALID_YAML.replace("start: prepare", "start: implement"),
+                "start state implement needs the step type prepare");
+    }
+
+    @Test
     void refusesAFinishStateWithTransitions() {
         assertRefused(VALID_YAML.replace("step: { type: finish }", "step: { type: finish }\n      on: { done: prepare }"),
                 "state done has the step type finish and cannot have transitions");
@@ -235,7 +270,8 @@ class DefinitionLoaderTest {
     private static DefinitionFiles filesWith(String mainYaml) {
         Map<String, String> files = new HashMap<>();
         files.put("factory.yaml", mainYaml);
-        for (String name : List.of("implement", "fix", "continue", "review-correctness", "review-security", "risk")) {
+        for (String name : List.of("implement", "fix", "continue", "review-correctness", "review-security", "review-architecture",
+                "review-quality", "risk")) {
             files.put("prompts/" + name + ".md", "text of prompts/" + name + ".md");
         }
         return path -> Optional.ofNullable(files.get(path));

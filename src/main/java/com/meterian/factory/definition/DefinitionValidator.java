@@ -4,10 +4,10 @@ import com.meterian.factory.state.StepType;
 import java.util.List;
 import java.util.Set;
 
-/** Checks the references inside a workflow: the start state, the required states, and the targets. */
+/** Checks that the engine can run a workflow: the start state, one state for each step type, and the targets. */
 final class DefinitionValidator {
 
-    private static final List<StepType> SINGLE_STATE_TYPES = List.of(StepType.PREPARE, StepType.BUILD, StepType.FINISH);
+    private static final List<StepType> SINGLE_STATE_TYPES = List.of(StepType.values());
 
     private DefinitionValidator() {
     }
@@ -16,8 +16,18 @@ final class DefinitionValidator {
         if (!workflow.states().containsKey(workflow.start())) {
             throw DefinitionNode.createFailure("start state " + workflow.start() + " is not a state");
         }
+        verifyStartStepType(workflow);
         verifySingleStates(workflow);
         verifyTargets(workflow);
+    }
+
+    private static void verifyStartStepType(WorkflowDefinition workflow) throws DefinitionException {
+        StepType startType = workflow.state(workflow.start()).step().type();
+        if (startType != StepType.PREPARE) {
+            throw DefinitionNode.createFailure("start state " + workflow.start()
+                    + " needs the step type prepare, but it has "
+                    + startType.yamlName());
+        }
     }
 
     private static void verifySingleStates(WorkflowDefinition workflow) throws DefinitionException {
@@ -41,6 +51,9 @@ final class DefinitionValidator {
             if (!stateNames.contains(loop.to())) {
                 throw DefinitionNode.createFailure(
                         "loop " + loop.name() + " goes to " + loop.to() + ", which is not a state");
+            }
+            if (loop.exit() instanceof Transition.EnterLoop) {
+                throw DefinitionNode.createFailure("loop " + loop.name() + " exit cannot enter a loop");
             }
             verifyTransition(loop.exit(), stateNames, "loop " + loop.name() + " exit");
         }

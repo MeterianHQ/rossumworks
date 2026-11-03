@@ -10,6 +10,7 @@ import com.meterian.factory.definition.DefinitionLoader;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.ReviewKind;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -141,6 +142,18 @@ class PromptLibraryTest {
                 .contains("Write the files of the factory only in the folder .factory-work/.")
                 .contains("write the question to .factory-work/question.md and stop")
                 .doesNotContain("{{");
+    }
+
+    @Test
+    void reviewRefusesAKindWithoutAPrompt() {
+        PromptTexts texts = PromptTexts.from(BuiltInDefinition.load());
+        PromptTexts withoutQuality = new PromptTexts(texts.implement(), texts.fix(),
+                texts.continueAfterConversation(), Map.of(ReviewKind.SECURITY, "text"), texts.risk());
+        PromptLibrary library = new PromptLibrary(withoutQuality, "main");
+
+        assertThatThrownBy(() -> library.review(ReviewKind.QUALITY, ISSUE, "abc"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no prompt for the review QUALITY");
     }
 
     private static PromptLibrary builtInLibrary(String mergeTargetBranch) {
