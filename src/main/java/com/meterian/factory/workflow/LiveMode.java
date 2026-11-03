@@ -20,6 +20,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
 final class LiveMode {
@@ -41,19 +42,20 @@ final class LiveMode {
     private final GitHubClient gitHub;
     private final LiveSessions liveSessions;
     private final OwnerApproval ownerApproval;
-    private final List<String> allowedAccounts;
+    private final Supplier<List<String>> allowedAccounts;
     private final PageRequests pageRequests;
     private final DefinitionLookup definitions;
 
+    /** @param allowedAccounts the accounts of the newest definition version: the phone link mentions the first */
     LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             List<String> allowedAccounts, PageRequests pageRequests, DefinitionLookup definitions) {
+             Supplier<List<String>> allowedAccounts, PageRequests pageRequests, DefinitionLookup definitions) {
         this.pageRequests = pageRequests;
         this.definitions = definitions;
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
         this.ownerApproval = ownerApproval;
-        this.allowedAccounts = List.copyOf(allowedAccounts);
+        this.allowedAccounts = allowedAccounts;
     }
 
     /** A record that already has a live state keeps its state before: a new session never replaces it. */
@@ -71,8 +73,9 @@ final class LiveMode {
         try {
             // The head commit is read before the open: a failure of git never leaves a session that is open.
             LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
+            List<String> allowedTools = definitions.definitionOf(record).allowedTools();
             LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
-            String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree);
+            String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree, allowedTools);
             postOpenComment(record.issueNumber(), link, place);
             IssueRecord opened = record.withLive(stateBefore.withLink(link).withPlace(place))
                     .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
@@ -127,7 +130,7 @@ final class LiveMode {
 
     /** Only the phone needs the mention: the mention is what notifies it. */
     private Optional<String> findMentionedLogin(LivePlace place) {
-        return place == LivePlace.PHONE ? allowedAccounts.stream().findFirst() : Optional.empty();
+        return place == LivePlace.PHONE ? allowedAccounts.get().stream().findFirst() : Optional.empty();
     }
 
     private IssueRecord chooseNextStep(Issue issue, IssueRecord record, LiveSession live, Path worktree) {

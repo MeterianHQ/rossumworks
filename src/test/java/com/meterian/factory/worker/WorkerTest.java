@@ -1,5 +1,9 @@
 package com.meterian.factory.worker;
 
+import static com.meterian.factory.testing.DefinitionCommits.builtInMainFile;
+import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
+import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -18,13 +22,9 @@ import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
-import com.meterian.factory.merge.Merger;
-import com.meterian.factory.definition.BuiltInDefinition;
-import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.prompt.PromptLibrary;
-import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -66,8 +66,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class WorkerTest {
-
-    private static final DefinitionLookup DEFINITIONS = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final int ISSUE = 7;
     private static final int STRANGER_ISSUE = 8;
@@ -169,14 +167,22 @@ class WorkerTest {
         return createWorker(agent, configuration, board);
     }
 
+    /** The default branch gets a .factory with the build command and the accounts of the configuration. */
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
+        commitDefinition(clone, mainFileFor(configuration.target().buildCommand(), configuration.allowedAccounts()));
+        return createWorker(agent, configuration, board, createVersions(configuration));
+    }
+
+    private DefinitionVersions createVersions(FactoryConfiguration configuration) {
+        return new DefinitionVersions(git, clone, "main", builtInWithBuild(configuration.target().buildCommand()));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board,
+                                DefinitionVersions versions) {
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests =
-                new RequestReader(gitHub, configuration.allowedAccounts(), WORKER_LOGIN, pageRequests);
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
-        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), DEFINITIONS, buildRunner, merger,
+        RequestReader requests = new RequestReader(gitHub, versions::allowedAccounts, WORKER_LOGIN, pageRequests);
+        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
+                versions::allowedAccounts, buildRunner, Duration.ZERO,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests);
@@ -184,7 +190,7 @@ class WorkerTest {
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        return new Worker(configuration, gitHub, workflow, DEFINITIONS, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, requests, WORKER_LOGIN, executor,
                 liveSessions, Clock.systemUTC(), board);
     }
 
@@ -243,6 +249,42 @@ class WorkerTest {
         assertThat(card.title()).isEqualTo("Change the greeting 1");
         assertThat(card.record().status()).isEqualTo(IssueStatus.QUEUED);
         assertThat(board.snapshot().lastCheckAt()).contains(clock.instant());
+    }
+
+    @Test
+    void takesNoNewIssueWithoutAGoodDefinition() {
+        FactoryConfiguration configuration = createConfiguration(2, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+        assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void givesTheIntakeTheCurrentCommit() {
+        String commit = commitDefinition(clone, mainFileFor("true", List.of("bbossola")));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
+    }
+
+    @Test
+    void takesNoNewIssueWhenTheNewestDefinitionRemovesTheAccount() {
+        commitDefinition(clone, builtInMainFile().replace("command: ./mvnw verify", "command: \"true\""));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body).containsExactly(
+                "The label factory from bbossola is ignored: the account is not in accounts.allowed.");
     }
 
     @Test

@@ -7,6 +7,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.build.BuildRunner;
+import com.meterian.factory.build.BuildSettings;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
@@ -55,10 +56,11 @@ class IssueWorkspaceTest {
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        IssueWorkspace workspace = new IssueWorkspace(configuration, git);
+        IssueWorkspace workspace = new IssueWorkspace(configuration, git, "main");
         Path mergeWorktree = temporaryDirectory.resolve("work").resolve("issue-2");
         workspace.create(2, mergeWorktree);
-        Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), target, "main",
+        Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), clone, "main",
+                new BuildSettings(target.buildCommand(), target.buildEnvironment()),
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         IssueRecord record = IssueRecord.queued(2).withPullRequest(500);
         List<MergeResult> mergeResults = new CopyOnWriteArrayList<>();

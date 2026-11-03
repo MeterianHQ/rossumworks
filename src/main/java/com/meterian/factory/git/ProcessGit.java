@@ -20,6 +20,7 @@ public final class ProcessGit implements Git {
     private static final String FACTORY_FOLDER_PATTERN = ScratchFolder.NAME + "/";
 
     private static final String FACTORY_BRANCH_PREFIX = "factory/";
+    private static final String ORIGIN_HEAD = "refs/remotes/origin/HEAD";
     private static final List<String> FIXED_IDENTITY = List.of(
             "-c", "user.name=claude-ai-factory",
             "-c", "user.email=claude-ai-factory@users.noreply.github.com");
@@ -103,6 +104,31 @@ public final class ProcessGit implements Git {
     @Override
     public String commitOf(Path repository, String reference) {
         return run(repository, "rev-parse", "--verify", reference + "^{commit}").trim();
+    }
+
+    @Override
+    public String resolveCommit(Path repository, String reference) {
+        return run(repository, "rev-parse", "--verify", reference + "^{commit}").trim();
+    }
+
+    /** The blob is read raw with cat-file: a textconv or a filter of the repository never runs. */
+    @Override
+    public Optional<String> showFile(Path repository, String commit, String path) {
+        String object = resolveCommit(repository, commit) + ":" + path;
+        if (execute(repository, "cat-file", "-e", object).exitCode() != 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new String(runForBytes(repository, "cat-file", "blob", object), StandardCharsets.UTF_8));
+    }
+
+    /** A clone without origin/HEAD asks the remote once, and keeps the answer in the clone. */
+    @Override
+    public String defaultBranch(Path clone) {
+        if (execute(clone, "symbolic-ref", "-q", ORIGIN_HEAD).exitCode() != 0) {
+            runOverTheNetwork(clone, "remote", "set-head", "origin", "--auto");
+        }
+        String reference = run(clone, "symbolic-ref", "--short", ORIGIN_HEAD).trim();
+        return reference.substring(reference.indexOf('/') + 1);
     }
 
     @Override

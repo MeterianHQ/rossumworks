@@ -11,9 +11,11 @@ import java.util.Optional;
 final class BuildStep implements Step {
 
     private final StepServices services;
+    private final VersionServices version;
 
-    BuildStep(StepServices services) {
+    BuildStep(StepServices services, VersionServices version) {
         this.services = services;
+        this.version = version;
     }
 
     @Override
@@ -24,7 +26,7 @@ final class BuildStep implements Step {
         String headCommit = services.git().headCommit(worktree);
         String treeHash = services.git().treeHashOf(worktree, headCommit);
         if (!isBuiltWithALostForward(record, treeHash)) {
-            BuildOutcome outcome = services.buildRunner().run(worktree, services.configuration().target());
+            BuildOutcome outcome = services.buildRunner().run(worktree, version.build());
             if (outcome.stopped()) {
                 return StepResult.stay(record);
             }
@@ -39,7 +41,7 @@ final class BuildStep implements Step {
         }
         services.ownerApproval().withdraw(record.issueNumber());
         PullRequestPublisher.PublishedBranch published =
-                services.pullRequestPublisher().publish(issue, worktree, headCommit);
+                version.pullRequestPublisher().publish(issue, worktree, headCommit);
         IssueRecord built = record.withBuiltTree(treeHash).withPullRequest(published.pullRequest().number());
         if (!published.isOnGitHub()) {
             return StepResult.stay(

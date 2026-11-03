@@ -15,23 +15,25 @@ import java.util.Optional;
 final class AgentStep implements Step {
 
     private final StepServices services;
+    private final VersionServices version;
 
-    AgentStep(StepServices services) {
+    AgentStep(StepServices services, VersionServices version) {
         this.services = services;
+        this.version = version;
     }
 
     @Override
     public StepResult run(Issue issue, IssueRecord record, Path worktree)
             throws AgentException, ApiKeyDetectedException {
-        if (services.conflictResolution().hasUnfinishedMergeCommit(worktree)) {
-            services.conflictResolution().finishMergeCommit(worktree, ChangeTitle.describe(issue));
+        if (version.conflictResolution().hasUnfinishedMergeCommit(worktree)) {
+            version.conflictResolution().finishMergeCommit(worktree, ChangeTitle.describe(issue));
             return StepResult.endWith(record.withoutConflictedPaths(), "changed");
         }
         if (!services.phaseRunner().mayStartPhase()) {
             return StepResult.stay(record);
         }
         FactoryFolder factoryFolder = new FactoryFolder(worktree);
-        Optional<String> prompt = ImplementPrompt.choose(services.prompts(), issue, record, factoryFolder);
+        Optional<String> prompt = ImplementPrompt.choose(version.prompts(), issue, record, factoryFolder);
         if (prompt.isEmpty()) {
             return StepResult.block(record, "The findings of the fix loop are missing.");
         }
@@ -39,7 +41,7 @@ final class AgentStep implements Step {
         SessionReport report;
         try {
             report = services.phaseRunner().runPhase(new PhaseRequest(record.issueNumber(), started.sessionId(),
-                    !record.agentSessionStarted(), worktree, prompt.get()));
+                    !record.agentSessionStarted(), worktree, prompt.get(), version.allowedTools()));
         } catch (PhaseRefusedException refused) {
             return StepResult.stay(undoSessionStart(issue, started, record));
         }
@@ -68,7 +70,7 @@ final class AgentStep implements Step {
     private boolean hasUnbuiltCommit(IssueRecord record, Path worktree) {
         String headCommit = services.git().headCommit(worktree);
         boolean isOnTheBranchOnly = !services.git().isAncestor(worktree, headCommit,
-                services.mergeTargetReference());
+                version.mergeTargetReference());
         boolean isBuilt = record.builtTreeHash()
                 .equals(Optional.of(services.git().treeHashOf(worktree, headCommit)));
         return isOnTheBranchOnly && !isBuilt;
@@ -76,11 +78,11 @@ final class AgentStep implements Step {
 
     private StepResult commitSolvedConflict(Issue issue, IssueRecord record, Path worktree) {
         Optional<Finding> remainingMarkers =
-                services.conflictResolution().findRemainingMarkers(worktree, record.conflictedPaths());
+                version.conflictResolution().findRemainingMarkers(worktree, record.conflictedPaths());
         if (remainingMarkers.isPresent()) {
             return StepResult.endWithFindings(record, "conflict-left", List.of(remainingMarkers.get()));
         }
-        services.conflictResolution().commitAsOneCommit(worktree, ChangeTitle.describe(issue));
+        version.conflictResolution().commitAsOneCommit(worktree, ChangeTitle.describe(issue));
         return StepResult.endWith(record.withoutConflictedPaths(), "changed");
     }
 

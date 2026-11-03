@@ -4,7 +4,8 @@ import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.configuration.FactoryConfiguration;
-import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.DefinitionVersion;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
@@ -52,7 +53,7 @@ public final class Worker {
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
-    private final DefinitionLookup definitions;
+    private final DefinitionVersions definitions;
     private final PhaseStopper phaseStopper;
     private final RequestReader requests;
     private final String workerLogin;
@@ -76,7 +77,7 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  DefinitionLookup definitions, PhaseStopper phaseStopper, RequestReader requests,
+                  DefinitionVersions definitions, PhaseStopper phaseStopper, RequestReader requests,
                   String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
                   BoardUpdates board) {
         this.configuration = configuration;
@@ -89,7 +90,7 @@ public final class Worker {
         this.executor = executor;
         this.board = board;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board);
         this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
@@ -99,14 +100,16 @@ public final class Worker {
     }
 
     /**
-     * Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. In a
-     * wait for the reset of the GitHub rate limit, the poll sends no request.
+     * Reads the definition of the default branch, then the labeled issues once: block requests, intake, and the
+     * start of the issues up to the limit. In a wait for the reset of the GitHub rate limit, the poll sends no
+     * request.
      */
     public void pollOnce() {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
         try {
+            definitions.refresh();
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
@@ -287,13 +290,22 @@ public final class Worker {
         return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
 
+    /**
+     * Fail closed: without a definition version that loads, the worker takes no new issue. The versions log the
+     * reason once for each commit, so the intake only waits.
+     */
     private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments,
                                                 IssueLabelActors labelActors) {
+        Optional<DefinitionVersion> version = definitions.current();
+        if (version.isEmpty()) {
+            return Optional.empty();
+        }
         if (!labelActors.isGivenByAllowedAccount(FACTORY_LABEL)) {
             ignoredLabelNote.write(labelActors, FACTORY_LABEL, comments);
             return Optional.empty();
         }
-        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
+        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue))
+                .withDefinitionCommit(version.get().commit());
         return Optional.of(publishFirstRecord(issue, queued));
     }
 

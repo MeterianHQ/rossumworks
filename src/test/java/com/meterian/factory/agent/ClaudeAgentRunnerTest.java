@@ -214,7 +214,8 @@ class ClaudeAgentRunnerTest {
     }
 
     private PhaseRequest requestOf(int issueNumber) {
-        return new PhaseRequest(issueNumber, UUID.randomUUID(), true, directory, "Fix it");
+        return new PhaseRequest(issueNumber, UUID.randomUUID(), true, directory, "Fix it",
+                ClaudeSettings.DEFAULT_ALLOWED_TOOLS);
     }
 
     private ClaudeAgentRunner runnerFor(String stream, String sleepSeconds, String exitCode)

@@ -23,7 +23,6 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
-import com.meterian.factory.merge.Merger;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.ClasspathDefinitionFiles;
 import com.meterian.factory.definition.DefinitionException;
@@ -39,6 +38,7 @@ import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.DefinitionCommits;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -126,10 +126,10 @@ class IssueWorkflowTest {
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
-                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
-        return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"),
-                definitions, buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
+        DefinitionLookup withTheBuildOfTheTest =
+                record -> DefinitionCommits.withBuild(definitions.definitionOf(record), buildCommand);
+        return new IssueWorkflow(configuration, gitHub, git, agent, withTheBuildOfTheTest, () -> List.of("bbossola"),
+                buildRunner, Duration.ZERO, usage, new RequestReader(gitHub, () -> List.of("bbossola")),
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
                 BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
     }
@@ -440,6 +440,50 @@ class IssueWorkflowTest {
         IssueRecord record = advanceUntilWaiting(createWorkflow("false", definitions), queuedRecord());
 
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FIX_LOOP_LIMIT);
+        assertThat(agent.requests()).hasSize(2);
+    }
+
+    @Test
+    void showsTheFixLoopLimitOfTheDefinitionOfTheRecord() throws Exception {
+        agent.thenChangeFile().thenChangeFile().thenChangeFile();
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithFixLoopLimit(1));
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("false", definitions), queuedRecord());
+
+        assertThat(gitHub.commentsOf(ISSUE)).anySatisfy(comment -> assertThat(comment.body())
+                .contains("Fix loops: " + record.fixLoops() + " of 1"));
+    }
+
+    @Test
+    void blocksAnIssueWhoseDefinitionDoesNotLoad() throws Exception {
+        String commit = "0123456789abcdef0123456789abcdef01234567";
+        DefinitionLookup definitions = record -> {
+            if (record.definitionCommit().isPresent()) {
+                throw new IllegalStateException("factory.yaml: unknown key workflow.x");
+            }
+            return BuiltInDefinition.load();
+        };
+
+        IssueRecord record = createWorkflow("true", definitions).advance(queuedRecord().withDefinitionCommit(commit));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.notes()).contains(
+                "The definition 0123456 of the issue does not load: factory.yaml: unknown key workflow.x.");
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void runsEachIssueWithItsOwnVersion() throws Exception {
+        agent.thenChangeFile().thenChangeFile().thenChangeFile().thenChangeFile().thenChangeFile();
+        FactoryDefinition oneFixLoop = loadBuiltInWithFixLoopLimit(1);
+        DefinitionLookup definitions = record -> record.definitionCommit().isPresent() ? oneFixLoop
+                : BuiltInDefinition.load();
+        IssueWorkflow workflow = createWorkflow("false", definitions);
+
+        IssueRecord record = advanceUntilWaiting(workflow, queuedRecord().withDefinitionCommit("1234567890"));
+
         assertThat(record.waitReason()).contains(WaitReason.FIX_LOOP_LIMIT);
         assertThat(agent.requests()).hasSize(2);
     }
@@ -1519,7 +1563,7 @@ class IssueWorkflowTest {
         });
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
-        liveSessions.open(ISSUE, prepared.sessionId(), worktree());
+        liveSessions.open(ISSUE, prepared.sessionId(), worktree(), List.of());
 
         IssueRecord implemented = workflow.advance(prepared);
         IssueRecord built = workflow.advance(implemented);
@@ -1538,7 +1582,7 @@ class IssueWorkflowTest {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
-        liveSessions.open(ISSUE, prepared.sessionId(), worktree());
+        liveSessions.open(ISSUE, prepared.sessionId(), worktree(), List.of());
         liveSessions.failTheNextClose();
 
         IssueRecord refused = workflow.advance(prepared);

@@ -65,8 +65,8 @@ class LiveModeTest {
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
 
     private LiveMode createLiveMode(LiveSessions sessions) {
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests,
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, () -> List.of("bbossola")));
+        return new LiveMode(git, gitHub, sessions, ownerApproval, () -> List.of("bbossola"), pageRequests,
                 DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
@@ -365,8 +365,9 @@ class LiveModeTest {
     private record ForgedLinkSessions(FakeLiveSessions delegate, String link) implements LiveSessions {
 
         @Override
-        public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
-            delegate.open(issueNumber, sessionId, worktree);
+        public String open(int issueNumber, UUID sessionId, Path worktree, List<String> allowedTools)
+                throws LiveSessionException {
+            delegate.open(issueNumber, sessionId, worktree, allowedTools);
             return link;
         }
 

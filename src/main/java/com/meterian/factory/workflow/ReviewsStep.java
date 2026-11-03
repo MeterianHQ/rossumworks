@@ -9,10 +9,12 @@ import java.nio.file.Path;
 final class ReviewsStep implements Step {
 
     private final StepServices services;
+    private final VersionServices version;
     private final ReviewSessionRetry reviewSessionRetry;
 
-    ReviewsStep(StepServices services, ReviewSessionRetry reviewSessionRetry) {
+    ReviewsStep(StepServices services, VersionServices version, ReviewSessionRetry reviewSessionRetry) {
         this.services = services;
+        this.version = version;
         this.reviewSessionRetry = reviewSessionRetry;
     }
 
@@ -24,7 +26,7 @@ final class ReviewsStep implements Step {
         }
         String headCommit = services.git().headCommit(worktree);
         String treeHash = services.git().treeHashOf(worktree, headCommit);
-        ReviewRound.Outcome outcome = services.reviewRound().review(issue, record, worktree, treeHash);
+        ReviewRound.Outcome outcome = version.reviewRound().review(issue, record, worktree, treeHash);
         if (services.git().hasUncommittedChanges(worktree)
                 || !services.git().headCommit(worktree).equals(headCommit)) {
             return StepResult.block(outcome.record(), "A review changed the files.");
@@ -37,7 +39,7 @@ final class ReviewsStep implements Step {
         if (!outcome.allApprove()) {
             return StepResult.endWithFindings(reviewed, "rejected", outcome.findings());
         }
-        String patchId = services.git().patchId(worktree, services.mergeTargetReference());
+        String patchId = services.git().patchId(worktree, version.mergeTargetReference());
         return StepResult.endWith(reviewed.withReviewedTree(treeHash, patchId).withReviewedHeadCommit(headCommit),
                 "approved");
     }

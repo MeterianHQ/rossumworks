@@ -64,7 +64,19 @@ class ClaudeCommandTest {
         assertThat(ClaudeCommand.environment(parent)).containsOnlyKeys("PATH");
     }
 
+    @Test
+    void usesTheAllowedToolsOfTheRequest() {
+        PhaseRequest request = new PhaseRequest(7, sessionId, true, Path.of("."), "Fix it",
+                List.of("Read", "Bash(npm test)"));
+
+        List<String> arguments = ClaudeCommand.arguments(settings, request);
+
+        int toolsStart = arguments.indexOf("--allowedTools") + 1;
+        int toolsEnd = arguments.indexOf("--disallowedTools");
+        assertThat(arguments.subList(toolsStart, toolsEnd)).containsExactly("Read", "Bash(npm test)");
+    }
+
     private PhaseRequest requestOf(boolean newSession) {
-        return new PhaseRequest(7, sessionId, newSession, Path.of("."), "Fix it");
+        return new PhaseRequest(7, sessionId, newSession, Path.of("."), "Fix it", settings.allowedTools());
     }
 }

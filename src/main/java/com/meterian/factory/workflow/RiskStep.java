@@ -12,10 +12,12 @@ import java.nio.file.Path;
 final class RiskStep implements Step {
 
     private final StepServices services;
+    private final VersionServices version;
     private final ReviewSessionRetry reviewSessionRetry;
 
-    RiskStep(StepServices services, ReviewSessionRetry reviewSessionRetry) {
+    RiskStep(StepServices services, VersionServices version, ReviewSessionRetry reviewSessionRetry) {
         this.services = services;
+        this.version = version;
         this.reviewSessionRetry = reviewSessionRetry;
     }
 
@@ -28,7 +30,7 @@ final class RiskStep implements Step {
         new FactoryFolder(worktree).deleteRiskResult();
         String headCommit = services.git().headCommit(worktree);
         SessionReport report = services.phaseRunner()
-                .runInNewSession(record.issueNumber(), worktree, services.prompts().risk(issue));
+                .runInNewSession(record.issueNumber(), worktree, version.prompts().risk(issue), version.allowedTools());
         if (services.git().hasUncommittedChanges(worktree)
                 || !services.git().headCommit(worktree).equals(headCommit)) {
             return StepResult.block(record, "The risk session changed the files.");

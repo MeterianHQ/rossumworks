@@ -1,5 +1,8 @@
 package com.meterian.factory.worker;
 
+import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
+import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -12,15 +15,11 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.configuration.Limits;
 import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
-import com.meterian.factory.merge.Merger;
-import com.meterian.factory.definition.BuiltInDefinition;
-import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.prompt.PromptLibrary;
-import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
@@ -62,7 +61,6 @@ import org.junit.jupiter.api.io.TempDir;
 /** Counts the REST requests of the real HttpGitHubClient against a local fake GitHub, poll by poll. */
 class GitHubRequestBudgetTest {
 
-    private static final DefinitionLookup DEFINITIONS = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final int ISSUE = 7;
     private static final String WORKER_LOGIN = "factory-bot";
@@ -164,17 +162,17 @@ class GitHubRequestBudgetTest {
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
+        commitDefinition(clone, mainFileFor(configuration.target().buildCommand(), configuration.allowedAccounts()));
+        DefinitionVersions versions = new DefinitionVersions(git, clone, "main",
+                builtInWithBuild(configuration.target().buildCommand()));
+        RequestReader requests = new RequestReader(gitHub, versions::allowedAccounts);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), DEFINITIONS, buildRunner, merger,
-                new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
+        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
+                versions::allowedAccounts, buildRunner, Duration.ZERO, new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), new PageRequests(Clock.systemUTC()));
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
-        return new Worker(configuration, gitHub, workflow, DEFINITIONS, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, requests, WORKER_LOGIN, executor,
                 liveSessions, clock, board);
     }
 

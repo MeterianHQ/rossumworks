@@ -9,6 +9,8 @@ import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.configuration.Limits;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.configuration.WebSettings;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
@@ -42,6 +44,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MainTest {
+
+    private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
             + "       java -jar claude-ai-factory.jar hash-password";
@@ -324,7 +328,7 @@ class MainTest {
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
 
-        Main.createPhoneLinkSender(gitHub, configuration).sendLink(12, "https://claude.ai/code/session_abc123");
+        Main.createPhoneLinkSender(gitHub, configuration::allowedAccounts).sendLink(12, "https://claude.ai/code/session_abc123");
 
         assertThat(gitHub.commentsOf(12)).singleElement().extracting(IssueComment::body)
                 .isEqualTo("The live conversation is open: https://claude.ai/code/session_abc123"
@@ -337,7 +341,8 @@ class MainTest {
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                 new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                Main.createPhoneLinkSender(new FakeGitHubClient(), configuration), () -> 0, () -> { },
+                Main.createPhoneLinkSender(new FakeGitHubClient(), configuration::allowedAccounts), BUILT_IN,
+                Optional::empty, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
         assertThat(server).isEmpty();
@@ -350,8 +355,8 @@ class MainTest {
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                     new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                    Main.createPhoneLinkSender(new FakeGitHubClient(), configuration), () -> 0, () -> { },
-                    temporaryDirectory.resolve("claude-home")).orElseThrow();
+                    Main.createPhoneLinkSender(new FakeGitHubClient(), configuration::allowedAccounts), BUILT_IN,
+                    Optional::empty, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
                     .isInstanceOf(Main.StartupException.class)
@@ -365,12 +370,13 @@ class MainTest {
         Main.SharedState shared = Main.SharedState.create(configuration);
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
-        RequestReader requests = Main.createRequestReader(gitHub, configuration, "factory-bot", shared);
+        RequestReader requests = Main.createRequestReader(gitHub, configuration::allowedAccounts, "factory-bot", shared);
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
                         "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, configuration), () -> 1, () -> { },
+                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, configuration::allowedAccounts),
+                BUILT_IN, Optional::empty, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
         try {

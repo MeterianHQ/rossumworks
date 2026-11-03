@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class BoardPageTest {
@@ -92,6 +93,11 @@ class BoardPageTest {
                 Map.of(), true);
     }
 
+    private static PageModel modelWithWarning(List<IssueCard> cards, String definitionWarning) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(), Map.of(),
+                Set.of(), Map.of(), true, Optional.of(definitionWarning));
+    }
+
     private static PageModel modelWithEnterPlaces(List<IssueCard> cards, Map<Integer, LivePlace> enterPlaces) {
         return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(),
                 Map.of(12, Set.of("factory:enter")), Set.of(), enterPlaces, true);
@@ -106,10 +112,20 @@ class BoardPageTest {
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
             Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+                enterPlaces, viewerOnThisMachine, Optional.empty());
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
+            Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine, Optional<String> definitionWarning) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
-        return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
-                viewerOnThisMachine);
+        Map<Integer, Integer> fixLoopLimits = cards.stream()
+                .collect(Collectors.toMap(IssueCard::issueNumber, card -> 2, (first, second) -> first));
+        return new PageModel(snapshot, NOW, 2, 2, fixLoopLimits, IsolationMode.SAME_USER, POLL_INTERVAL,
+                usageWindows, usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces,
+                "MeterianHQ/target", viewerOnThisMachine, definitionWarning);
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -127,6 +143,22 @@ class BoardPageTest {
     private static String tile(String label, String value) {
         return "<div class=\"tile\"><span class=\"tile-label\">" + label + "</span><span class=\"tile-value\">"
                 + value + "</span></div>";
+    }
+
+    @Test
+    void showsTheWarningOfTheDefinition() {
+        String warning = "The .factory of 1234567 does not load: factory.yaml: <bad> key. "
+                + "The factory keeps the version 89abcde.";
+
+        String html = page.renderBoard(modelWithWarning(List.of(), warning));
+
+        assertThat(html).contains("<p class=\"warning\">" + Html.escape(warning) + "</p>");
+        assertThat(html).doesNotContain("<bad>");
+    }
+
+    @Test
+    void showsNoDefinitionWarningWithoutAWarning() {
+        assertThat(page.renderBoard(model(List.of()))).doesNotContain("class=\"warning\"");
     }
 
     @Test

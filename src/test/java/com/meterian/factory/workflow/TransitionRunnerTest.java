@@ -89,10 +89,11 @@ class TransitionRunnerTest {
         gitHub.setAuthenticatedLogin("factory-bot");
         gitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         issue = gitHub.issue(ISSUE);
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, () -> List.of("bbossola")));
         LiveMode liveMode = new LiveMode(new ProcessGit(), gitHub, new FakeLiveSessions(), ownerApproval,
-                List.of("bbossola"), new PageRequests(Clock.systemUTC()), DefinitionLookup.builtInOnly(definition));
-        runner = new TransitionRunner(new FixLoop(prompts, ownerApproval), gitHub, List.of("bbossola"), liveMode);
+                () -> List.of("bbossola"), new PageRequests(Clock.systemUTC()), DefinitionLookup.builtInOnly(definition));
+        runner = new TransitionRunner(new FixLoop(prompts, ownerApproval), gitHub, () -> List.of("bbossola"),
+                liveMode);
     }
 
     private static FactoryDefinition loadSmallDefinition() throws DefinitionException {

@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.build.BuildRunner;
+import com.meterian.factory.build.BuildSettings;
 import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
@@ -64,7 +65,7 @@ class MergerTest {
         buildLog = temporaryDirectory.resolve("builds.txt");
         TargetRepository target = new TargetRepository("owner", "name", clone, "echo ran >> " + buildLog,
                 Map.of());
-        merger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper, Duration.ZERO);
+        merger = createMerger(target);
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
         gitHub.squashMergeInto(clone);
         gitHub.readPullRequestHeadsFrom(github);
@@ -105,7 +106,7 @@ class MergerTest {
                         : movesTheBase);
         TargetRepository moving = new TargetRepository("owner", "name", clone, command,
                 Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
-        return new Merger(git, gitHub, new BuildRunner(), moving, "main", gatekeeper, Duration.ZERO);
+        return createMerger(moving);
     }
 
     private static void waitUntilBlockedOrEnded(Thread thread) {
@@ -189,7 +190,7 @@ class MergerTest {
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
         TargetRepository failing = new TargetRepository("owner", "name", clone, "echo broken; exit 1", Map.of());
-        Merger failingMerger = new Merger(git, gitHub, new BuildRunner(), failing, "main", gatekeeper, Duration.ZERO);
+        Merger failingMerger = createMerger(failing);
 
         MergeResult result = failingMerger.merge(worktree, record);
 
@@ -429,7 +430,7 @@ class MergerTest {
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
         TargetRepository dirtying = new TargetRepository("owner", "name", clone, "echo x > junk.txt", Map.of());
-        Merger dirtyingMerger = new Merger(git, gitHub, new BuildRunner(), dirtying, "main", gatekeeper, Duration.ZERO);
+        Merger dirtyingMerger = createMerger(dirtying);
 
         MergeResult result = dirtyingMerger.merge(worktree, record);
 
@@ -519,5 +520,10 @@ class MergerTest {
 
         assertThat(result).isInstanceOf(MergeResult.NeedsNewReviews.class);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    private Merger createMerger(TargetRepository target) {
+        return new Merger(git, gitHub, new BuildRunner(), target.cloneDirectory(), "main",
+                new BuildSettings(target.buildCommand(), target.buildEnvironment()), gatekeeper, Duration.ZERO);
     }
 }

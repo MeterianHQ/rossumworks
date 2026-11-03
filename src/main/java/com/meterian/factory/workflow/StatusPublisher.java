@@ -1,6 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.board.BoardUpdates;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -14,13 +15,15 @@ public final class StatusPublisher {
 
     private final GitHubClient gitHub;
     private final String workerLogin;
-    private final int fixLoopLimit;
+    private final FixLoopLimits fixLoopLimits;
     private final BoardUpdates board;
 
-    public StatusPublisher(GitHubClient gitHub, String workerLogin, int fixLoopLimit, BoardUpdates board) {
+    /** @param definitions the definitions of the records: the fix-loop limit comes from them */
+    public StatusPublisher(GitHubClient gitHub, String workerLogin, DefinitionLookup definitions,
+                           BoardUpdates board) {
         this.gitHub = gitHub;
         this.workerLogin = workerLogin;
-        this.fixLoopLimit = fixLoopLimit;
+        this.fixLoopLimits = new FixLoopLimits(definitions);
         this.board = board;
     }
 
@@ -31,7 +34,7 @@ public final class StatusPublisher {
         }
         IssueRecord published = after.statusCommentId().isPresent() ? after
                 : after.withStatusComment(findOrCreateStatusComment(issue.number(), after));
-        gitHub.editComment(published.statusCommentId().orElseThrow(), StatusComment.render(published, fixLoopLimit));
+        gitHub.editComment(published.statusCommentId().orElseThrow(), StatusComment.render(published, fixLoopLimits.limitOf(published)));
         gitHub.setStatus(issue, published.status());
         board.recordIssue(issue, published);
         return published;
@@ -39,7 +42,7 @@ public final class StatusPublisher {
 
     private long findOrCreateStatusComment(int issueNumber, IssueRecord record) {
         return findStatusComment(issueNumber)
-                .orElseGet(() -> gitHub.createComment(issueNumber, StatusComment.render(record, fixLoopLimit)));
+                .orElseGet(() -> gitHub.createComment(issueNumber, StatusComment.render(record, fixLoopLimits.limitOf(record))));
     }
 
     private Optional<Long> findStatusComment(int issueNumber) {

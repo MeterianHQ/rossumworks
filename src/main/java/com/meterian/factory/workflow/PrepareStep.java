@@ -6,15 +6,15 @@ import java.nio.file.Path;
 
 final class PrepareStep implements Step {
 
-    private final StepServices services;
+    private final VersionServices version;
 
-    PrepareStep(StepServices services) {
-        this.services = services;
+    PrepareStep(VersionServices version) {
+        this.version = version;
     }
 
     @Override
     public StepResult run(Issue issue, IssueRecord record, Path worktree) {
-        services.workspace().create(record.issueNumber(), worktree);
+        version.workspace().create(record.issueNumber(), worktree);
         return StepResult.endWith(record, "done");
     }
 }

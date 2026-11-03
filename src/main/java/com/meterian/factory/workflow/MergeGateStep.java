@@ -11,9 +11,11 @@ import java.util.List;
 final class MergeGateStep implements Step {
 
     private final StepServices services;
+    private final VersionServices version;
 
-    MergeGateStep(StepServices services) {
+    MergeGateStep(StepServices services, VersionServices version) {
         this.services = services;
+        this.version = version;
     }
 
     @Override
@@ -21,7 +23,7 @@ final class MergeGateStep implements Step {
         if (isMergedOnGitHub(record)) {
             return StepResult.endWith(record.withBuiltTree(services.git().treeHash(worktree)), "merged");
         }
-        services.reviewedCommit().restoreRebasedHead(worktree, record);
+        version.reviewedCommit().restoreRebasedHead(worktree, record);
         boolean isApproved = services.ownerApproval().isGiven(issue);
         IssueRecord noted = isApproved ? record : services.ownerApproval().noteIgnoredLabel(issue, record);
         boolean questionOpen = new FactoryFolder(worktree).hasQuestion();
@@ -36,7 +38,7 @@ final class MergeGateStep implements Step {
     }
 
     private StepResult mergePullRequest(Issue issue, IssueRecord record, Path worktree) {
-        MergeResult result = services.merger().merge(worktree, record);
+        MergeResult result = version.merger().merge(worktree, record);
         return switch (result) {
             case MergeResult.Merged merged -> StepResult.endWith(merged.note().map(record::withNote).orElse(record)
                     .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()), "merged");
@@ -52,7 +54,7 @@ final class MergeGateStep implements Step {
 
     /** Opens a merge with the target in the worktree, so that the agent solves a conflict in the files. */
     private StepResult openMergeForTheFix(IssueRecord record, Path worktree, MergeResult.NeedsFix needsFix) {
-        ConflictResolution.OpenedMerge openedMerge = services.conflictResolution().openMerge(worktree, needsFix);
+        ConflictResolution.OpenedMerge openedMerge = version.conflictResolution().openMerge(worktree, needsFix);
         IssueRecord withConflict = record.withConflictedPaths(openedMerge.conflictedPaths());
         return StepResult.endWithFindings(withConflict, "conflict", List.of(openedMerge.finding()));
     }

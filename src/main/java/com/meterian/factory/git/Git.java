@@ -2,6 +2,7 @@ package com.meterian.factory.git;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 public interface Git {
 
@@ -25,6 +26,18 @@ public interface Git {
 
     /** Returns the hash of the commit that the reference points to. */
     String commitOf(Path repository, String reference);
+
+    /** Returns the hash of the commit that the reference points to: git rev-parse reference^{commit}. */
+    String resolveCommit(Path repository, String reference);
+
+    /**
+     * Returns the content of the file in the commit, as git show commit:path gives it. It is empty when the
+     * commit does not have the file, and it fails when the commit does not exist.
+     */
+    Optional<String> showFile(Path repository, String commit, String path);
+
+    /** Returns the default branch of the remote origin, without the prefix origin/. */
+    String defaultBranch(Path clone);
 
     /** Returns the hash of the commit of HEAD. */
     String headCommit(Path worktree);

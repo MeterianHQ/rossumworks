@@ -13,6 +13,7 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -20,9 +21,6 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
-import com.meterian.factory.merge.Merger;
-import com.meterian.factory.prompt.PromptLibrary;
-import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
@@ -66,6 +64,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
 /** The command line: run --config <file>, or hash-password. */
 public final class Main {
@@ -313,14 +312,15 @@ public final class Main {
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
-        RequestReader requests = createRequestReader(gitHub, configuration, workerLogin, shared);
+        Git git = new ProcessGit();
+        DefinitionVersions definitions = createDefinitionVersions(git, configuration);
+        RequestReader requests = createRequestReader(gitHub, definitions::allowedAccounts, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
-        DefinitionLookup definitions = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
-                liveSessions, shared, definitions);
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner, requests,
+                workerLogin, liveSessions, shared, definitions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
@@ -328,8 +328,8 @@ public final class Main {
                 executor, liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
-                createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
-                worker::requestEarlyPoll, claudeHome);
+                createPhoneLinkSender(gitHub, definitions::allowedAccounts), definitions, definitions::warning,
+                () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
                 UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
@@ -348,10 +348,29 @@ public final class Main {
         return EXIT_API_KEY;
     }
 
-    /** The same page requests go to the reader and to the page, so that the reader accepts a label of the page. */
-    static RequestReader createRequestReader(GitHubClient gitHub, FactoryConfiguration configuration,
+    /**
+     * The default branch is read once, at the start. The first poll reads its definition: until a version loads,
+     * the worker takes no new issue.
+     */
+    private static DefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
+            throws StartupException {
+        Path clone = configuration.target().cloneDirectory();
+        try {
+            return new DefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
+        } catch (GitException exception) {
+            throw new StartupException("The factory cannot read the default branch of the clone " + clone + ": "
+                    + exception.getMessage());
+        }
+    }
+
+    /**
+     * The same page requests go to the reader and to the page, so that the reader accepts a label of the page.
+     *
+     * @param allowedAccounts the accounts of the newest definition version
+     */
+    static RequestReader createRequestReader(GitHubClient gitHub, Supplier<List<String>> allowedAccounts,
                                              String workerLogin, SharedState shared) {
-        return new RequestReader(gitHub, configuration.allowedAccounts(), workerLogin, shared.pageRequests());
+        return new RequestReader(gitHub, allowedAccounts, workerLogin, shared.pageRequests());
     }
 
     /** The page gets only these two label requests of the GitHub client. A 404 on a remove is not an error. */
@@ -369,26 +388,34 @@ public final class Main {
         };
     }
 
-    /** The page sends the live link again with the comment of the worker: the mention notifies the phone. */
-    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub, FactoryConfiguration configuration) {
-        Optional<String> mentionedLogin = configuration.allowedAccounts().stream().findFirst();
-        return (issueNumber, link) -> gitHub.createComment(issueNumber, LiveComment.render(link, mentionedLogin));
+    /**
+     * The page sends the live link again with the comment of the worker: the mention notifies the phone. The
+     * mention is the first account of the newest definition version at the time of the send.
+     */
+    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub, Supplier<List<String>> allowedAccounts) {
+        return (issueNumber, link) -> gitHub.createComment(issueNumber,
+                LiveComment.render(link, allowedAccounts.get().stream().findFirst()));
     }
 
     /**
      * Without a web section, the worker serves no page. The page gets only a label writer and a phone link
      * sender, never the GitHub client.
+     *
+     * @param definitions       the definition version of each record, for the fix-loop limit of its card
+     * @param definitionWarning the reason why the definition of the default branch does not load
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
                                                LiveSessions liveSessions, LabelWriter labels,
-                                               PhoneLinkSender phoneLinkSender, IntSupplier issuesInWork,
-                                               Runnable earlyPollRequest, Path claudeHome) {
+                                               PhoneLinkSender phoneLinkSender, DefinitionLookup definitions,
+                                               Supplier<Optional<String>> definitionWarning,
+                                               IntSupplier issuesInWork, Runnable earlyPollRequest,
+                                               Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
-                        new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
-                        Clock.systemUTC()),
+                        new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
+                        definitionWarning, issuesInWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, phoneLinkSender, shared.board(),
                         earlyPollRequest)));
@@ -475,19 +502,14 @@ public final class Main {
         }, "factory-shutdown");
     }
 
-    private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
+    private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 RequestReader requests, String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared,
-                                                DefinitionLookup definitions) {
-        Git git = new ProcessGit();
-        String mergeTargetBranch = configuration.mergeTargetBranch();
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
-                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
-        PromptLibrary prompts = new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), mergeTargetBranch);
+                                                DefinitionVersions definitions) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, definitions, buildRunner, merger,
-                shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
-                shared.pageRequests());
+        return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions, definitions::allowedAccounts,
+                buildRunner, MERGE_RETRY_DELAY, shared.usage(), requests, layout, workerLogin, liveSessions,
+                shared.board(), shared.contexts(), shared.pageRequests());
     }
 }

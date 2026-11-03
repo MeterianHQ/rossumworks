@@ -7,9 +7,11 @@ import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.workflow.FixLoopLimits;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.time.Clock;
@@ -18,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Collects the values of the page. It reads only memory and local files, never GitHub. */
@@ -31,12 +34,15 @@ public final class PageModelSource {
     private final PageRequests pageRequests;
     private final WorkspaceLayout layout;
     private final FactoryConfiguration configuration;
+    private final FixLoopLimits fixLoopLimits;
+    private final Supplier<Optional<String>> definitionWarning;
     private final IntSupplier issuesInWork;
     private final Clock clock;
 
     public PageModelSource(BoardState board, UsageTracker usage, ContextTracker contexts,
             LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
-            WorkspaceLayout layout, FactoryConfiguration configuration, IntSupplier issuesInWork, Clock clock) {
+            WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
+            Supplier<Optional<String>> definitionWarning, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
         this.usage = usage;
         this.contexts = contexts;
@@ -45,6 +51,8 @@ public final class PageModelSource {
         this.pageRequests = pageRequests;
         this.layout = layout;
         this.configuration = configuration;
+        this.fixLoopLimits = new FixLoopLimits(definitions);
+        this.definitionWarning = definitionWarning;
         this.issuesInWork = issuesInWork;
         this.clock = clock;
     }
@@ -57,10 +65,19 @@ public final class PageModelSource {
     public PageModel read(boolean viewerOnThisMachine) {
         BoardSnapshot snapshot = board.snapshot();
         return new PageModel(snapshot, clock.instant(), issuesInWork.getAsInt(),
-                configuration.limits().parallelIssues(), configuration.limits().fixLoops(),
+                configuration.limits().parallelIssues(), readFixLoopLimits(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine);
+                readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine,
+                definitionWarning.get());
+    }
+
+    private Map<Integer, Integer> readFixLoopLimits(BoardSnapshot snapshot) {
+        Map<Integer, Integer> limitsByIssue = new HashMap<>();
+        for (IssueCard card : snapshot.cards()) {
+            limitsByIssue.put(card.issueNumber(), fixLoopLimits.limitOf(card.record()));
+        }
+        return limitsByIssue;
     }
 
     private Map<Integer, ContextUsage> readContexts(BoardSnapshot snapshot) {

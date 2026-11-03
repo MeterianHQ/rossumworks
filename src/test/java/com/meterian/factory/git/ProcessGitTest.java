@@ -383,6 +383,51 @@ class ProcessGitTest {
         assertThat(git.mergeWithoutCommit(clone, "main")).containsExactly("größe.txt");
     }
 
+    @Test
+    void showFileReadsTheFileOfTheCommit() {
+        String first = git.headCommit(clone);
+        commitFile(clone, "a.txt", "second\n", "Second commit");
+
+        assertThat(git.showFile(clone, first, "a.txt")).contains("first\n");
+    }
+
+    @Test
+    void showFileIsEmptyForAFileThatTheCommitDoesNotHave() {
+        assertThat(git.showFile(clone, git.headCommit(clone), "missing.txt")).isEmpty();
+    }
+
+    @Test
+    void showFileRefusesACommitThatDoesNotExist() {
+        assertThatThrownBy(() -> git.showFile(clone, "0123456789abcdef0123456789abcdef01234567", "a.txt"))
+                .isInstanceOf(GitException.class);
+    }
+
+    @Test
+    void resolveCommitGivesTheCommitOfTheReference() {
+        commitFile(clone, "b.txt", "b\n", "Second commit");
+        run(clone, "push", "-q", "origin", "main");
+        run(clone, "fetch", "-q", "origin");
+
+        assertThat(git.resolveCommit(clone, "origin/main")).isEqualTo(git.headCommit(clone));
+    }
+
+    @Test
+    void resolveCommitRefusesAnUnknownReference() {
+        assertThatThrownBy(() -> git.resolveCommit(clone, "origin/unknown")).isInstanceOf(GitException.class);
+    }
+
+    @Test
+    void defaultBranchReadsTheHeadOfTheOrigin() {
+        run(clone, "remote", "set-head", "origin", "main");
+
+        assertThat(git.defaultBranch(clone)).isEqualTo("main");
+    }
+
+    @Test
+    void defaultBranchAsksTheOriginWhenTheCloneDoesNotKnowItsHead() {
+        assertThat(git.defaultBranch(clone)).isEqualTo("main");
+    }
+
     private void createConflictBetweenFeatureAndMain() {
         run(clone, "checkout", "-q", "-b", "feature");
         commitFile(clone, "a.txt", "feature\n", "Feature change");

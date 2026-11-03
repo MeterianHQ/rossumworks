@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.PhaseRequest;
+import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
@@ -31,7 +32,8 @@ class PhaseRunnerTest {
         PhaseRunner phaseRunner = createPhaseRunner(
                 new FakeAgentRunner().thenChangeNothing().withContextUsage(26262, 1_000_000));
 
-        phaseRunner.runPhase(new PhaseRequest(ISSUE, UUID.randomUUID(), true, worktree, "Implement the issue."));
+        phaseRunner.runPhase(new PhaseRequest(ISSUE, UUID.randomUUID(), true, worktree, "Implement the issue.",
+                ClaudeSettings.DEFAULT_ALLOWED_TOOLS));
 
         assertThat(contexts.find(ISSUE)).contains(new ContextUsage(26262, 1_000_000));
     }
@@ -42,8 +44,9 @@ class PhaseRunnerTest {
                 .thenChangeNothing().withContextUsage(26262, 1_000_000)
                 .thenChangeNothing().withContextUsage(500, 200_000));
 
-        phaseRunner.runPhase(new PhaseRequest(ISSUE, UUID.randomUUID(), true, worktree, "Implement the issue."));
-        phaseRunner.runInNewSession(ISSUE, worktree, "Review the change.");
+        phaseRunner.runPhase(new PhaseRequest(ISSUE, UUID.randomUUID(), true, worktree, "Implement the issue.",
+                ClaudeSettings.DEFAULT_ALLOWED_TOOLS));
+        phaseRunner.runInNewSession(ISSUE, worktree, "Review the change.", ClaudeSettings.DEFAULT_ALLOWED_TOOLS);
 
         assertThat(contexts.find(ISSUE)).contains(new ContextUsage(26262, 1_000_000));
     }

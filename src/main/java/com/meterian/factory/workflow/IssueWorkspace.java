@@ -16,10 +16,12 @@ final class IssueWorkspace {
 
     private final FactoryConfiguration configuration;
     private final Git git;
+    private final String mergeTargetBranch;
 
-    IssueWorkspace(FactoryConfiguration configuration, Git git) {
+    IssueWorkspace(FactoryConfiguration configuration, Git git, String mergeTargetBranch) {
         this.configuration = configuration;
         this.git = git;
+        this.mergeTargetBranch = mergeTargetBranch;
     }
 
     /**
@@ -44,9 +46,9 @@ final class IssueWorkspace {
         git.pruneWorktrees(clone);
         Gatekeeper.ensure(gatekeeperDirectory, configuration.target().sshUrl());
         git.setRemote(clone, GATEKEEPER_REMOTE, gatekeeperDirectory.toString());
-        git.fetch(clone, ORIGIN, configuration.mergeTargetBranch());
+        git.fetch(clone, ORIGIN, mergeTargetBranch);
         removeIfPresent(clone, worktree);
-        String startPoint = ORIGIN + "/" + configuration.mergeTargetBranch();
+        String startPoint = ORIGIN + "/" + mergeTargetBranch;
         git.addWorktree(clone, worktree, WorkspaceLayout.branch(issueNumber), startPoint);
         git.excludeFactoryFolder(worktree);
     }

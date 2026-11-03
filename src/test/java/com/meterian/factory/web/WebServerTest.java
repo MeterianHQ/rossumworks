@@ -10,6 +10,8 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.configuration.Limits;
 import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
@@ -149,7 +151,8 @@ class WebServerTest {
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
-                new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                new WorkspaceLayout(workDirectory), configuration,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
     }
 
     private static IssueRecord mergeWaitsForApproval() {

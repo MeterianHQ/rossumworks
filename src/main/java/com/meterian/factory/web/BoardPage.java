@@ -59,6 +59,8 @@ public final class BoardPage {
                 .append("</span></div>");
         appendHealth(html, model);
         html.append("</header>");
+        model.definitionWarning().ifPresent(warning -> html.append("<p class=\"warning\">")
+                .append(Html.escape(warning)).append("</p>"));
         if (isLastCheckOld(model)) {
             html.append("<p class=\"warning\">The last GitHub check is old.</p>");
         }

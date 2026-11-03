@@ -48,7 +48,7 @@ final class CardRenderer {
         }
         appendLiveBox(html, card, model);
         appendReviews(html, record);
-        appendFacts(html, record, model.fixLoopLimit());
+        appendFacts(html, record, model.fixLoopLimitOf(record.issueNumber()));
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
         appendNewestNote(html, record);
