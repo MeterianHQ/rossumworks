@@ -24,7 +24,9 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -117,7 +119,7 @@ class IssueWorkflowTest {
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
-        return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
+        return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"),
                 buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
                 BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
@@ -1262,7 +1264,7 @@ class IssueWorkflowTest {
         assertThat(secondRun.newSession()).isFalse();
         assertThat(secondRun.sessionId()).isEqualTo(live.sessionId());
         assertThat(secondRun.prompt())
-                .isEqualTo(new PromptLibrary(Optional.empty(), "main").continueAfterConversation());
+                .isEqualTo(new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main").continueAfterConversation());
         assertThat(implemented.afterConversation()).isFalse();
         assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
         assertThat(advanceUntilWaiting(workflow, implemented).status()).isEqualTo(IssueStatus.DONE);
@@ -1427,7 +1429,7 @@ class IssueWorkflowTest {
         assertThat(built.afterConversation()).isFalse();
         assertThat(agent.requests()).hasSize(6);
         assertThat(agent.requests().get(5).prompt()).contains("Missing input check")
-                .isNotEqualTo(new PromptLibrary(Optional.empty(), "main").continueAfterConversation());
+                .isNotEqualTo(new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main").continueAfterConversation());
     }
 
     @Test
@@ -1543,7 +1545,7 @@ class IssueWorkflowTest {
 
         workflow.advance(continued);
 
-        String continuePrompt = new PromptLibrary(Optional.empty(), "main").continueAfterConversation();
+        String continuePrompt = new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main").continueAfterConversation();
         assertThat(agent.requests()).hasSize(6);
         assertThat(agent.requests().get(5).prompt()).startsWith(continuePrompt).contains("Missing input check");
     }

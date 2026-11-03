@@ -21,7 +21,9 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -172,7 +174,7 @@ class WorkerTest {
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
+                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests);

@@ -17,7 +17,9 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
@@ -165,7 +167,7 @@ class GitHubRequestBudgetTest {
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
+                new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), new PageRequests(Clock.systemUTC()));
         ExecutorService executor = Executors.newFixedThreadPool(1);

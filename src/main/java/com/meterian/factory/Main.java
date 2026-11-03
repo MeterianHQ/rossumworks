@@ -11,6 +11,7 @@ import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -20,6 +21,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
@@ -479,7 +481,7 @@ public final class Main {
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
                 configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
-        PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
+        PromptLibrary prompts = new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
                 shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
