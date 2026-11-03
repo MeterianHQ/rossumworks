@@ -38,10 +38,12 @@ final class ReviewRound {
 
     private final PhaseRunner phaseRunner;
     private final PromptLibrary prompts;
+    private final List<String> allowedTools;
 
-    ReviewRound(PhaseRunner phaseRunner, PromptLibrary prompts) {
+    ReviewRound(PhaseRunner phaseRunner, PromptLibrary prompts, List<String> allowedTools) {
         this.phaseRunner = phaseRunner;
         this.prompts = prompts;
+        this.allowedTools = List.copyOf(allowedTools);
     }
 
     Outcome review(Issue issue, IssueRecord record, Path worktree, String treeHash)
@@ -72,7 +74,7 @@ final class ReviewRound {
             throws AgentException, ApiKeyDetectedException {
         new FactoryFolder(worktree).deleteReviewResult(kind);
         String prompt = prompts.review(kind, issue, treeHash);
-        SessionReport report = phaseRunner.runInNewSession(issue.number(), worktree, prompt);
+        SessionReport report = phaseRunner.runInNewSession(issue.number(), worktree, prompt, allowedTools);
         if (!report.success()) {
             return Optional.empty();
         }

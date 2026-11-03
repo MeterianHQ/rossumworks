@@ -3,6 +3,7 @@ package com.meterian.factory.prompt;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.Verdict;
+import com.meterian.factory.workflow.ScratchFolder;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +18,7 @@ public final class ReviewResultReader {
     }
 
     public static ReviewResult read(Path worktree, ReviewKind kind) {
-        Path file = worktree.resolve(".factory").resolve(kind.fileName());
+        Path file = worktree.resolve(ScratchFolder.NAME).resolve(kind.fileName());
         return ResultFileReader.readObject(file)
                 .flatMap(ReviewResultReader::parseReviewResult)
                 .orElseGet(ReviewResultReader::createRejectResult);

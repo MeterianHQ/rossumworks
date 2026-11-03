@@ -34,6 +34,22 @@ class ProcessGitTest {
     }
 
     @Test
+    void clonesARepositoryIntoARelativeDestination() throws IOException {
+        Path relativeParent = Path.of("target", "clone-test-" + System.nanoTime());
+        Path relativeDestination = relativeParent.resolve("work").resolve("repository");
+        Files.createDirectories(relativeDestination.getParent());
+        try {
+            git.cloneRepository(temporaryDirectory.resolve("origin.git").toString(), relativeDestination);
+
+            assertThat(relativeDestination.toAbsolutePath().resolve(".git")).isDirectory();
+            assertThat(relativeDestination.toAbsolutePath().resolve("a.txt")).isRegularFile();
+            assertThat(relativeDestination.toAbsolutePath().getParent().resolve("work")).doesNotExist();
+        } finally {
+            deleteRecursively(relativeParent);
+        }
+    }
+
+    @Test
     void treeHashDoesNotChangeWithAnEmptyCommit() {
         String before = git.treeHash(clone);
 
@@ -79,14 +95,50 @@ class ProcessGitTest {
         Path worktree = temporaryDirectory.resolve("worktree");
         git.addWorktree(clone, worktree, "factory/issue-1", "main");
         git.excludeFactoryFolder(worktree);
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory/question.md"), "Question\n");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
         Files.writeString(worktree.resolve("fix.txt"), "fix\n");
 
         git.commitAll(worktree, "Fix the issue");
 
         String committedFiles = run(worktree, "show", "--name-only", "--format=", "HEAD");
-        assertThat(committedFiles).contains("fix.txt").doesNotContain(".factory");
+        assertThat(committedFiles).contains("fix.txt").doesNotContain(".factory-work");
+    }
+
+    @Test
+    void excludesTheScratchFolderButNotTheDefinitionFolder() throws IOException {
+        Path worktree = temporaryDirectory.resolve("worktree");
+        git.addWorktree(clone, worktree, "factory/issue-2", "main");
+        git.excludeFactoryFolder(worktree);
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.writeString(worktree.resolve(".factory/factory.yaml"), "name: factory\n");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
+
+        git.commitAll(worktree, "Add the workflow definition");
+
+        String committedFiles = run(worktree, "show", "--name-only", "--format=", "HEAD");
+        assertThat(committedFiles).contains(".factory/factory.yaml").doesNotContain(".factory-work/question.md");
+    }
+
+    @Test
+    void changesPathIgnoresTheScratchFolder() throws IOException {
+        Path worktree = temporaryDirectory.resolve("worktree");
+        git.addWorktree(clone, worktree, "factory/issue-3", "main");
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/question.md"), "Question\n");
+        Files.writeString(worktree.resolve("fix.txt"), "fix\n");
+        run(worktree, "add", "-A", "-f");
+        run(worktree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Fix");
+
+        assertThat(git.changesPath(worktree, "main", ".factory")).isFalse();
+
+        Files.createDirectories(worktree.resolve(".factory"));
+        Files.writeString(worktree.resolve(".factory/factory.yaml"), "name: factory\n");
+        run(worktree, "add", "-A", "-f");
+        run(worktree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Definition");
+
+        assertThat(git.changesPath(worktree, "main", ".factory")).isTrue();
     }
 
     @Test
@@ -365,6 +417,65 @@ class ProcessGitTest {
         run(clone, "checkout", "-q", "feature");
 
         assertThat(git.mergeWithoutCommit(clone, "main")).containsExactly("größe.txt");
+    }
+
+    @Test
+    void showFileReadsTheFileOfTheCommit() {
+        String first = git.headCommit(clone);
+        commitFile(clone, "a.txt", "second\n", "Second commit");
+
+        assertThat(git.showFile(clone, first, "a.txt")).contains("first\n");
+    }
+
+    @Test
+    void showFileIsEmptyForAFileThatTheCommitDoesNotHave() {
+        assertThat(git.showFile(clone, git.headCommit(clone), "missing.txt")).isEmpty();
+    }
+
+    @Test
+    void showFileRefusesACommitThatDoesNotExist() {
+        assertThatThrownBy(() -> git.showFile(clone, "0123456789abcdef0123456789abcdef01234567", "a.txt"))
+                .isInstanceOf(GitException.class);
+    }
+
+    @Test
+    void commitsOfPathGivesTheNewestCommitsThatChangeThePath() {
+        String first = git.headCommit(clone);
+        commitFile(clone, "a.txt", "second\n", "Second commit");
+        String second = git.headCommit(clone);
+        commitFile(clone, "b.txt", "b\n", "Other file");
+        commitFile(clone, "a.txt", "fourth\n", "Fourth commit");
+        String fourth = git.headCommit(clone);
+
+        assertThat(git.commitsOfPath(clone, "HEAD", "a.txt", 10)).containsExactly(fourth, second, first);
+        assertThat(git.commitsOfPath(clone, "HEAD", "a.txt", 2)).containsExactly(fourth, second);
+        assertThat(git.commitsOfPath(clone, "HEAD", "missing.txt", 10)).isEmpty();
+    }
+
+    @Test
+    void resolveCommitGivesTheCommitOfTheReference() {
+        commitFile(clone, "b.txt", "b\n", "Second commit");
+        run(clone, "push", "-q", "origin", "main");
+        run(clone, "fetch", "-q", "origin");
+
+        assertThat(git.resolveCommit(clone, "origin/main")).isEqualTo(git.headCommit(clone));
+    }
+
+    @Test
+    void resolveCommitRefusesAnUnknownReference() {
+        assertThatThrownBy(() -> git.resolveCommit(clone, "origin/unknown")).isInstanceOf(GitException.class);
+    }
+
+    @Test
+    void defaultBranchReadsTheHeadOfTheOrigin() {
+        run(clone, "remote", "set-head", "origin", "main");
+
+        assertThat(git.defaultBranch(clone)).isEqualTo("main");
+    }
+
+    @Test
+    void defaultBranchAsksTheOriginWhenTheCloneDoesNotKnowItsHead() {
+        assertThat(git.defaultBranch(clone)).isEqualTo("main");
     }
 
     private void createConflictBetweenFeatureAndMain() {

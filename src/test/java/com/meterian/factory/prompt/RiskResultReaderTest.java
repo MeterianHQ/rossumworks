@@ -24,8 +24,8 @@ class RiskResultReaderTest {
 
     @Test
     void readsAValidRiskFile() throws IOException {
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory/risk.json"),
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/risk.json"),
                 "{\"risk\": \"low\", \"small\": true, \"reasons\": [\"One line\"]}");
 
         RiskResult result = RiskResultReader.read(worktree);
@@ -39,8 +39,8 @@ class RiskResultReaderTest {
     void aSymbolicLinkIsHighRisk() throws IOException {
         Path real = worktree.resolve("real.json");
         Files.writeString(real, "{\"risk\": \"low\", \"small\": true, \"reasons\": []}");
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.createSymbolicLink(worktree.resolve(".factory/risk.json"), real);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.createSymbolicLink(worktree.resolve(".factory-work/risk.json"), real);
 
         assertThat(RiskResultReader.read(worktree).risk()).isEqualTo(RiskLevel.HIGH);
     }

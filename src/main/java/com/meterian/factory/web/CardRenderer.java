@@ -38,7 +38,7 @@ final class CardRenderer {
         boolean waits = record.status() == IssueStatus.WAITS_FOR_YOU;
         StringBuilder html = new StringBuilder();
         html.append("<article class=\"").append(waits ? "card waits" : "card").append("\">");
-        html.append("<div class=\"card-head\"><span class=\"phase\">").append(toLowerCase(record.phase().name()))
+        html.append("<div class=\"card-head\"><span class=\"phase\">").append(Html.escape(record.state()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
         List<PageAction> pendingRequests = findPendingRequests(card, model);
@@ -48,7 +48,7 @@ final class CardRenderer {
         }
         appendLiveBox(html, card, model);
         appendReviews(html, record);
-        appendFacts(html, record, model.fixLoopLimit());
+        appendFacts(html, record, model.fixLoopLimitOf(record.issueNumber()));
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
         appendNewestNote(html, record);

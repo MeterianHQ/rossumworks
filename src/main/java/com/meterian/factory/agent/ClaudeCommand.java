@@ -30,7 +30,7 @@ public final class ClaudeCommand {
         arguments.addAll(List.of("--permission-mode", "acceptEdits"));
         arguments.addAll(humanLanguageArguments());
         arguments.add("--allowedTools");
-        arguments.addAll(settings.allowedTools());
+        arguments.addAll(request.allowedTools());
         arguments.add("--disallowedTools");
         arguments.addAll(settings.disallowedTools());
         return arguments;

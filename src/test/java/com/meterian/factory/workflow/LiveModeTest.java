@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
@@ -16,10 +18,10 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.testing.RecordStates;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -63,20 +65,22 @@ class LiveModeTest {
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
 
     private LiveMode createLiveMode(LiveSessions sessions) {
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, List.of("bbossola"), pageRequests);
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, () -> List.of("bbossola")));
+        return new LiveMode(git, gitHub, sessions, ownerApproval, () -> List.of("bbossola"), pageRequests,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
     private LiveMode createLiveMode() {
         return createLiveMode(liveSessions);
     }
 
-    private static IssueRecord recordInPhase(Phase phase) {
-        return IssueRecord.queued(ISSUE).withAgentSessionStarted().withPhase(phase).withStatus(IssueStatus.IN_PROGRESS);
+    private static IssueRecord recordInState(String stateName) {
+        return RecordStates.move(IssueRecord.queued(ISSUE).withAgentSessionStarted(), stateName)
+                .withStatus(IssueStatus.IN_PROGRESS);
     }
 
     private static IssueRecord waitingRecord(WaitReason waitReason) {
-        return recordInPhase(Phase.MERGE).withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(waitReason);
+        return recordInState("merge").withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(waitReason);
     }
 
     private void writeUncommittedFile() throws IOException {
@@ -100,7 +104,7 @@ class LiveModeTest {
 
     @Test
     void anEnterWithoutAPageRequestIsPhoneWithTheMention() {
-        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = createLiveMode().enter(recordInState("review"), worktree);
 
         assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.PHONE);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement()
@@ -112,7 +116,7 @@ class LiveModeTest {
     void anEnterInTheTerminalOpensTheTerminalWithoutTheMention() {
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
 
-        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = createLiveMode().enter(recordInState("review"), worktree);
 
         assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.TERMINAL);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
@@ -124,7 +128,7 @@ class LiveModeTest {
     void anEnterInTheBrowserHasNoMention() {
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
 
-        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = createLiveMode().enter(recordInState("review"), worktree);
 
         assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.BROWSER);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement()
@@ -137,7 +141,7 @@ class LiveModeTest {
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
         liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
 
-        IssueRecord live = createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = createLiveMode().enter(recordInState("review"), worktree);
 
         assertThat(live.live().flatMap(LiveSession::link)).contains(LINK);
         assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
@@ -167,7 +171,7 @@ class LiveModeTest {
         Logger logger = Logger.getLogger(LiveMode.class.getName());
         logger.addHandler(handler);
         try {
-            createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree);
+            createLiveMode().enter(recordInState("review"), worktree);
         } finally {
             logger.removeHandler(handler);
         }
@@ -187,7 +191,7 @@ class LiveModeTest {
     @Test
     void enterOnAnOpenSessionAddsANote() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(recordInPhase(Phase.REVIEW), worktree);
+        IssueRecord live = liveMode.enter(recordInState("review"), worktree);
 
         IssueRecord again = liveMode.enter(live, worktree);
 
@@ -227,7 +231,7 @@ class LiveModeTest {
     void theLinkInTheCommentIsOneSafeLine() {
         LiveMode liveMode = createLiveMode(new ForgedLinkSessions(liveSessions, "https://example.com\n<!-- x -->"));
 
-        liveMode.enter(recordInPhase(Phase.REVIEW), worktree);
+        liveMode.enter(recordInState("review"), worktree);
 
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
                 .startsWith("The live conversation is open: https://example.com <! -- x -- >\n\n")
@@ -237,12 +241,12 @@ class LiveModeTest {
     @Test
     void continueAfterACommitInImplementBuildsAgain() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(recordInPhase(Phase.IMPLEMENT), worktree);
+        IssueRecord live = liveMode.enter(recordInState("implement"), worktree);
         commitFile(worktree, "b.txt", "changed in the conversation\n", "A change");
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
-        assertThat(continued.phase()).isEqualTo(Phase.BUILD);
+        assertThat(continued.state()).isEqualTo("build");
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.afterConversation()).isFalse();
         assertThat(continued.live()).isEmpty();
@@ -253,12 +257,12 @@ class LiveModeTest {
     void continueInImplementWithWorkThatIsNotCommittedRunsTheAgentAgain() throws IOException {
         LiveMode liveMode = createLiveMode();
         writeUncommittedFile();
-        IssueRecord live = liveMode.enter(waitingRecord(WaitReason.QUESTION).withPhase(Phase.IMPLEMENT),
+        IssueRecord live = liveMode.enter(RecordStates.move(waitingRecord(WaitReason.QUESTION), "implement"),
                 worktree);
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
-        assertThat(continued.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(continued.state()).isEqualTo("implement");
         assertThat(continued.afterConversation()).isTrue();
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.waitReason()).isEmpty();
@@ -274,7 +278,7 @@ class LiveModeTest {
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
-        assertThat(continued.phase()).isEqualTo(Phase.BUILD);
+        assertThat(continued.state()).isEqualTo("build");
         assertThat(gitHub.removedLabels()).contains(APPROVE_LABEL);
         assertThat(git.hasUncommittedChanges(worktree)).isFalse();
     }
@@ -320,11 +324,11 @@ class LiveModeTest {
     @Test
     void continueInBuildWithoutChangesGoesBackToTheBuild() {
         LiveMode liveMode = createLiveMode();
-        IssueRecord live = liveMode.enter(recordInPhase(Phase.BUILD), worktree);
+        IssueRecord live = liveMode.enter(recordInState("build"), worktree);
 
         IssueRecord continued = liveMode.continueWork(issue, live, worktree);
 
-        assertThat(continued.phase()).isEqualTo(Phase.BUILD);
+        assertThat(continued.state()).isEqualTo("build");
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.waitReason()).isEmpty();
         assertThat(continued.afterConversation()).isFalse();
@@ -333,7 +337,7 @@ class LiveModeTest {
     @Test
     void aGitFailureBeforeTheOpenKeepsTheQuestionWaiting() throws IOException {
         Path folderWithoutGit = Files.createDirectories(temporaryDirectory.resolve("no-git"));
-        IssueRecord waiting = waitingRecord(WaitReason.QUESTION).withPhase(Phase.IMPLEMENT);
+        IssueRecord waiting = RecordStates.move(waitingRecord(WaitReason.QUESTION), "implement");
 
         IssueRecord record = createLiveMode().enter(waiting, folderWithoutGit);
 
@@ -350,7 +354,7 @@ class LiveModeTest {
         gitHub.failTheNextCommentCreate();
         liveSessions.failTheNextClose();
 
-        assertThatThrownBy(() -> createLiveMode().enter(recordInPhase(Phase.REVIEW), worktree))
+        assertThatThrownBy(() -> createLiveMode().enter(recordInState("review"), worktree))
                 .isInstanceOf(GitHubException.class)
                 .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement()
                         .isInstanceOf(IllegalStateException.class));
@@ -361,8 +365,9 @@ class LiveModeTest {
     private record ForgedLinkSessions(FakeLiveSessions delegate, String link) implements LiveSessions {
 
         @Override
-        public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
-            delegate.open(issueNumber, sessionId, worktree);
+        public String open(int issueNumber, UUID sessionId, Path worktree, List<String> allowedTools)
+                throws LiveSessionException {
+            delegate.open(issueNumber, sessionId, worktree, allowedTools);
             return link;
         }
 

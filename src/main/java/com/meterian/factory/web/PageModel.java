@@ -13,13 +13,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** All the values that the page shows. The page reads them from memory and from local files only. */
+/**
+ * All the values that the page shows. The page reads them from memory and from local files only.
+ *
+ * @param fixLoopLimits     the fix-loop limit of each card, by issue number, from the definition of its record
+ * @param definitionWarning the reason why the definition of the default branch does not load, if it does not
+ */
 public record PageModel(
         BoardSnapshot board,
         Instant renderedAt,
         int issuesInWork,
         int parallelLimit,
-        int fixLoopLimit,
+        Map<Integer, Integer> fixLoopLimits,
         IsolationMode isolationMode,
         Duration pollInterval,
         List<UsageWindow> usageWindows,
@@ -29,15 +34,22 @@ public record PageModel(
         Map<Integer, Set<String>> rememberedLabels,
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
-        boolean viewerOnThisMachine) {
+        boolean viewerOnThisMachine,
+        Optional<String> definitionWarning) {
 
     public PageModel {
+        fixLoopLimits = Map.copyOf(fixLoopLimits);
         usageWindows = List.copyOf(usageWindows);
         contexts = Map.copyOf(contexts);
         continueRequested = Set.copyOf(continueRequested);
         rememberedLabels = rememberedLabels.entrySet().stream()
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
         enterPlaces = Map.copyOf(enterPlaces);
+    }
+
+    /** The fix-loop limit of the definition of the issue. */
+    public int fixLoopLimitOf(int issueNumber) {
+        return fixLoopLimits.getOrDefault(issueNumber, 0);
     }
 
     /** The labels that the page asked for on this issue. */

@@ -8,8 +8,10 @@ import com.meterian.factory.board.BoardState;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
@@ -17,10 +19,10 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.login.PasswordHash;
@@ -140,31 +142,29 @@ class WebServerTest {
 
     private PageModelSource createModelSource() {
         Path workDirectory = temporaryDirectory.resolve("work");
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
-                ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
-                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"),
+                workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
-                new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                new WorkspaceLayout(workDirectory), configuration,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
     }
 
     private static IssueRecord mergeWaitsForApproval() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
     }
 
     private static IssueRecord waitsForAnAnswer() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.QUESTION);
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "implement").withWaitReason(WaitReason.QUESTION);
     }
 
     private static IssueRecord liveConversation() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.LIVE_CONVERSATION)
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "implement").withWaitReason(WaitReason.LIVE_CONVERSATION)
                 .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
                         LivePlace.PHONE));
     }
@@ -565,7 +565,7 @@ class WebServerTest {
     void anApproveFromAPageBeforeANewWaitReasonGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(mergeWaitsForApproval().withPhase(Phase.PREPARE).withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
+        recordCard(RecordStates.move(mergeWaitsForApproval(), "prepare").withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 

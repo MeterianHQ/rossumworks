@@ -16,10 +16,12 @@ final class IssueWorkspace {
 
     private final FactoryConfiguration configuration;
     private final Git git;
+    private final String mergeTargetBranch;
 
-    IssueWorkspace(FactoryConfiguration configuration, Git git) {
+    IssueWorkspace(FactoryConfiguration configuration, Git git, String mergeTargetBranch) {
         this.configuration = configuration;
         this.git = git;
+        this.mergeTargetBranch = mergeTargetBranch;
     }
 
     /**
@@ -27,12 +29,12 @@ final class IssueWorkspace {
      * All steps run under the lock of the clone, because they write its shared refs and worktree metadata.
      */
     void create(int issueNumber, Path worktree) {
-        Path clone = configuration.target().cloneDirectory();
+        Path clone = configuration.cloneDirectory();
         CloneLock.run(clone, () -> createUnderLock(clone, issueNumber, worktree));
     }
 
     void remove(Path worktree) {
-        Path clone = configuration.target().cloneDirectory();
+        Path clone = configuration.cloneDirectory();
         CloneLock.run(clone, () -> {
             removeIfPresent(clone, worktree);
             git.pruneWorktrees(clone);
@@ -42,11 +44,11 @@ final class IssueWorkspace {
     private void createUnderLock(Path clone, int issueNumber, Path worktree) {
         Path gatekeeperDirectory = configuration.gatekeeperDirectory().toAbsolutePath();
         git.pruneWorktrees(clone);
-        Gatekeeper.ensure(gatekeeperDirectory, configuration.target().sshUrl());
+        Gatekeeper.ensure(gatekeeperDirectory, configuration.repository().sshUrl());
         git.setRemote(clone, GATEKEEPER_REMOTE, gatekeeperDirectory.toString());
-        git.fetch(clone, ORIGIN, configuration.mergeTargetBranch());
+        git.fetch(clone, ORIGIN, mergeTargetBranch);
         removeIfPresent(clone, worktree);
-        String startPoint = ORIGIN + "/" + configuration.mergeTargetBranch();
+        String startPoint = ORIGIN + "/" + mergeTargetBranch;
         git.addWorktree(clone, worktree, WorkspaceLayout.branch(issueNumber), startPoint);
         git.excludeFactoryFolder(worktree);
     }

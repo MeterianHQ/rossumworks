@@ -4,24 +4,26 @@ import com.meterian.factory.github.GitHubClient;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /** Tells who gave a request label. Fails closed: a label with no event is not a request. */
 public final class RequestReader {
 
     private final GitHubClient gitHub;
-    private final List<String> allowedAccounts;
+    private final Supplier<List<String>> allowedAccounts;
     private final String workerLogin;
     private final PageRequests pageRequests;
 
     /** A reader with no worker account: only an allowed account gives a request. */
-    public RequestReader(GitHubClient gitHub, List<String> allowedAccounts) {
+    public RequestReader(GitHubClient gitHub, Supplier<List<String>> allowedAccounts) {
         this(gitHub, allowedAccounts, "", new PageRequests(Clock.systemUTC()));
     }
 
-    public RequestReader(GitHubClient gitHub, List<String> allowedAccounts, String workerLogin,
+    /** @param allowedAccounts the accounts of the newest definition version, read at each check */
+    public RequestReader(GitHubClient gitHub, Supplier<List<String>> allowedAccounts, String workerLogin,
             PageRequests pageRequests) {
         this.gitHub = gitHub;
-        this.allowedAccounts = List.copyOf(allowedAccounts);
+        this.allowedAccounts = allowedAccounts;
         this.workerLogin = workerLogin;
         this.pageRequests = pageRequests;
     }
@@ -53,6 +55,6 @@ public final class RequestReader {
 
     /** GitHub logins do not depend on case, so the comparison ignores case. */
     private boolean isAllowed(String login) {
-        return allowedAccounts.stream().anyMatch(login::equalsIgnoreCase);
+        return allowedAccounts.get().stream().anyMatch(login::equalsIgnoreCase);
     }
 }

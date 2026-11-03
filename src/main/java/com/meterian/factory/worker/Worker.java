@@ -4,6 +4,9 @@ import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.DefinitionVersion;
+import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
@@ -11,7 +14,7 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.ApprovalCheck;
@@ -50,6 +53,7 @@ public final class Worker {
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
+    private final DefinitionVersions definitions;
     private final PhaseStopper phaseStopper;
     private final RequestReader requests;
     private final String workerLogin;
@@ -73,19 +77,21 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock, BoardUpdates board) {
+                  DefinitionVersions definitions, PhaseStopper phaseStopper, RequestReader requests,
+                  String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
+                  BoardUpdates board) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
+        this.definitions = definitions;
         this.phaseStopper = phaseStopper;
         this.requests = requests;
         this.workerLogin = workerLogin;
         this.executor = executor;
         this.board = board;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
-        this.restartPreparation = new RestartPreparation(gitHub, layout);
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board);
+        this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
@@ -94,14 +100,16 @@ public final class Worker {
     }
 
     /**
-     * Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. In a
-     * wait for the reset of the GitHub rate limit, the poll sends no request.
+     * Reads the definition of the default branch, then the labeled issues once: block requests, intake, and the
+     * start of the issues up to the limit. In a wait for the reset of the GitHub rate limit, the poll sends no
+     * request.
      */
     public void pollOnce() {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
         try {
+            definitions.refresh();
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
@@ -273,7 +281,7 @@ public final class Worker {
         if (IssueWorkflow.isLive(record)) {
             return liveRecordCheck.isContinueRequested(record);
         }
-        return !workflow.isWaiting(record) || record.phase() == Phase.DONE
+        return !workflow.isWaiting(record) || record.step() == StepType.FINISH
                 || waitsForAGivenApprovalLabel(issue, record);
     }
 
@@ -282,13 +290,22 @@ public final class Worker {
         return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
 
+    /**
+     * Fail closed: without a definition version that loads, the worker takes no new issue. The versions log the
+     * reason once for each commit, so the intake only waits.
+     */
     private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments,
                                                 IssueLabelActors labelActors) {
+        Optional<DefinitionVersion> version = definitions.current();
+        if (version.isEmpty()) {
+            return Optional.empty();
+        }
         if (!labelActors.isGivenByAllowedAccount(FACTORY_LABEL)) {
             ignoredLabelNote.write(labelActors, FACTORY_LABEL, comments);
             return Optional.empty();
         }
-        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
+        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue))
+                .withDefinitionCommit(version.get().commit());
         return Optional.of(publishFirstRecord(issue, queued));
     }
 
@@ -395,7 +412,7 @@ public final class Worker {
      * cannot lose it.
      */
     private void withdrawBlockOfAMergedIssue(int issueNumber, IssueRecord kept) {
-        if (kept.phase() != Phase.DONE || !isBlockInProgress(issueNumber)) {
+        if (kept.step() != StepType.FINISH || !isBlockInProgress(issueNumber)) {
             return;
         }
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
@@ -443,7 +460,7 @@ public final class Worker {
                              Optional<IssueRecord> interruptedResult) {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
-            if (onGitHub.filter(record -> record.phase() == Phase.DONE).isPresent()) {
+            if (onGitHub.filter(record -> record.step() == StepType.FINISH).isPresent()) {
                 noteBlockWithoutEffect(onGitHub.get(), onGitHub);
                 return;
             }
@@ -451,7 +468,7 @@ public final class Worker {
             IssueRecord base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
             if (isMergedOnGitHub(base)) {
-                noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
+                noteBlockWithoutEffect(moveToFinishState(base), onGitHub);
                 return;
             }
             IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
@@ -477,9 +494,18 @@ public final class Worker {
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
     }
 
+    private IssueRecord moveToFinishState(IssueRecord record) {
+        StateDefinition finish = finishStateOf(record);
+        return record.withState(finish.name(), finish.step().type());
+    }
+
+    private StateDefinition finishStateOf(IssueRecord record) {
+        return definitions.definitionOf(record).workflow().stateWithStep(StepType.FINISH);
+    }
+
     /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
     private boolean isMergedOnGitHub(IssueRecord record) {
-        return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
+        return record.step() == StepType.FINISH || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
     }
 
     /** The stop came during a step, so the record from before the step goes back to GitHub. */
@@ -506,7 +532,7 @@ public final class Worker {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
             IssueRecord base = onGitHub.orElse(kept);
             if (isMergedOnGitHub(base)) {
-                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, exception);
+                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, finishStateOf(base).name(), exception);
                 statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), noted);
                 return;
             }

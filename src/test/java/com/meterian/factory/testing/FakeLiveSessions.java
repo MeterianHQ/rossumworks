@@ -28,7 +28,8 @@ public final class FakeLiveSessions implements LiveSessions {
     private volatile Runnable closingAction = () -> { };
 
     @Override
-    public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
+    public String open(int issueNumber, UUID sessionId, Path worktree, List<String> allowedTools)
+            throws LiveSessionException {
         openCalls.add(new OpenCall(issueNumber, sessionId, worktree));
         continueRequests.remove(issueNumber);
         if (failsTheNextOpen) {

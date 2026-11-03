@@ -7,11 +7,12 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.build.BuildRunner;
+import com.meterian.factory.build.BuildSettings;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.merge.MergeResult;
@@ -44,21 +45,21 @@ class IssueWorkspaceTest {
     @Test
     void theCreateAndTheFetchOfTheMergeShareOneLock() throws Exception {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        Path clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        Path clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path pusher = temporaryDirectory.resolve("pusher");
         run(temporaryDirectory, "clone", "-q", origin.toString(), pusher.toString());
         run(pusher, "config", "user.name", "Factory Test");
         run(pusher, "config", "user.email", "factory-test@example.com");
-        TargetRepository target = new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "sample"),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), WorkerLimits.createDefaults(), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        IssueWorkspace workspace = new IssueWorkspace(configuration, git);
+        IssueWorkspace workspace = new IssueWorkspace(configuration, git, "main");
         Path mergeWorktree = temporaryDirectory.resolve("work").resolve("issue-2");
         workspace.create(2, mergeWorktree);
-        Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), target, "main",
+        Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), clone, "main",
+                new BuildSettings("true", Map.of()),
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         IssueRecord record = IssueRecord.queued(2).withPullRequest(500);
         List<MergeResult> mergeResults = new CopyOnWriteArrayList<>();

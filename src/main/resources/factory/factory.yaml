@@ -1,0 +1,64 @@
+version: 1
+workflow:
+  start: prepare
+  states:
+    prepare:
+      status: in-progress
+      step: { type: prepare }
+      on: { done: implement }
+    implement:
+      status: in-progress
+      step:
+        type: agent
+        prompts: { implement: prompts/implement.md, fix: prompts/fix.md, continue: prompts/continue.md }
+      on:
+        changed: build
+        question: { wait: question }
+        no-change: block
+        failed: block
+        conflict-left: fix-loop
+    build:
+      status: in-progress
+      step: { type: build }
+      on: { passed: review, failed: fix-loop }
+    review:
+      status: in-review
+      step:
+        type: reviews
+        prompts:
+          correctness: prompts/review-correctness.md
+          security: prompts/review-security.md
+          architecture: prompts/review-architecture.md
+          quality: prompts/review-quality.md
+      on: { approved: risk, rejected: fix-loop }
+    risk:
+      status: in-review
+      step: { type: risk, prompts: { risk: prompts/risk.md } }
+      on: { assessed: merge }
+    merge:
+      status: in-review
+      step: { type: merge-gate }
+      on:
+        merged: { to: done, keep-status: true }
+        needs-approval: { wait: merge-needs-approval }
+        needs-new-reviews: { to: build, keep-status: true }
+        conflict: fix-loop
+        factory-changed: { wait: factory-change-needs-approval }
+    done:
+      status: done
+      step: { type: finish }
+  loops:
+    fix-loop: { to: implement, limit: fix-loops, exit: { block: fix-loop-limit } }
+limits:
+  fix-loops: 2
+build:
+  command: ./mvnw verify
+  environment: { LANG: C.utf8 }
+claude:
+  allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)",
+                  "Bash(git show*)", "Bash(./mvnw *)", "Bash(mvn *)"]
+merge:
+  target-branch: main
+accounts:
+  allowed: []
+repositories: []

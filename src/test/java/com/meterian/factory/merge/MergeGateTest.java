@@ -97,13 +97,13 @@ class MergeGateTest {
     @Test
     void asksTheOwnerWhenTheRiskIsUnknown() {
         IssueRecord record = approvedRecord(RiskLevel.LOW, true);
-        record = new IssueRecord(record.issueNumber(), record.sessionId(), record.status(), record.phase(),
+        record = new IssueRecord(record.issueNumber(), record.sessionId(), record.status(), record.state(), record.step(),
                 record.reviews(), 0, Optional.empty(), true, record.reviewedTreeHash(),
                 record.reviewedPatchId(), record.builtTreeHash(), record.waitReason(), record.pullRequestNumber(),
                 record.statusCommentId(), record.notes(), record.agentSessionStarted(),
                 record.failedReviewRounds(), record.conflictedPaths(), record.issueTextHash(),
                 record.reviewedHeadCommit(), record.failedForwardChecks(), record.failedForwardTree(),
-                record.live(), record.afterConversation());
+                record.live(), record.afterConversation(), record.definitionCommit());
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false);
 

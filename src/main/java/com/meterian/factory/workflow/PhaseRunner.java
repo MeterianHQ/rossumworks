@@ -8,6 +8,7 @@ import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 
 /** Runs one agent phase and records the usage windows of its report, and the context of the agent in charge. */
@@ -31,9 +32,10 @@ final class PhaseRunner {
     }
 
     /** Runs a phase in a new session that no other phase uses. The context bar does not show this session. */
-    SessionReport runInNewSession(int issueNumber, Path worktree, String prompt)
+    SessionReport runInNewSession(int issueNumber, Path worktree, String prompt, List<String> allowedTools)
             throws AgentException, ApiKeyDetectedException {
-        return runAndRecordUsage(new PhaseRequest(issueNumber, UUID.randomUUID(), true, worktree, prompt));
+        return runAndRecordUsage(
+                new PhaseRequest(issueNumber, UUID.randomUUID(), true, worktree, prompt, allowedTools));
     }
 
     boolean mayStartPhase() {

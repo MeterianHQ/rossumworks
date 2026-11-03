@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test;
 class CardFingerprintTest {
 
     private static IssueRecord mergeWaitsForApproval() {
-        return IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        return RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
     }
 
     private static IssueCard card(IssueRecord record, Set<String> labels) {
@@ -51,7 +51,7 @@ class CardFingerprintTest {
         assertThat(fingerprintOf(mergeWaitsForApproval().withWaitReason(WaitReason.ISSUE_TEXT_CHANGED)))
                 .isNotEqualTo(original);
         assertThat(fingerprintOf(mergeWaitsForApproval().withFixLoop())).isNotEqualTo(original);
-        assertThat(fingerprintOf(mergeWaitsForApproval().withPhase(Phase.IMPLEMENT))).isNotEqualTo(original);
+        assertThat(fingerprintOf(RecordStates.move(mergeWaitsForApproval(), "implement"))).isNotEqualTo(original);
         assertThat(fingerprintOf(mergeWaitsForApproval().withStatus(IssueStatus.IN_REVIEW))).isNotEqualTo(original);
         assertThat(fingerprintOf(mergeWaitsForApproval().withReviewedTree("tree-1", "patch-1")))
                 .isNotEqualTo(original);

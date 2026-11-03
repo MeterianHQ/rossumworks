@@ -9,14 +9,18 @@ import com.meterian.factory.board.BoardState;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.DefinitionCommits;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
 import com.meterian.factory.usage.ContextTracker;
@@ -48,18 +52,18 @@ class PageModelSourceTest {
     private final ContextTracker contexts = new ContextTracker();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final PageRequests pageRequests = new PageRequests(clock);
+    private DefinitionLookup definitions = DefinitionLookup.builtInOnly(DefinitionCommits.builtInWithFixLoops(4));
+    private Optional<String> definitionWarning = Optional.empty();
 
     private PageModelSource source() {
         Path workDirectory = temporaryDirectory.resolve("work");
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
-                ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
-                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"),
+                workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
-                pageRequests, new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                pageRequests, new WorkspaceLayout(workDirectory), configuration, definitions, () -> definitionWarning,
+                () -> 1, clock);
     }
 
     private Path claudeHome() {
@@ -85,18 +89,41 @@ class PageModelSourceTest {
     @Test
     void readsTheValuesOfTheWorkerAndTheConfiguration() {
         usage.record(List.of(new UsageWindow("seven_day", 0.95, NOW.plus(Duration.ofDays(1)), "allowed", null)));
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
 
         PageModel model = source().read(true);
 
         assertThat(model.renderedAt()).isEqualTo(NOW);
         assertThat(model.issuesInWork()).isEqualTo(1);
         assertThat(model.parallelLimit()).isEqualTo(3);
-        assertThat(model.fixLoopLimit()).isEqualTo(4);
+        assertThat(model.fixLoopLimitOf(12)).isEqualTo(4);
         assertThat(model.pollInterval()).isEqualTo(Duration.ofSeconds(45));
         assertThat(model.isolationMode()).isEqualTo(IsolationMode.SAME_USER);
         assertThat(model.repositoryFullName()).isEqualTo("MeterianHQ/target");
         assertThat(model.usageWindows()).extracting(UsageWindow::name).containsExactly("seven_day");
         assertThat(model.usageResumesAt()).contains(NOW.plus(Duration.ofDays(1)));
+    }
+
+    @Test
+    void showsTheFixLoopLimitOfTheDefinitionOfTheRecord() {
+        IssueRecord record = IssueRecord.queued(12).withDefinitionCommit("1234567890");
+        FactoryDefinition oneFixLoop = DefinitionCommits.builtInWithFixLoops(1);
+        definitions = other -> other.definitionCommit().isPresent() ? oneFixLoop : BuiltInDefinition.load();
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), record);
+
+        PageModel model = source().read(true);
+
+        assertThat(model.fixLoopLimitOf(12)).isEqualTo(1);
+    }
+
+    @Test
+    void readsTheWarningOfTheDefinition() {
+        definitionWarning = Optional.of("The default branch has no .factory that loads: x. "
+                + "The factory takes no new issue.");
+
+        PageModel model = source().read(true);
+
+        assertThat(model.definitionWarning()).isEqualTo(definitionWarning);
     }
 
     @Test

@@ -7,7 +7,50 @@ Run `./mvnw verify`. The build needs a JDK 21 or later.
 
 ## Configuration
 
-Copy `factory.example.yaml` and change the values. The factory reads this file at start.
+Copy `factory.example.yaml` and change the values. The factory reads this file at start. The file holds only
+the facts of this machine:
+
+- `repository`: the repository on GitHub, as `owner/name`.
+- `work-directory`: the folder of the worker. The worker clones the repository into `<work-directory>/repository`
+  at the start, when this folder does not exist. A clone that exists stays as it is.
+- `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
+- `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`.
+- `build.environment`: the variables of this machine, for example `JAVA_HOME`.
+- `isolation`, `claude`, `live`, and `web`.
+
+The workflow, the build, the merge target, the accounts, and the allowed tools are in the folder `.factory`
+of the repository. A file with the old form (the keys `target`, `merge`, `accounts`, `prompts-directory`,
+`limits.fix-loops`, or `claude.allowed-tools`) does not start. The message points to
+`claude-ai-factory create`, which writes the new configuration.
+
+## .factory
+
+The folder `.factory` of the repository holds the definition of the factory: the workflow, the prompts, the
+build, the limits, the merge target, the allowed tools, and the allowed accounts. The main file is
+`.factory/factory.yaml`. The file [`src/main/resources/factory/factory.yaml`](src/main/resources/factory/factory.yaml)
+is the example of the format.
+
+Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
+Copy the folder `src/main/resources/factory/` to `.factory` and fill in `accounts.allowed`.
+
+## The workflow definition
+
+The folder `.factory` of the target repository holds the workflow, the prompts, the build, the limits, the
+merge target, the allowed tools, and the allowed accounts. The main file is `.factory/factory.yaml`. The jar
+contains the built-in definition in `src/main/resources/factory`, as an example of the format.
+
+- At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
+  newest commit with git, never from the worktree of an issue.
+- A new issue gets the newest version that loads. Its record keeps the commit of that version.
+- Each issue runs with the workflow, the prompts, the build, the allowed tools, the limits, and the merge
+  target of its own version. A new commit of `.factory` has no effect on the issues in work.
+- The accounts always come from the newest version that loads. So a removed account stops at once.
+- A version that does not load does not replace the last good version. The page shows the reason at the top.
+- Without a version that loads, the worker takes no new issue.
+- A record without a commit, from before the definitions, runs with the built-in definition.
+
+In the configuration, `build.environment` gives the variables of this machine, for example `JAVA_HOME`. A
+value of the machine replaces a value of `.factory` with the same name.
 
 ## Setup
 
@@ -23,8 +66,8 @@ The factory needs no GitHub Project. The worker creates its labels in the target
 5. Build the jar with `./mvnw verify`.
 6. Run the worker: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
 
-Add the label `factory` to an issue to give it to the factory. Only the accounts in `accounts.allowed`
-can do this.
+Add the label `factory` to an issue to give it to the factory. Only the accounts in `accounts.allowed` of
+`.factory/factory.yaml` on the default branch can do this.
 
 Note: if the token belongs to the owner, GitHub sends the owner no notification for the comments of the
 worker. A separate GitHub account for the worker gives the notifications.
@@ -115,7 +158,7 @@ After `/factory:continue`:
 - If the files changed in live mode, the build and the four reviews run again.
 - `/factory:continue` is never a merge approval. Only the label `factory:approve` approves a merge.
 - A blocked issue starts again in the phase where it stopped.
-- In the phase IMPLEMENT, the agent continues with the continue prompt.
+- In the state `implement`, the agent continues with the continue prompt.
 - The fix-loop count does not go back to 0.
 
 ### Files and security
@@ -181,7 +224,8 @@ attempts for 15 minutes, also the correct password.
 ### Content
 
 The header shows the health of the worker: its start time, the time of the last GitHub check, the issues in
-work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
+work against the limit, and the isolation mode. When `.factory` of the default branch does not load, a
+warning line at the top of the board gives the reason. It also shows each usage window of the subscription with its
 percent and its time.
 
 At its start, the worker runs one very short `claude -p` session to read the usage, so that the page shows it
@@ -190,8 +234,8 @@ before the first phase. This session has no tools, no MCP servers, and no saved 
 After each phase, the page shows the newest values. `claude` 2.1.316 gives only the weekly window.
 
 The board has one column for each status, in the order of the progress in time: Queued, In progress,
-In review, Waits for you, Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops, the risk, the context
-of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
+In review, Waits for you, Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops
+against the limit of the definition of the issue, the risk, the context of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
 The column "Done" keeps the 20 newest cards.
 The page updates itself when the state changes.
 The page uses a dark theme. On a narrow screen, the columns go one under the other, and "Waits for you" is at

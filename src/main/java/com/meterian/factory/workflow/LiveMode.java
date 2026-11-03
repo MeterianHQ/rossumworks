@@ -2,6 +2,8 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
@@ -10,7 +12,7 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +20,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
 final class LiveMode {
@@ -39,22 +42,25 @@ final class LiveMode {
     private final GitHubClient gitHub;
     private final LiveSessions liveSessions;
     private final OwnerApproval ownerApproval;
-    private final List<String> allowedAccounts;
+    private final Supplier<List<String>> allowedAccounts;
     private final PageRequests pageRequests;
+    private final DefinitionLookup definitions;
 
+    /** @param allowedAccounts the accounts of the newest definition version: the phone link mentions the first */
     LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             List<String> allowedAccounts, PageRequests pageRequests) {
+             Supplier<List<String>> allowedAccounts, PageRequests pageRequests, DefinitionLookup definitions) {
         this.pageRequests = pageRequests;
+        this.definitions = definitions;
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
         this.ownerApproval = ownerApproval;
-        this.allowedAccounts = List.copyOf(allowedAccounts);
+        this.allowedAccounts = allowedAccounts;
     }
 
     /** A record that already has a live state keeps its state before: a new session never replaces it. */
     IssueRecord enter(IssueRecord record, Path worktree) {
-        if (record.phase() == Phase.DONE) {
+        if (record.step() == StepType.FINISH) {
             return record.withNote(DONE_NOTE);
         }
         if (!record.agentSessionStarted() || !Files.isDirectory(worktree)) {
@@ -67,8 +73,9 @@ final class LiveMode {
         try {
             // The head commit is read before the open: a failure of git never leaves a session that is open.
             LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
+            List<String> allowedTools = definitions.definitionOf(record).allowedTools();
             LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
-            String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree);
+            String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree, allowedTools);
             postOpenComment(record.issueNumber(), link, place);
             IssueRecord opened = record.withLive(stateBefore.withLink(link).withPlace(place))
                     .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
@@ -123,7 +130,7 @@ final class LiveMode {
 
     /** Only the phone needs the mention: the mention is what notifies it. */
     private Optional<String> findMentionedLogin(LivePlace place) {
-        return place == LivePlace.PHONE ? allowedAccounts.stream().findFirst() : Optional.empty();
+        return place == LivePlace.PHONE ? allowedAccounts.get().stream().findFirst() : Optional.empty();
     }
 
     private IssueRecord chooseNextStep(Issue issue, IssueRecord record, LiveSession live, Path worktree) {
@@ -133,10 +140,8 @@ final class LiveMode {
         if (live.waitBefore().filter(APPROVAL_WAITS::contains).isPresent()) {
             return restoreTheWait(record, live);
         }
-        if (record.phase() == Phase.IMPLEMENT) {
-            return record.withAfterConversation().withStatus(IssueStatus.IN_PROGRESS).withoutWaitReason();
-        }
-        return record.withStatus(statusOfThePhase(record.phase())).withoutWaitReason();
+        IssueRecord continued = record.step() == StepType.AGENT ? record.withAfterConversation() : record;
+        return continued.withStatus(definitions.currentStateOf(record).status()).withoutWaitReason();
     }
 
     /**
@@ -147,7 +152,7 @@ final class LiveMode {
         if (!git.headCommit(worktree).equals(live.startHeadCommit())) {
             return true;
         }
-        return record.phase() != Phase.IMPLEMENT && git.hasUncommittedChanges(worktree);
+        return record.step() != StepType.AGENT && git.hasUncommittedChanges(worktree);
     }
 
     /** An approval covers one diff, so a change of the conversation withdraws it. */
@@ -156,22 +161,14 @@ final class LiveMode {
             git.commitAll(worktree, ChangeTitle.describe(issue));
         }
         ownerApproval.withdraw(record.issueNumber());
-        return record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason()
-                .withPhase(Phase.BUILD).withStatus(IssueStatus.IN_PROGRESS);
+        IssueRecord cleared = record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason();
+        StateDefinition build = definitions.definitionOf(record).workflow().stateWithStep(StepType.BUILD);
+        return cleared.withState(build.name(), build.step().type()).withStatus(build.status());
     }
 
     /** /factory:continue is never an approval, so the issue waits for the label again. */
     private static IssueRecord restoreTheWait(IssueRecord record, LiveSession live) {
         IssueRecord restored = record.withStatus(live.statusBefore()).withNewestNote(NO_CHANGE_NOTE);
         return live.waitBefore().map(restored::withWaitReason).orElseGet(restored::withoutWaitReason);
-    }
-
-    /** A blocked issue starts again in the phase where it stopped. */
-    private static IssueStatus statusOfThePhase(Phase phase) {
-        return switch (phase) {
-            case PREPARE, IMPLEMENT, BUILD -> IssueStatus.IN_PROGRESS;
-            case REVIEW, RISK, MERGE -> IssueStatus.IN_REVIEW;
-            case DONE -> IssueStatus.DONE;
-        };
     }
 }

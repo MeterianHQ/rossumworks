@@ -1,5 +1,9 @@
 package com.meterian.factory.worker;
 
+import static com.meterian.factory.testing.DefinitionCommits.builtInMainFile;
+import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
+import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -13,25 +17,24 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
-import com.meterian.factory.merge.Merger;
-import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
@@ -100,6 +103,7 @@ class WorkerTest {
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final List<ExecutorService> executors = new ArrayList<>();
+    private String buildCommand = "true";
     private Path clone;
 
     /** The tests cause the failures on purpose, so the log of the worker is only noise. */
@@ -111,10 +115,10 @@ class WorkerTest {
     @BeforeEach
     void createRepositoriesAndIssue() {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget().sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
@@ -136,24 +140,15 @@ class WorkerTest {
         gitHub.addLabelBy(number, FACTORY_LABEL, "bbossola");
     }
 
-    private TargetRepository createTarget() {
-        return createTarget("true");
-    }
-
-    private TargetRepository createTarget(String buildCommand) {
-        return new TargetRepository("MeterianHQ", "sample", clone, buildCommand, Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval) {
-        return createConfiguration(parallelIssues, pollInterval, "true");
-    }
-
-    private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval, String buildCommand) {
-        return new FactoryConfiguration(createTarget(buildCommand), "main",
-                new Limits(parallelIssues, 2, pollInterval, 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        return new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), new WorkerLimits(parallelIssues, pollInterval, 0.90), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
@@ -165,14 +160,22 @@ class WorkerTest {
         return createWorker(agent, configuration, board);
     }
 
+    /** The default branch gets a .factory with the build command and the accounts of the configuration. */
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
+        commitDefinition(clone, mainFileFor(buildCommand, List.of("bbossola")));
+        return createWorker(agent, configuration, board, createVersions(configuration));
+    }
+
+    private DefinitionVersions createVersions(FactoryConfiguration configuration) {
+        return new DefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board,
+                                DefinitionVersions versions) {
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests =
-                new RequestReader(gitHub, configuration.allowedAccounts(), WORKER_LOGIN, pageRequests);
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
-        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
+        RequestReader requests = new RequestReader(gitHub, versions::allowedAccounts, WORKER_LOGIN, pageRequests);
+        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
+                versions::allowedAccounts, buildRunner, Duration.ZERO,
                 new UsageTracker(0.90, Clock.systemUTC()), requests,
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests);
@@ -180,7 +183,7 @@ class WorkerTest {
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, requests, WORKER_LOGIN, executor,
                 liveSessions, Clock.systemUTC(), board);
     }
 
@@ -224,7 +227,7 @@ class WorkerTest {
         });
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("review");
         return firstAgent;
     }
 
@@ -239,6 +242,63 @@ class WorkerTest {
         assertThat(card.title()).isEqualTo("Change the greeting 1");
         assertThat(card.record().status()).isEqualTo(IssueStatus.QUEUED);
         assertThat(board.snapshot().lastCheckAt()).contains(clock.instant());
+    }
+
+    @Test
+    void takesNoNewIssueWithoutAGoodDefinition() {
+        FactoryConfiguration configuration = createConfiguration(2, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+        assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void givesTheIntakeTheCurrentCommit() {
+        String commit = commitDefinition(clone, mainFileFor("true", List.of("bbossola")));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
+    }
+
+    @Test
+    void takesNoNewIssueWhenTheNewestDefinitionRemovesTheAccount() {
+        commitDefinition(clone, builtInMainFile().replace("command: ./mvnw verify", "command: \"true\""));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body).containsExactly(
+                "The label factory from bbossola is ignored: the account is not in accounts.allowed.");
+    }
+
+    @Test
+    void blocksARecordWhoseDefinitionDoesNotLoadAndStartsTheNextIssue() throws InterruptedException {
+        String broken = commitDefinition(clone, "version: 1\nworkflow: [\n");
+        IssueRecord unloadable = RecordStates.move(IssueRecord.queued(ISSUE).withAgentSessionStarted()
+                .withStatus(IssueStatus.IN_PROGRESS), "implement").withDefinitionCommit(broken);
+        gitHub.addCommentBy(ISSUE, WORKER_LOGIN, StatusComment.render(unloadable, 2));
+        addLabeledIssue(STRANGER_ISSUE);
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
+                .thenAssessRisk("low", true), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow();
+        assertThat(blocked.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(blocked.notes()).anySatisfy(note -> assertThat(note)
+                .startsWith("The definition " + broken.substring(0, 7) + " of the issue does not load: "));
+        assertThat(readRecord(STRANGER_ISSUE).orElseThrow().status()).isNotEqualTo(IssueStatus.QUEUED);
+        assertThat(worker.issuesInWork()).isEmpty();
     }
 
     @Test
@@ -368,7 +428,7 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).contains(ISSUE);
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("implement");
         assertThat(record.notes()).noneMatch(note -> note.startsWith("The agent session failed"));
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.BLOCKED);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
@@ -439,7 +499,7 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).isEmpty();
         assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
@@ -454,7 +514,7 @@ class WorkerTest {
                 .pollOnce();
         waitForTheLoops();
         IssueRecord afterTheFailure = readRecord(ISSUE).orElseThrow();
-        assertThat(afterTheFailure.phase()).isEqualTo(Phase.DONE);
+        assertThat(afterTheFailure.state()).isEqualTo("done");
         assertThat(afterTheFailure.status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(afterTheFailure.notes()).containsExactly(FINISH_FAILURE_NOTE);
 
@@ -548,7 +608,7 @@ class WorkerTest {
         for (int issueNumber : List.of(7, 8)) {
             IssueRecord record = readRecord(issueNumber).orElseThrow();
             assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
-            assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+            assertThat(record.state()).isEqualTo("implement");
             assertThat(record.notes()).isEmpty();
         }
     }
@@ -612,7 +672,7 @@ class WorkerTest {
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
         IssueRecord stopped = readRecord(ISSUE).orElseThrow();
-        assertThat(stopped.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(stopped.state()).isEqualTo("review");
         assertThat(stopped.fixLoops()).isEqualTo(1);
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner()
@@ -652,7 +712,7 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory/review-");
+        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory-work/review-");
         assertThat(gitHub.commentsOf(ISSUE)).hasSize(1);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(gitHub.pullRequests()).hasSize(1);
@@ -672,7 +732,7 @@ class WorkerTest {
         PhaseRequest firstImplement = firstAgent.requests().getFirst();
         PhaseRequest secondImplement = secondAgent.requests().getFirst();
         assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondImplement.prompt()).doesNotContain(".factory/review-");
+        assertThat(secondImplement.prompt()).doesNotContain(".factory-work/review-");
         assertThat(secondImplement.newSession()).isTrue();
         assertThat(secondImplement.sessionId()).isNotEqualTo(firstImplement.sessionId());
         assertThat(statusComments(ISSUE)).hasSize(1);
@@ -746,8 +806,9 @@ class WorkerTest {
     @Test
     void aBlockStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
         gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
@@ -758,15 +819,16 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.fixLoops()).isZero();
     }
 
     @Test
     void shutDownStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
 
@@ -774,7 +836,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(loopsEnded).isTrue();
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(record.fixLoops()).isZero();
     }
@@ -785,7 +847,7 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.MERGE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("merge");
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner();
 
@@ -815,7 +877,7 @@ class WorkerTest {
         assertThat(worker.foundAnApiKey()).isTrue();
         assertThat(agent.stoppedIssues()).contains(otherIssue);
         assertThat(otherRecord.status()).isIn(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS);
-        assertThat(otherRecord.phase()).isIn(Phase.PREPARE, Phase.IMPLEMENT);
+        assertThat(otherRecord.state()).isIn("prepare", "implement");
         assertThat(otherRecord.notes()).isEmpty();
     }
 
@@ -827,7 +889,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty());
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("implement");
 
         worker.pollOnce();
         waitForTheLoops();
@@ -929,7 +991,7 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).isEmpty();
         assertThat(agent.requests()).hasSize(1);
         assertThat(liveSessions.openCalls()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
     }

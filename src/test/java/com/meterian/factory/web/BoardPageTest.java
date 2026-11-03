@@ -11,11 +11,11 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class BoardPageTest {
@@ -43,7 +44,7 @@ class BoardPageTest {
     }
 
     private static IssueRecord record(int number, IssueStatus status) {
-        return IssueRecord.queued(number).withAgentSessionStarted().withStatus(status).withPhase(Phase.IMPLEMENT);
+        return RecordStates.move(IssueRecord.queued(number).withAgentSessionStarted().withStatus(status), "implement");
     }
 
     private static IssueRecord waitingRecord(int number, WaitReason reason) {
@@ -92,6 +93,11 @@ class BoardPageTest {
                 Map.of(), true);
     }
 
+    private static PageModel modelWithWarning(List<IssueCard> cards, String definitionWarning) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(), Map.of(),
+                Set.of(), Map.of(), true, Optional.of(definitionWarning));
+    }
+
     private static PageModel modelWithEnterPlaces(List<IssueCard> cards, Map<Integer, LivePlace> enterPlaces) {
         return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(),
                 Map.of(12, Set.of("factory:enter")), Set.of(), enterPlaces, true);
@@ -106,10 +112,20 @@ class BoardPageTest {
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
             Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+                enterPlaces, viewerOnThisMachine, Optional.empty());
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
+            Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine, Optional<String> definitionWarning) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
-        return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
-                viewerOnThisMachine);
+        Map<Integer, Integer> fixLoopLimits = cards.stream()
+                .collect(Collectors.toMap(IssueCard::issueNumber, card -> 2, (first, second) -> first));
+        return new PageModel(snapshot, NOW, 2, 2, fixLoopLimits, IsolationMode.SAME_USER, POLL_INTERVAL,
+                usageWindows, usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces,
+                "MeterianHQ/target", viewerOnThisMachine, definitionWarning);
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -127,6 +143,22 @@ class BoardPageTest {
     private static String tile(String label, String value) {
         return "<div class=\"tile\"><span class=\"tile-label\">" + label + "</span><span class=\"tile-value\">"
                 + value + "</span></div>";
+    }
+
+    @Test
+    void showsTheWarningOfTheDefinition() {
+        String warning = "The .factory of 1234567 does not load: factory.yaml: <bad> key. "
+                + "The factory keeps the version 89abcde.";
+
+        String html = page.renderBoard(modelWithWarning(List.of(), warning));
+
+        assertThat(html).contains("<p class=\"warning\">" + Html.escape(warning) + "</p>");
+        assertThat(html).doesNotContain("<bad>");
+    }
+
+    @Test
+    void showsNoDefinitionWarningWithoutAWarning() {
+        assertThat(page.renderBoard(model(List.of()))).doesNotContain("class=\"warning\"");
     }
 
     @Test
@@ -169,7 +201,7 @@ class BoardPageTest {
 
     @Test
     void theEnterButtonsAreOneGroupWithTooltips() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -186,7 +218,7 @@ class BoardPageTest {
 
     @Test
     void anotherDeviceHasNoTerminalButton() {
-        IssueRecord waiting = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord waiting = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelForAnotherDevice(List.of(card(waiting), card(liveRecord(13, LINK)))));
 
@@ -227,7 +259,7 @@ class BoardPageTest {
 
     @Test
     void anEnterShowsOnlyTheLineOfTheChosenPlace() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         List<IssueCard> cards = List.of(cardWithLabel(record, "factory:enter"));
 
         String chosen = page.renderBoard(modelWithEnterPlaces(cards, Map.of(12, LivePlace.TERMINAL)));
@@ -318,7 +350,7 @@ class BoardPageTest {
 
     @Test
     void showsOnlyThePossibleButtons() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -332,7 +364,7 @@ class BoardPageTest {
 
     @Test
     void aLabelThatThePageDidNotRequestShowsTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(model(List.of(card)));
@@ -342,7 +374,7 @@ class BoardPageTest {
 
     @Test
     void anApproveRequestReplacesTheReasonOfTheWait() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
@@ -353,7 +385,7 @@ class BoardPageTest {
 
     @Test
     void anApproveRequestEndsWhenTheIssueNoLongerWaitsForTheApproval() {
-        IssueRecord record = record(12, IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.IN_REVIEW), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
@@ -363,7 +395,7 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestShowsThatTheConversationOpensSoon() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, LivePlace.PHONE)));
@@ -402,7 +434,7 @@ class BoardPageTest {
 
     @Test
     void aBlockRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.DONE), "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
                 Map.of(12, Set.of("factory:block"))));
@@ -412,7 +444,7 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.DONE), "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, Set.of("factory:enter"))));
@@ -422,7 +454,7 @@ class BoardPageTest {
 
     @Test
     void aRememberedLabelThatIsNotOnTheCardShowsNoRequest() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card(record)),
                 Map.of(12, Set.of("factory:approve"))));
@@ -441,7 +473,7 @@ class BoardPageTest {
 
     @Test
     void aLabelThatThePageRequestedHidesTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card), Map.of(12, Set.of("factory:approve"))));

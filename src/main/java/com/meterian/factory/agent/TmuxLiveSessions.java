@@ -67,12 +67,13 @@ public final class TmuxLiveSessions implements LiveSessions {
     }
 
     @Override
-    public String open(int issueNumber, UUID sessionId, Path worktree) throws LiveSessionException {
+    public String open(int issueNumber, UUID sessionId, Path worktree, List<String> allowedTools)
+            throws LiveSessionException {
         clearContinueRequest(issueNumber);
         killSession(issueNumber);
         Path settingsFile = liveFiles.writeSettingsFile(issueNumber);
         Path launchScript = liveFiles.writeLaunchScript(issueNumber,
-                createLaunchScript(issueNumber, sessionId, settingsFile));
+                createLaunchScript(issueNumber, sessionId, settingsFile, allowedTools));
         try {
             startSession(issueNumber, worktree, launchScript);
             return waitForTheLink(issueNumber);
@@ -246,11 +247,12 @@ public final class TmuxLiveSessions implements LiveSessions {
         }
     }
 
-    private String createLaunchScript(int issueNumber, UUID sessionId, Path settingsFile) {
+    private String createLaunchScript(int issueNumber, UUID sessionId, Path settingsFile,
+                                      List<String> allowedTools) {
         List<String> words = new ArrayList<>();
         words.addAll(List.of("exec", "env", "-i"));
         words.addAll(createEnvironmentAssignments());
-        words.addAll(createClaudeArguments(issueNumber, sessionId, settingsFile));
+        words.addAll(createClaudeArguments(issueNumber, sessionId, settingsFile, allowedTools));
         return "#!/bin/bash\n" + ShellQuoting.join(words) + "\n";
     }
 
@@ -266,7 +268,8 @@ public final class TmuxLiveSessions implements LiveSessions {
         return assignments;
     }
 
-    private List<String> createClaudeArguments(int issueNumber, UUID sessionId, Path settingsFile) {
+    private List<String> createClaudeArguments(int issueNumber, UUID sessionId, Path settingsFile,
+                                               List<String> allowedTools) {
         List<String> arguments = new ArrayList<>();
         arguments.add(settings.command());
         arguments.addAll(List.of("--resume", sessionId.toString()));
@@ -275,7 +278,7 @@ public final class TmuxLiveSessions implements LiveSessions {
         arguments.addAll(List.of("--plugin-dir", liveFiles.pluginDirectory().toString()));
         arguments.addAll(ClaudeCommand.humanLanguageArguments());
         arguments.add("--allowedTools");
-        arguments.addAll(settings.allowedTools());
+        arguments.addAll(allowedTools);
         arguments.add("--disallowedTools");
         arguments.addAll(settings.disallowedTools());
         return arguments;

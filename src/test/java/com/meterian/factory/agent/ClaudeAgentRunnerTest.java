@@ -3,6 +3,7 @@ package com.meterian.factory.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.meterian.factory.testing.TestTools;
 import com.meterian.factory.configuration.ClaudeSettings;
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -214,7 +215,8 @@ class ClaudeAgentRunnerTest {
     }
 
     private PhaseRequest requestOf(int issueNumber) {
-        return new PhaseRequest(issueNumber, UUID.randomUUID(), true, directory, "Fix it");
+        return new PhaseRequest(issueNumber, UUID.randomUUID(), true, directory, "Fix it",
+                TestTools.ALLOWED_TOOLS);
     }
 
     private ClaudeAgentRunner runnerFor(String stream, String sleepSeconds, String exitCode)
@@ -248,7 +250,6 @@ class ClaudeAgentRunnerTest {
         script.append("exec '").append(fake).append("' \"$@\"\n");
         Files.writeString(wrapper, script);
         Files.setPosixFilePermissions(wrapper, PosixFilePermissions.fromString("rwxr-xr-x"));
-        return new ClaudeSettings(wrapper.toString(), ClaudeSettings.DEFAULT_ALLOWED_TOOLS,
-                ClaudeSettings.DEFAULT_DISALLOWED_TOOLS);
+        return new ClaudeSettings(wrapper.toString(), ClaudeSettings.DEFAULT_DISALLOWED_TOOLS);
     }
 }

@@ -7,6 +7,7 @@ import com.meterian.factory.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +17,7 @@ class RequestReaderTest {
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
     private final PageRequests pageRequests = new PageRequests(clock);
     private final RequestReader requests =
-            new RequestReader(gitHub, List.of("bbossola"), "factory-bot", pageRequests);
+            new RequestReader(gitHub, () -> List.of("bbossola"), "factory-bot", pageRequests);
 
     @BeforeEach
     void createIssue() {
@@ -28,6 +29,18 @@ class RequestReaderTest {
         gitHub.addLabelBy(7, "factory:approve", "bbossola");
 
         assertThat(requests.isGivenByAllowedAccount(7, "factory:approve")).isTrue();
+    }
+
+    @Test
+    void ignoresAnAccountThatTheNewestVersionRemoves() {
+        AtomicReference<List<String>> allowedAccounts = new AtomicReference<>(List.of("bbossola", "alice"));
+        RequestReader reader = new RequestReader(gitHub, allowedAccounts::get, "factory-bot", pageRequests);
+        gitHub.addLabelBy(7, "factory:approve", "alice");
+        assertThat(reader.isGivenByAllowedAccount(7, "factory:approve")).isTrue();
+
+        allowedAccounts.set(List.of("bbossola"));
+
+        assertThat(reader.isGivenByAllowedAccount(7, "factory:approve")).isFalse();
     }
 
     @Test

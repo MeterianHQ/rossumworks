@@ -13,7 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** Builds the body of a pull request from the description that the agent wrote in .factory/description.md. */
+/** Builds the body of a pull request from the description that the agent wrote in the scratch folder. */
 final class PullRequestDescription {
 
     static final int MAXIMUM_CHARACTERS = 20_000;
@@ -42,7 +42,7 @@ final class PullRequestDescription {
 
     /** The body, or empty when the agent wrote no usable description. */
     static Optional<String> bodyIfDescribed(int issueNumber, Path worktree) {
-        String text = readFile(worktree.resolve(".factory").resolve("description.md")).strip();
+        String text = readFile(worktree.resolve(ScratchFolder.NAME).resolve("description.md")).strip();
         if (text.isEmpty()) {
             return Optional.empty();
         }

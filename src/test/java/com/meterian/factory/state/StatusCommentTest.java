@@ -3,6 +3,7 @@ package com.meterian.factory.state;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.testing.RecordStates;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,7 @@ class StatusCommentTest {
 
     private final IssueRecord record = IssueRecord.queued(7)
             .withStatus(IssueStatus.IN_REVIEW)
-            .withPhase(Phase.REVIEW)
+            .withState("review", StepType.REVIEWS)
             .withReview(ReviewKind.CORRECTNESS, Verdict.APPROVE)
             .withFixLoop()
             .withRisk(RiskLevel.LOW, true)
@@ -43,6 +44,37 @@ class StatusCommentTest {
     }
 
     @Test
+    void readsARecordFromBeforeTheStates() {
+        String json = StatusComment.render(IssueRecord.queued(7), LIMIT)
+                .replace("\"state\":\"prepare\",\"step\":\"prepare\"", "\"phase\":\"MERGE\"")
+                .replace(",\"definitionCommit\":null", "");
+        IssueComment comment = new IssueComment(1, WORKER, json);
+
+        IssueRecord found = StatusComment.findRecord(List.of(comment), WORKER).orElseThrow();
+
+        assertThat(json).contains("\"phase\":\"MERGE\"").doesNotContain("definitionCommit");
+        assertThat(found.state()).isEqualTo("merge");
+        assertThat(found.step()).isEqualTo(StepType.MERGE_GATE);
+        assertThat(found.definitionCommit()).isEmpty();
+    }
+
+    @Test
+    void writesAndReadsTheStateTheStepAndTheDefinitionCommit() {
+        IssueRecord withCommit = IssueRecord.queued(7).withState("merge", StepType.MERGE_GATE)
+                .withDefinitionCommit("abc123");
+        String body = StatusComment.render(withCommit, LIMIT);
+        IssueComment comment = new IssueComment(1, WORKER, body);
+
+        assertThat(body).contains("\"state\":\"merge\"").contains("\"step\":\"merge-gate\"");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(withCommit);
+    }
+
+    @Test
+    void showsTheStateNameInTheHeadline() {
+        assertThat(StatusComment.render(record, LIMIT)).contains("— phase review");
+    }
+
+    @Test
     void ignoresARecordFromAnotherAccount() {
         IssueComment comment = new IssueComment(1, "mallory", StatusComment.render(record, LIMIT));
 
@@ -51,7 +83,7 @@ class StatusCommentTest {
 
     @Test
     void takesTheNewestRecordOfTheWorker() {
-        IssueRecord newer = record.withPhase(Phase.MERGE);
+        IssueRecord newer = RecordStates.move(record, "merge");
         List<IssueComment> comments = List.of(
                 new IssueComment(5, WORKER, StatusComment.render(newer, LIMIT)),
                 new IssueComment(2, WORKER, StatusComment.render(record, LIMIT)));

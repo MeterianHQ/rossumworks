@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public final class ConfigurationLoader {
@@ -20,23 +21,47 @@ public final class ConfigurationLoader {
     private ConfigurationLoader() {
     }
 
+    /** The keys of the old form of the file. They moved to the folder .factory of the repository. */
+    private static final List<String> OLD_FORM_KEYS = List.of(
+            "target", "merge", "accounts", "prompts-directory", "limits.fix-loops", "claude.allowed-tools");
+
     public static FactoryConfiguration load(Path file) throws ConfigurationException {
-        ConfigurationSection root = new ConfigurationSection(readTree(file), "");
-        ConfigurationSection accountsSection = root.requireSection("accounts");
+        JsonNode tree = readTree(file);
+        verifyNewForm(file, tree);
+        ConfigurationSection root = new ConfigurationSection(tree, "");
         Path workDirectory = root.requirePath("work-directory");
         return new FactoryConfiguration(
-                readTarget(root.requireSection("target")),
-                root.requireNestedText("merge", "target-branch"),
-                readLimits(root),
-                readAllowedAccounts(accountsSection),
-                readIsolationMode(root),
-                readClaudeSettings(root),
+                RepositoryName.parse(root.requireText("repository")),
                 workDirectory,
                 root.requirePath("gatekeeper-directory"),
-                root.findPath("prompts-directory"),
                 root.findPath("live-directory").orElse(workDirectory.resolve("live")),
+                readLimits(root),
+                readBuildEnvironment(root),
+                readIsolationMode(root),
+                readClaudeSettings(root),
                 readWebSettings(root),
                 readTerminalCommand(root));
+    }
+
+    private static void verifyNewForm(Path file, JsonNode tree) throws ConfigurationException {
+        for (String key : OLD_FORM_KEYS) {
+            if (containsKeyPath(tree, key)) {
+                throw new ConfigurationException("The configuration file " + file + " has the old form (the key "
+                        + key + "). The workflow, the build, the merge, and the accounts are now in the folder "
+                        + ".factory of the repository. Run claude-ai-factory create to write the new configuration.");
+            }
+        }
+    }
+
+    private static boolean containsKeyPath(JsonNode tree, String keyPath) {
+        JsonNode node = tree;
+        for (String key : keyPath.split("\\.")) {
+            node = node.get(key);
+            if (node == null || node.isNull()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static JsonNode readTree(Path file) throws ConfigurationException {
@@ -52,25 +77,20 @@ public final class ConfigurationLoader {
         }
     }
 
-    private static TargetRepository readTarget(ConfigurationSection section) throws ConfigurationException {
-        ConfigurationSection build = section.requireSection("build");
-        return new TargetRepository(
-                section.requireText("owner"),
-                section.requireText("name"),
-                section.requirePath("clone"),
-                build.requireText("command"),
-                build.findTextMap("environment"));
+    private static Map<String, String> readBuildEnvironment(ConfigurationSection root)
+            throws ConfigurationException {
+        ConfigurationSection section = root.findSection("build").orElse(null);
+        return section == null ? Map.of() : section.findTextMap("environment");
     }
 
-    private static Limits readLimits(ConfigurationSection root) throws ConfigurationException {
-        Limits defaults = Limits.createDefaults();
+    private static WorkerLimits readLimits(ConfigurationSection root) throws ConfigurationException {
+        WorkerLimits defaults = WorkerLimits.createDefaults();
         ConfigurationSection section = root.findSection("limits").orElse(null);
         if (section == null) {
             return defaults;
         }
-        return new Limits(
+        return new WorkerLimits(
                 readPositiveInteger(section, "parallel-issues", defaults.parallelIssues()),
-                readPositiveInteger(section, "fix-loops", defaults.fixLoops()),
                 readPollInterval(section, defaults.pollInterval()),
                 readUsageThreshold(section, defaults.usageThreshold()));
     }
@@ -113,14 +133,6 @@ public final class ConfigurationLoader {
         return value;
     }
 
-    private static List<String> readAllowedAccounts(ConfigurationSection section) throws ConfigurationException {
-        List<String> accounts = section.requireTextList("allowed");
-        if (accounts.isEmpty()) {
-            throw section.createInvalidKeyException("allowed", "must have at least one account");
-        }
-        return accounts;
-    }
-
     private static IsolationMode readIsolationMode(ConfigurationSection root) throws ConfigurationException {
         ConfigurationSection section = root.findSection("isolation").orElse(null);
         String mode = section == null ? "same-user" : section.findText("mode").orElse("same-user");
@@ -139,7 +151,6 @@ public final class ConfigurationLoader {
         }
         return new ClaudeSettings(
                 section.findText("command").orElse(ClaudeSettings.DEFAULT_COMMAND),
-                section.findTextList("allowed-tools").orElse(ClaudeSettings.DEFAULT_ALLOWED_TOOLS),
                 section.findTextList("disallowed-tools").orElse(ClaudeSettings.DEFAULT_DISALLOWED_TOOLS));
     }
 
