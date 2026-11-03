@@ -27,7 +27,6 @@ import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
@@ -226,7 +225,7 @@ class WorkerTest {
         });
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("review");
         return firstAgent;
     }
 
@@ -370,7 +369,7 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).contains(ISSUE);
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("implement");
         assertThat(record.notes()).noneMatch(note -> note.startsWith("The agent session failed"));
         assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.BLOCKED);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
@@ -441,7 +440,7 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).isEmpty();
         assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
@@ -456,7 +455,7 @@ class WorkerTest {
                 .pollOnce();
         waitForTheLoops();
         IssueRecord afterTheFailure = readRecord(ISSUE).orElseThrow();
-        assertThat(afterTheFailure.phase()).isEqualTo(Phase.DONE);
+        assertThat(afterTheFailure.state()).isEqualTo("done");
         assertThat(afterTheFailure.status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(afterTheFailure.notes()).containsExactly(FINISH_FAILURE_NOTE);
 
@@ -550,7 +549,7 @@ class WorkerTest {
         for (int issueNumber : List.of(7, 8)) {
             IssueRecord record = readRecord(issueNumber).orElseThrow();
             assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
-            assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+            assertThat(record.state()).isEqualTo("implement");
             assertThat(record.notes()).isEmpty();
         }
     }
@@ -614,7 +613,7 @@ class WorkerTest {
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
         IssueRecord stopped = readRecord(ISSUE).orElseThrow();
-        assertThat(stopped.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(stopped.state()).isEqualTo("review");
         assertThat(stopped.fixLoops()).isEqualTo(1);
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner()
@@ -760,7 +759,7 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.fixLoops()).isZero();
     }
 
@@ -776,7 +775,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(loopsEnded).isTrue();
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(record.fixLoops()).isZero();
     }
@@ -787,7 +786,7 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.MERGE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("merge");
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner();
 
@@ -817,7 +816,7 @@ class WorkerTest {
         assertThat(worker.foundAnApiKey()).isTrue();
         assertThat(agent.stoppedIssues()).contains(otherIssue);
         assertThat(otherRecord.status()).isIn(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS);
-        assertThat(otherRecord.phase()).isIn(Phase.PREPARE, Phase.IMPLEMENT);
+        assertThat(otherRecord.state()).isIn("prepare", "implement");
         assertThat(otherRecord.notes()).isEmpty();
     }
 
@@ -829,7 +828,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty());
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("implement");
 
         worker.pollOnce();
         waitForTheLoops();
@@ -931,7 +930,7 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).isEmpty();
         assertThat(agent.requests()).hasSize(1);
         assertThat(liveSessions.openCalls()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
     }

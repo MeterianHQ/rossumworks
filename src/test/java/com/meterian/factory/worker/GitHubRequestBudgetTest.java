@@ -21,7 +21,6 @@ import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -205,7 +204,7 @@ class GitHubRequestBudgetTest {
         worker = createWorker(agent);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
 
         List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
 
@@ -281,7 +280,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
         int requestsBeforeThePolls = server.receivedRequestCount();
         clock.set(RESET.minusSeconds(1));
         worker.pollOnce();
@@ -313,7 +312,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
         assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
         assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));

@@ -7,8 +7,8 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -18,12 +18,12 @@ class PageActionTest {
 
     private static final String LINK = "https://claude.ai/code/session_abc123";
 
-    private static IssueRecord startedRecord(IssueStatus status, Phase phase) {
-        return IssueRecord.queued(12).withAgentSessionStarted().withStatus(status).withPhase(phase);
+    private static IssueRecord startedRecord(IssueStatus status, String stateName) {
+        return RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(status), stateName);
     }
 
     private static IssueRecord liveRecord(Optional<String> link) {
-        return startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
+        return startedRecord(IssueStatus.WAITS_FOR_YOU, "implement")
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
                 .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link, LivePlace.PHONE));
     }
@@ -49,7 +49,7 @@ class PageActionTest {
     @Test
     void enterNeedsAStartedSession() {
         IssueRecord notStarted = IssueRecord.queued(12).withStatus(IssueStatus.IN_PROGRESS);
-        IssueRecord started = startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT);
+        IssueRecord started = startedRecord(IssueStatus.IN_PROGRESS, "implement");
 
         assertThat(isPossible(PageAction.ENTER_PHONE, card(notStarted), false)).isFalse();
         assertThat(isPossible(PageAction.ENTER_PHONE, card(started), false)).isTrue();
@@ -57,7 +57,7 @@ class PageActionTest {
 
     @Test
     void enterIsNotPossibleWhenThePhaseIsDone() {
-        IssueRecord done = startedRecord(IssueStatus.DONE, Phase.DONE);
+        IssueRecord done = startedRecord(IssueStatus.DONE, "done");
 
         assertThat(isPossible(PageAction.ENTER_PHONE, card(done), false)).isFalse();
     }
@@ -74,11 +74,11 @@ class PageActionTest {
 
     @Test
     void approveNeedsAnApprovableReason() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, "merge")
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
-        IssueRecord textChanged = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.PREPARE)
+        IssueRecord textChanged = startedRecord(IssueStatus.WAITS_FOR_YOU, "prepare")
                 .withWaitReason(WaitReason.ISSUE_TEXT_CHANGED);
-        IssueRecord question = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
+        IssueRecord question = startedRecord(IssueStatus.WAITS_FOR_YOU, "implement")
                 .withWaitReason(WaitReason.QUESTION);
 
         assertThat(isPossible(PageAction.APPROVE, card(merge), false)).isTrue();
@@ -88,20 +88,20 @@ class PageActionTest {
 
     @Test
     void blockIsNotPossibleWhenTheIssueIsBlockedOrDone() {
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_PROGRESS, "implement")), false))
                 .isTrue();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.BLOCKED, Phase.IMPLEMENT)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.BLOCKED, "implement")), false))
                 .isFalse();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.DONE, Phase.MERGE)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.DONE, "merge")), false))
                 .isFalse();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_REVIEW, Phase.DONE)), false))
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_REVIEW, "done")), false))
                 .isFalse();
     }
 
     @Test
     void continueNeedsALiveState() {
         assertThat(isPossible(PageAction.CONTINUE, card(liveRecord(Optional.of(LINK))), false)).isTrue();
-        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord(IssueStatus.IN_PROGRESS, "implement")),
                 false)).isFalse();
     }
 
@@ -112,7 +112,7 @@ class PageActionTest {
 
     @Test
     void aRememberedLabelOnTheCardHidesItsButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, "merge")
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
         Set<String> remembered = Set.of("factory:approve", "factory:block", "factory:enter");
 
@@ -128,7 +128,7 @@ class PageActionTest {
 
     @Test
     void aLabelThatThePageDidNotRequestKeepsItsButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, "merge")
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
 
         assertThat(isPossible(PageAction.APPROVE, card(merge, Set.of("factory", "factory:approve")), false)).isTrue();
@@ -138,7 +138,7 @@ class PageActionTest {
 
     @Test
     void aRememberedRequestWithoutTheLabelKeepsTheButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
+        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, "merge")
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
 
         assertThat(isPossibleOnThisMachine(PageAction.APPROVE, card(merge), Set.of("factory:approve"))).isTrue();
@@ -168,7 +168,7 @@ class PageActionTest {
 
     @Test
     void aTerminalActionIsNotPossibleFromAnotherDevice() {
-        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT));
+        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, "implement"));
         IssueCard live = card(liveRecord(Optional.of(LINK)));
 
         assertThat(PageAction.ENTER_TERMINAL.isPossible(started, false, Set.of(), false)).isFalse();
@@ -180,7 +180,7 @@ class PageActionTest {
 
     @Test
     void theThreeEnterActionsHaveTheSameRule() {
-        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT));
+        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, "implement"));
         IssueCard live = card(liveRecord(Optional.of(LINK)));
 
         assertThat(isPossible(PageAction.ENTER_TERMINAL, started, false)).isTrue();
@@ -193,7 +193,7 @@ class PageActionTest {
     void openTerminalNeedsALiveLink() {
         assertThat(isPossible(PageAction.OPEN_TERMINAL, card(liveRecord(Optional.of(LINK))), false)).isTrue();
         assertThat(isPossible(PageAction.OPEN_TERMINAL, card(liveRecord(Optional.empty())), false)).isFalse();
-        assertThat(isPossible(PageAction.OPEN_TERMINAL, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
+        assertThat(isPossible(PageAction.OPEN_TERMINAL, card(startedRecord(IssueStatus.IN_PROGRESS, "implement")),
                 false)).isFalse();
     }
 

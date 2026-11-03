@@ -2,7 +2,7 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
 
 /**
  * A merged change is final. A failure after the merge never blocks the issue: the record stays DONE with a
@@ -14,7 +14,7 @@ public final class MergedIssue {
     }
 
     public static IssueRecord noteFailureAfterTheMerge(IssueRecord merged, Exception exception) {
-        return merged.withPhase(Phase.DONE)
+        return LegacyPhase.DONE.applyTo(merged)
                 .withStatus(IssueStatus.DONE)
                 .withNote("A step after the merge failed: " + exception.getClass().getName()
                         + ". The change is merged.");

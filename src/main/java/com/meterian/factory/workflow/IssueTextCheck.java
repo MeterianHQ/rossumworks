@@ -3,7 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.WaitReason;
 import java.util.EnumSet;
 import java.util.Optional;
@@ -12,7 +12,8 @@ import java.util.Set;
 /** Stops the phases that give the issue text to an agent when the text changed after the label factory. */
 final class IssueTextCheck {
 
-    private static final Set<Phase> PHASES_WITH_THE_ISSUE_TEXT = EnumSet.of(Phase.IMPLEMENT, Phase.REVIEW, Phase.RISK);
+    private static final Set<StepType> STEPS_WITH_THE_ISSUE_TEXT =
+            EnumSet.of(StepType.AGENT, StepType.REVIEWS, StepType.RISK);
 
     private final OwnerApproval ownerApproval;
 
@@ -22,7 +23,7 @@ final class IssueTextCheck {
 
     /** Fail closed: a record without a hash counts as a change. */
     boolean hasChanged(Issue issue, IssueRecord record) {
-        return PHASES_WITH_THE_ISSUE_TEXT.contains(record.phase())
+        return STEPS_WITH_THE_ISSUE_TEXT.contains(record.step())
                 && !record.issueTextHash().equals(Optional.of(IssueText.computeHash(issue)));
     }
 
@@ -37,7 +38,7 @@ final class IssueTextCheck {
     /** The approval is used up here, so it cannot also approve the merge. */
     IssueRecord acceptNewText(Issue issue, IssueRecord record) {
         ownerApproval.withdraw(record.issueNumber());
-        IssueStatus status = record.phase() == Phase.IMPLEMENT ? IssueStatus.IN_PROGRESS : IssueStatus.IN_REVIEW;
+        IssueStatus status = record.step() == StepType.AGENT ? IssueStatus.IN_PROGRESS : IssueStatus.IN_REVIEW;
         return record.withIssueTextHash(IssueText.computeHash(issue)).withoutWaitReason().withStatus(status);
     }
 }

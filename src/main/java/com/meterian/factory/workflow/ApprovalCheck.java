@@ -3,7 +3,7 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
 import com.meterian.factory.state.WaitReason;
 import java.util.EnumSet;
 import java.util.Optional;
@@ -39,6 +39,6 @@ public final class ApprovalCheck {
         if (record.waitReason().equals(Optional.of(WaitReason.ISSUE_TEXT_CHANGED))) {
             return issueTextCheck.acceptNewText(issue, record);
         }
-        return record.withoutWaitReason().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
+        return LegacyPhase.MERGE.applyTo(record.withoutWaitReason().withStatus(IssueStatus.IN_REVIEW));
     }
 }

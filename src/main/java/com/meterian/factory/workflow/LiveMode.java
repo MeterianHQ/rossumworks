@@ -10,7 +10,8 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,7 +55,7 @@ final class LiveMode {
 
     /** A record that already has a live state keeps its state before: a new session never replaces it. */
     IssueRecord enter(IssueRecord record, Path worktree) {
-        if (record.phase() == Phase.DONE) {
+        if (record.step() == StepType.FINISH) {
             return record.withNote(DONE_NOTE);
         }
         if (!record.agentSessionStarted() || !Files.isDirectory(worktree)) {
@@ -133,10 +134,10 @@ final class LiveMode {
         if (live.waitBefore().filter(APPROVAL_WAITS::contains).isPresent()) {
             return restoreTheWait(record, live);
         }
-        if (record.phase() == Phase.IMPLEMENT) {
+        if (record.step() == StepType.AGENT) {
             return record.withAfterConversation().withStatus(IssueStatus.IN_PROGRESS).withoutWaitReason();
         }
-        return record.withStatus(statusOfThePhase(record.phase())).withoutWaitReason();
+        return record.withStatus(statusOfTheStep(record.step())).withoutWaitReason();
     }
 
     /**
@@ -147,7 +148,7 @@ final class LiveMode {
         if (!git.headCommit(worktree).equals(live.startHeadCommit())) {
             return true;
         }
-        return record.phase() != Phase.IMPLEMENT && git.hasUncommittedChanges(worktree);
+        return record.step() != StepType.AGENT && git.hasUncommittedChanges(worktree);
     }
 
     /** An approval covers one diff, so a change of the conversation withdraws it. */
@@ -156,8 +157,8 @@ final class LiveMode {
             git.commitAll(worktree, ChangeTitle.describe(issue));
         }
         ownerApproval.withdraw(record.issueNumber());
-        return record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason()
-                .withPhase(Phase.BUILD).withStatus(IssueStatus.IN_PROGRESS);
+        IssueRecord cleared = record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason();
+        return LegacyPhase.BUILD.applyTo(cleared).withStatus(IssueStatus.IN_PROGRESS);
     }
 
     /** /factory:continue is never an approval, so the issue waits for the label again. */
@@ -167,11 +168,11 @@ final class LiveMode {
     }
 
     /** A blocked issue starts again in the phase where it stopped. */
-    private static IssueStatus statusOfThePhase(Phase phase) {
-        return switch (phase) {
-            case PREPARE, IMPLEMENT, BUILD -> IssueStatus.IN_PROGRESS;
-            case REVIEW, RISK, MERGE -> IssueStatus.IN_REVIEW;
-            case DONE -> IssueStatus.DONE;
+    private static IssueStatus statusOfTheStep(StepType step) {
+        return switch (step) {
+            case PREPARE, AGENT, BUILD -> IssueStatus.IN_PROGRESS;
+            case REVIEWS, RISK, MERGE_GATE -> IssueStatus.IN_REVIEW;
+            case FINISH -> IssueStatus.DONE;
         };
     }
 }

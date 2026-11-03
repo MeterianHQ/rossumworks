@@ -5,7 +5,7 @@ import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.workflow.ApprovalCheck;
 import com.meterian.factory.workflow.PageRequests;
 import java.util.Arrays;
@@ -158,7 +158,7 @@ public enum PageAction {
 
     /** A live state without a link can enter again, because the open of the session did not end. */
     private static boolean isEnterPossible(IssueRecord record) {
-        return record.agentSessionStarted() && record.phase() != Phase.DONE && findLiveLink(record).isEmpty();
+        return record.agentSessionStarted() && record.step() != StepType.FINISH && findLiveLink(record).isEmpty();
     }
 
     private static Optional<String> findLiveLink(IssueRecord record) {
@@ -168,6 +168,6 @@ public enum PageAction {
     private static boolean isBlockPossible(IssueRecord record) {
         return record.status() != IssueStatus.BLOCKED
                 && record.status() != IssueStatus.DONE
-                && record.phase() != Phase.DONE;
+                && record.step() != StepType.FINISH;
     }
 }

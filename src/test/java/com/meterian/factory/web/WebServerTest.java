@@ -17,10 +17,10 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.login.PasswordHash;
@@ -153,18 +153,18 @@ class WebServerTest {
     }
 
     private static IssueRecord mergeWaitsForApproval() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
     }
 
     private static IssueRecord waitsForAnAnswer() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.QUESTION);
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "implement").withWaitReason(WaitReason.QUESTION);
     }
 
     private static IssueRecord liveConversation() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.LIVE_CONVERSATION)
+        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                "implement").withWaitReason(WaitReason.LIVE_CONVERSATION)
                 .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
                         LivePlace.PHONE));
     }
@@ -565,7 +565,7 @@ class WebServerTest {
     void anApproveFromAPageBeforeANewWaitReasonGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(mergeWaitsForApproval().withPhase(Phase.PREPARE).withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
+        recordCard(RecordStates.move(mergeWaitsForApproval(), "prepare").withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 

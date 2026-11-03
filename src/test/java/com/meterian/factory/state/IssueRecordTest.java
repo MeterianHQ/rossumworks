@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.meterian.factory.testing.RecordStates;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -96,7 +97,7 @@ class IssueRecordTest {
     void keepsTheIssueTextHashThroughTheOtherChanges() {
         IssueRecord hashed = queued.withIssueTextHash("0a1b2c");
 
-        IssueRecord changed = hashed.withPhase(Phase.REVIEW).withoutReviews().withoutRisk().withoutBuiltTree()
+        IssueRecord changed = RecordStates.move(hashed, "review").withoutReviews().withoutRisk().withoutBuiltTree()
                 .withSessionId(UUID.randomUUID()).withNote("n").withFixLoop().withStatus(IssueStatus.IN_REVIEW);
 
         assertThat(queued.issueTextHash()).isEmpty();
@@ -163,11 +164,11 @@ class IssueRecordTest {
     }
 
     @Test
-    void aPhaseOutsideImplementClearsTheAfterConversationFlag() {
-        IssueRecord afterConversation = queued.withPhase(Phase.IMPLEMENT).withAfterConversation();
+    void aStepOutsideAgentClearsTheAfterConversationFlag() {
+        IssueRecord afterConversation = RecordStates.move(queued, "implement").withAfterConversation();
 
-        assertThat(afterConversation.withPhase(Phase.IMPLEMENT).afterConversation()).isTrue();
-        assertThat(afterConversation.withPhase(Phase.BUILD).afterConversation()).isFalse();
+        assertThat(RecordStates.move(afterConversation, "implement").afterConversation()).isTrue();
+        assertThat(RecordStates.move(afterConversation, "build").afterConversation()).isFalse();
     }
 
     @Test

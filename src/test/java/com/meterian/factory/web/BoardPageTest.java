@@ -11,11 +11,11 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -43,7 +43,7 @@ class BoardPageTest {
     }
 
     private static IssueRecord record(int number, IssueStatus status) {
-        return IssueRecord.queued(number).withAgentSessionStarted().withStatus(status).withPhase(Phase.IMPLEMENT);
+        return RecordStates.move(IssueRecord.queued(number).withAgentSessionStarted().withStatus(status), "implement");
     }
 
     private static IssueRecord waitingRecord(int number, WaitReason reason) {
@@ -169,7 +169,7 @@ class BoardPageTest {
 
     @Test
     void theEnterButtonsAreOneGroupWithTooltips() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -186,7 +186,7 @@ class BoardPageTest {
 
     @Test
     void anotherDeviceHasNoTerminalButton() {
-        IssueRecord waiting = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord waiting = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelForAnotherDevice(List.of(card(waiting), card(liveRecord(13, LINK)))));
 
@@ -227,7 +227,7 @@ class BoardPageTest {
 
     @Test
     void anEnterShowsOnlyTheLineOfTheChosenPlace() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         List<IssueCard> cards = List.of(cardWithLabel(record, "factory:enter"));
 
         String chosen = page.renderBoard(modelWithEnterPlaces(cards, Map.of(12, LivePlace.TERMINAL)));
@@ -318,7 +318,7 @@ class BoardPageTest {
 
     @Test
     void showsOnlyThePossibleButtons() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -332,7 +332,7 @@ class BoardPageTest {
 
     @Test
     void aLabelThatThePageDidNotRequestShowsTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(model(List.of(card)));
@@ -342,7 +342,7 @@ class BoardPageTest {
 
     @Test
     void anApproveRequestReplacesTheReasonOfTheWait() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
@@ -353,7 +353,7 @@ class BoardPageTest {
 
     @Test
     void anApproveRequestEndsWhenTheIssueNoLongerWaitsForTheApproval() {
-        IssueRecord record = record(12, IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.IN_REVIEW), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
@@ -363,7 +363,7 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestShowsThatTheConversationOpensSoon() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, LivePlace.PHONE)));
@@ -402,7 +402,7 @@ class BoardPageTest {
 
     @Test
     void aBlockRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.DONE), "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
                 Map.of(12, Set.of("factory:block"))));
@@ -412,7 +412,7 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = RecordStates.move(record(12, IssueStatus.DONE), "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, Set.of("factory:enter"))));
@@ -422,7 +422,7 @@ class BoardPageTest {
 
     @Test
     void aRememberedLabelThatIsNotOnTheCardShowsNoRequest() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card(record)),
                 Map.of(12, Set.of("factory:approve"))));
@@ -441,7 +441,7 @@ class BoardPageTest {
 
     @Test
     void aLabelThatThePageRequestedHidesTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = RecordStates.move(waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL), "merge");
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card), Map.of(12, Set.of("factory:approve"))));

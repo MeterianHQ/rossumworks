@@ -13,10 +13,10 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.web.CardFingerprint;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
@@ -367,8 +367,8 @@ class MainTest {
         gitHub.addIssue(12, "Fix the login", "body");
         RequestReader requests = Main.createRequestReader(gitHub, configuration, "factory-bot", shared);
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
-                IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                        .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
+                RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
+                        "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
                 Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, configuration), () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();

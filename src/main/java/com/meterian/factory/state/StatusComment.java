@@ -65,7 +65,7 @@ public final class StatusComment {
     }
 
     private static String renderHeadline(IssueRecord record) {
-        String headline = HEADLINE_START + " " + record.status().displayName() + " — phase " + record.phase();
+        String headline = HEADLINE_START + " " + record.status().displayName() + " — phase " + sanitizeLine(record.state());
         return record.waitReason()
                 .map(reason -> headline + "\n" + reason.sentence())
                 .orElse(headline);

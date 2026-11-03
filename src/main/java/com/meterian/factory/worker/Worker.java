@@ -11,7 +11,8 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.ApprovalCheck;
@@ -273,7 +274,7 @@ public final class Worker {
         if (IssueWorkflow.isLive(record)) {
             return liveRecordCheck.isContinueRequested(record);
         }
-        return !workflow.isWaiting(record) || record.phase() == Phase.DONE
+        return !workflow.isWaiting(record) || record.step() == StepType.FINISH
                 || waitsForAGivenApprovalLabel(issue, record);
     }
 
@@ -395,7 +396,7 @@ public final class Worker {
      * cannot lose it.
      */
     private void withdrawBlockOfAMergedIssue(int issueNumber, IssueRecord kept) {
-        if (kept.phase() != Phase.DONE || !isBlockInProgress(issueNumber)) {
+        if (kept.step() != StepType.FINISH || !isBlockInProgress(issueNumber)) {
             return;
         }
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
@@ -443,7 +444,7 @@ public final class Worker {
                              Optional<IssueRecord> interruptedResult) {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
-            if (onGitHub.filter(record -> record.phase() == Phase.DONE).isPresent()) {
+            if (onGitHub.filter(record -> record.step() == StepType.FINISH).isPresent()) {
                 noteBlockWithoutEffect(onGitHub.get(), onGitHub);
                 return;
             }
@@ -451,7 +452,7 @@ public final class Worker {
             IssueRecord base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
                     .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
             if (isMergedOnGitHub(base)) {
-                noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
+                noteBlockWithoutEffect(LegacyPhase.DONE.applyTo(base), onGitHub);
                 return;
             }
             IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
@@ -479,7 +480,7 @@ public final class Worker {
 
     /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
     private boolean isMergedOnGitHub(IssueRecord record) {
-        return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
+        return record.step() == StepType.FINISH || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
     }
 
     /** The stop came during a step, so the record from before the step goes back to GitHub. */

@@ -1,5 +1,7 @@
 package com.meterian.factory.state;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -22,12 +24,18 @@ public enum StepType {
         this.outcomes = outcomes;
     }
 
+    @JsonValue
     public String yamlName() {
         return yamlName;
     }
 
     public Set<String> outcomes() {
         return outcomes;
+    }
+
+    @JsonCreator
+    public static StepType readYamlName(String name) {
+        return findByYamlName(name).orElseThrow(() -> new IllegalArgumentException("Unknown step type: " + name));
     }
 
     public static Optional<StepType> findByYamlName(String name) {

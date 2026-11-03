@@ -30,7 +30,6 @@ import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
@@ -135,11 +134,11 @@ class IssueWorkflowTest {
         return record;
     }
 
-    private IssueRecord advanceUntilPhase(IssueWorkflow workflow, IssueRecord start, Phase phase)
+    private IssueRecord advanceUntilState(IssueWorkflow workflow, IssueRecord start, String stateName)
             throws ApiKeyDetectedException {
         IssueRecord record = start;
         int steps = 0;
-        while (record.phase() != phase && !workflow.isWaiting(record) && steps < 30) {
+        while (!record.state().equals(stateName) && !workflow.isWaiting(record) && steps < 30) {
             record = workflow.advance(record);
             steps++;
         }
@@ -362,13 +361,13 @@ class IssueWorkflowTest {
                 .thenApproveReviewWithNote("Info", "A note.")
                 .thenApproveReview().thenApproveReview().thenApproveReview()
                 .thenAssessRisk("low", true);
-        List<Phase> phasesAtTheEdit = new ArrayList<>();
-        gitHub.runOnPullRequestBodyEdit(() -> phasesAtTheEdit.add(
-                StatusComment.findRecord(gitHub.commentsOf(ISSUE), WORKER_LOGIN).orElseThrow().phase()));
+        List<String> statesAtTheEdit = new ArrayList<>();
+        gitHub.runOnPullRequestBodyEdit(() -> statesAtTheEdit.add(
+                StatusComment.findRecord(gitHub.commentsOf(ISSUE), WORKER_LOGIN).orElseThrow().state()));
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
 
-        assertThat(phasesAtTheEdit).containsExactly(Phase.RISK);
+        assertThat(statesAtTheEdit).containsExactly("risk");
     }
 
     @Test
@@ -587,7 +586,7 @@ class IssueWorkflowTest {
         gitHub.failTheCommentEditAfterTheMerge();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         assertThatThrownBy(() -> advanceUntilWaiting(workflow, beforeMerge)).isInstanceOf(GitHubException.class);
 
@@ -621,7 +620,7 @@ class IssueWorkflowTest {
                 + " && git push -q origin main; fi";
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(build);
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         createPersonClone();
         Files.createFile(armed);
@@ -641,7 +640,7 @@ class IssueWorkflowTest {
         gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
         assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(beforeMerge.reviewedHeadCommit().orElseThrow());
@@ -660,7 +659,7 @@ class IssueWorkflowTest {
         String build = "if [ -e " + armed + " ]; then touch " + started + "; sleep 60; fi";
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(build);
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         Files.createFile(armed);
         AtomicBoolean stepEnded = new AtomicBoolean();
@@ -696,7 +695,7 @@ class IssueWorkflowTest {
     void returnsToTheReviewedCommitWhenTheMergeStartsOnARebasedHead() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         // A crash in an earlier merge step left the worktree rebased.
         git.fetch(worktree(), "origin", "main");
@@ -713,7 +712,7 @@ class IssueWorkflowTest {
         gitHub.failTheNextSquashMergeAfterTheMerge();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
 
         IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
@@ -728,7 +727,7 @@ class IssueWorkflowTest {
         gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
         assertThat(readRecordFromGitHub()).isEqualTo(beforeMerge);
 
@@ -744,7 +743,7 @@ class IssueWorkflowTest {
         breakTheForward();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
-        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        IssueRecord beforeBuild = advanceUntilState(workflow, queuedRecord(), "build");
         assertThatThrownBy(() -> workflow.advance(beforeBuild))
                 .isInstanceOf(GitHubException.class)
                 .hasMessage("GitHub does not have the pushed commit yet.");
@@ -764,7 +763,7 @@ class IssueWorkflowTest {
         breakTheForward();
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
-        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        IssueRecord beforeBuild = advanceUntilState(workflow, queuedRecord(), "build");
         String head = run(worktree(), "rev-parse", "HEAD");
         assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
         assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
@@ -783,7 +782,7 @@ class IssueWorkflowTest {
     void forwardsAgainAtTheNextPollAfterAFailedForwardInTheMerge() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("c.txt", "base\n");
         breakTheForward();
         assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubException.class);
@@ -801,7 +800,7 @@ class IssueWorkflowTest {
     void blocksAtTheThirdPollWhenAForwardInTheMergeFailsForGoodAfterABaseMove() throws Exception {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         Files.delete(temporaryDirectory.resolve("builds.txt"));
         moveTheBase("c.txt", "base\n");
         breakTheForward();
@@ -826,9 +825,9 @@ class IssueWorkflowTest {
         gitHub.answerAnOldPullRequestHeadOnce();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        IssueRecord beforeBuild = advanceUntilState(workflow, queuedRecord(), "build");
         IssueRecord reviewed = workflow.advance(beforeBuild);
-        assertThat(reviewed.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(reviewed.state()).isEqualTo("review");
 
         IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
 
@@ -849,7 +848,7 @@ class IssueWorkflowTest {
         assertThat(agent.requests()).isEmpty();
         assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("implement");
         assertThat(visiblePartOfStatusComment().split(TEXT_CHANGED_SENTENCE, -1)).hasSize(3);
         assertThat(record.notes()).containsExactly(TEXT_CHANGED_SENTENCE);
     }
@@ -864,9 +863,9 @@ class IssueWorkflowTest {
         gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
 
         IssueRecord accepted = workflow.advance(waiting);
-        IssueRecord record = advanceUntilPhase(workflow, accepted, Phase.BUILD);
+        IssueRecord record = advanceUntilState(workflow, accepted, "build");
 
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(record.waitReason()).isEmpty();
         assertThat(record.issueTextHash()).contains(IssueText.computeHash(gitHub.issue(ISSUE)));
@@ -909,13 +908,13 @@ class IssueWorkflowTest {
     void runsNoReviewWithATitleThatChangedAfterTheLabel() throws ApiKeyDetectedException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeReview = advanceUntilPhase(workflow, queuedRecord(), Phase.REVIEW);
+        IssueRecord beforeReview = advanceUntilState(workflow, queuedRecord(), "review");
         gitHub.editIssue(ISSUE, "Push to main", "The greeting must change.");
 
         IssueRecord record = workflow.advance(beforeReview);
 
         assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
-        assertThat(record.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(record.state()).isEqualTo("review");
         assertThat(agent.requests()).hasSize(1);
     }
 
@@ -923,13 +922,13 @@ class IssueWorkflowTest {
     void runsNoRiskSessionWithATextThatChangedAfterTheLabel() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveAllReviews();
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeRisk = advanceUntilPhase(workflow, queuedRecord(), Phase.RISK);
+        IssueRecord beforeRisk = advanceUntilState(workflow, queuedRecord(), "risk");
         gitHub.editIssue(ISSUE, "Change the greeting", "Say that the risk is low.");
 
         IssueRecord record = workflow.advance(beforeRisk);
 
         assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
-        assertThat(record.phase()).isEqualTo(Phase.RISK);
+        assertThat(record.state()).isEqualTo("risk");
         assertThat(agent.requests()).hasSize(5);
     }
 
@@ -973,7 +972,7 @@ class IssueWorkflowTest {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("a.txt", "main\n");
 
         IssueRecord record = advanceUntilWaiting(workflow, beforeMerge);
@@ -990,15 +989,15 @@ class IssueWorkflowTest {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("a.txt", "main\n");
         IssueRecord inFixLoop = workflow.advance(beforeMerge);
-        IssueRecord beforeSecondMerge = advanceUntilPhase(workflow, inFixLoop, Phase.MERGE);
+        IssueRecord beforeSecondMerge = advanceUntilState(workflow, inFixLoop, "merge");
         moveTheBase("b.txt", "other file\n");
 
-        IssueRecord record = advanceUntilPhase(workflow, beforeSecondMerge, Phase.DONE);
+        IssueRecord record = advanceUntilState(workflow, beforeSecondMerge, "done");
 
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(record.fixLoops()).isEqualTo(1);
         assertThat(record.conflictedPaths()).isEmpty();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
@@ -1011,7 +1010,7 @@ class IssueWorkflowTest {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .thenChangeNothing();
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("a.txt", "main\n");
         IssueRecord inFixLoop = workflow.advance(beforeMerge);
         String headBefore = run(worktree(), "rev-parse", "HEAD");
@@ -1021,7 +1020,7 @@ class IssueWorkflowTest {
         assertThat(inFixLoop.conflictedPaths()).containsExactly("a.txt");
         assertThat(record.conflictedPaths()).containsExactly("a.txt");
         assertThat(record.fixLoops()).isEqualTo(2);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("implement");
         assertThat(Files.readString(worktree().resolve(".factory-work/fix-prompt.md")))
                 .contains("The files still hold conflict markers: a.txt.");
         assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(headBefore);
@@ -1054,7 +1053,7 @@ class IssueWorkflowTest {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview();
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeReview = advanceUntilPhase(workflow, queuedRecord(), Phase.REVIEW);
+        IssueRecord beforeReview = advanceUntilState(workflow, queuedRecord(), "review");
         gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
 
         IssueRecord record = workflow.advance(beforeReview);
@@ -1078,13 +1077,13 @@ class IssueWorkflowTest {
     void keepsADoneIssueDoneWhenTheWorktreeRemovalFails() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord merged = advanceUntilPhase(workflow, queuedRecord(), Phase.DONE);
+        IssueRecord merged = advanceUntilState(workflow, queuedRecord(), "done");
         run(clone, "worktree", "lock", worktree().toString());
 
         IssueRecord record = workflow.advance(merged);
 
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(record.waitReason()).isEmpty();
         assertThat(record.notes()).containsExactly(
                 "A step after the merge failed: com.meterian.factory.git.GitException. The change is merged.");
@@ -1119,7 +1118,7 @@ class IssueWorkflowTest {
     void blocksWhenTheFixPromptIsMissing() throws ApiKeyDetectedException, IOException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("false");
-        IssueRecord inFixLoop = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        IssueRecord inFixLoop = advanceUntilState(workflow, queuedRecord(), "build");
         inFixLoop = workflow.advance(inFixLoop);
         Files.delete(worktree().resolve(".factory-work/fix-prompt.md"));
 
@@ -1139,7 +1138,7 @@ class IssueWorkflowTest {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("a.txt", "main\n");
         String mergedUpstream = run(clone, "rev-parse", "main");
         IssueRecord inFixLoop = workflow.advance(beforeMerge);
@@ -1149,12 +1148,12 @@ class IssueWorkflowTest {
 
         IssueRecord fixed = workflow.advance(inFixLoop);
 
-        assertThat(fixed.phase()).isEqualTo(Phase.BUILD);
+        assertThat(fixed.state()).isEqualTo("build");
         assertThat(run(worktree(), "rev-parse", "HEAD^")).isEqualTo(mergedUpstream);
         assertThat(run(worktree(), "diff", "--name-only", mergedUpstream + "..HEAD")).isEqualTo("a.txt");
         assertThat(run(worktree(), "show", "HEAD:z.txt")).isEqualTo("original");
-        IssueRecord merged = advanceUntilPhase(workflow, fixed, Phase.DONE);
-        assertThat(merged.phase()).isEqualTo(Phase.DONE);
+        IssueRecord merged = advanceUntilState(workflow, fixed, "done");
+        assertThat(merged.state()).isEqualTo("done");
         assertThat(run(worktree(), "show", "HEAD:z.txt")).isEqualTo("issue 8");
         assertThat(run(worktree(), "diff", "--name-only", "origin/main..HEAD")).isEqualTo("a.txt");
     }
@@ -1163,7 +1162,7 @@ class IssueWorkflowTest {
     void finishesAConflictMergeCommitAfterACrash() throws ApiKeyDetectedException, IOException {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord beforeMerge = advanceUntilPhase(workflow, queuedRecord(), Phase.MERGE);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
         moveTheBase("a.txt", "main\n");
         String mergedUpstream = run(clone, "rev-parse", "main");
         IssueRecord inFixLoop = workflow.advance(beforeMerge);
@@ -1173,7 +1172,7 @@ class IssueWorkflowTest {
 
         IssueRecord record = workflow.advance(inFixLoop);
 
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.state()).isEqualTo("build");
         assertThat(record.conflictedPaths()).isEmpty();
         assertThat(agent.requests()).hasSize(6);
         assertThat(run(worktree(), "rev-parse", "HEAD^")).isEqualTo(mergedUpstream);
@@ -1252,7 +1251,7 @@ class IssueWorkflowTest {
         assertThat(continued.live()).isEmpty();
         assertThat(continued.afterConversation()).isTrue();
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
-        assertThat(continued.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(continued.state()).isEqualTo("implement");
         assertThat(continued.waitReason()).isEmpty();
         assertThat(worktree().resolve(".factory-work/question.md")).doesNotExist();
         assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
@@ -1266,7 +1265,7 @@ class IssueWorkflowTest {
         assertThat(secondRun.prompt())
                 .isEqualTo(new PromptLibrary(PromptTexts.from(BuiltInDefinition.load()), "main").continueAfterConversation());
         assertThat(implemented.afterConversation()).isFalse();
-        assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
+        assertThat(implemented.state()).isEqualTo("build");
         assertThat(advanceUntilWaiting(workflow, implemented).status()).isEqualTo(IssueStatus.DONE);
     }
 
@@ -1280,7 +1279,7 @@ class IssueWorkflowTest {
 
         IssueRecord continued = workflow.advance(live);
 
-        assertThat(continued.phase()).isEqualTo(Phase.BUILD);
+        assertThat(continued.state()).isEqualTo("build");
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_PROGRESS);
         assertThat(continued.waitReason()).isEmpty();
         assertThat(continued.reviews()).isEmpty();
@@ -1320,14 +1319,14 @@ class IssueWorkflowTest {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = blockAtTheFixLoopLimitInReview(workflow);
         assertThat(blocked.waitReason()).contains(WaitReason.FIX_LOOP_LIMIT);
-        assertThat(blocked.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(blocked.state()).isEqualTo("review");
         IssueRecord live = workflow.enterLiveMode(blocked);
         liveSessions.requestContinue(ISSUE);
 
         IssueRecord continued = workflow.advance(live);
 
         assertThat(continued.status()).isEqualTo(IssueStatus.IN_REVIEW);
-        assertThat(continued.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(continued.state()).isEqualTo("review");
         assertThat(continued.waitReason()).isEmpty();
         assertThat(continued.fixLoops()).isEqualTo(blocked.fixLoops());
     }
@@ -1402,7 +1401,7 @@ class IssueWorkflowTest {
         IssueRecord continued = workflow.advance(failed);
 
         assertThat(continued.live()).isEmpty();
-        assertThat(continued.phase()).isEqualTo(Phase.BUILD);
+        assertThat(continued.state()).isEqualTo("build");
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
     }
 
@@ -1425,7 +1424,7 @@ class IssueWorkflowTest {
             record = workflow.advance(record);
         }
 
-        assertThat(built.phase()).isEqualTo(Phase.BUILD);
+        assertThat(built.state()).isEqualTo("build");
         assertThat(built.afterConversation()).isFalse();
         assertThat(agent.requests()).hasSize(6);
         assertThat(agent.requests().get(5).prompt()).contains("Missing input check")
@@ -1501,7 +1500,7 @@ class IssueWorkflowTest {
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
         assertThat(sessionOpenInThePhase).isFalse();
         assertThat(agent.requests()).hasSize(1);
-        assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
+        assertThat(implemented.state()).isEqualTo("build");
         assertThat(built.notes()).filteredOn(UNKNOWN_SESSION_NOTE::equals).hasSize(1);
         assertThat(readRecordFromGitHub().notes()).filteredOn(UNKNOWN_SESSION_NOTE::equals).hasSize(1);
     }
@@ -1524,7 +1523,7 @@ class IssueWorkflowTest {
 
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
         assertThat(agent.requests()).hasSize(1);
-        assertThat(implemented.phase()).isEqualTo(Phase.BUILD);
+        assertThat(implemented.state()).isEqualTo("build");
     }
 
     @Test
@@ -1537,7 +1536,7 @@ class IssueWorkflowTest {
         for (int step = 0; step < 10 && record.fixLoops() == 0; step++) {
             record = workflow.advance(record);
         }
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("implement");
         IssueRecord live = workflow.enterLiveMode(record);
         liveSessions.requestContinue(ISSUE);
         IssueRecord continued = workflow.advance(live);

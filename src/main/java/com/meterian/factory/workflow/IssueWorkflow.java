@@ -28,7 +28,8 @@ import com.meterian.factory.prompt.RiskResult;
 import com.meterian.factory.prompt.RiskResultReader;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
+import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
@@ -162,7 +163,7 @@ public final class IssueWorkflow {
                 return liveMode.isContinueRequested(record)
                         ? liveMode.continueWork(issue, record, layout.worktree(record.issueNumber())) : record;
             }
-            boolean checksApproval = isWaiting(record) && record.phase() != Phase.DONE;
+            boolean checksApproval = isWaiting(record) && record.step() != StepType.FINISH;
             return checksApproval ? approvalCheck.continueAfterApproval(issue, record) : runPhase(issue, record);
         } catch (PhaseRefusedException refused) {
             return record;
@@ -175,7 +176,7 @@ public final class IssueWorkflow {
 
     /** A merged change is final, so a failure after the merge never blocks the issue. */
     private IssueRecord failStep(IssueRecord record, String reason, Exception exception) {
-        if (record.phase() == Phase.DONE) {
+        if (record.step() == StepType.FINISH) {
             return MergedIssue.noteFailureAfterTheMerge(record, exception);
         }
         return block(record, reason);
@@ -186,27 +187,27 @@ public final class IssueWorkflow {
             return issueTextCheck.waitForTheOwner(record);
         }
         Path worktree = layout.worktree(record.issueNumber());
-        return switch (record.phase()) {
+        return switch (record.step()) {
             case PREPARE -> prepare(record, worktree);
-            case IMPLEMENT -> implement(issue, record, worktree);
+            case AGENT -> implement(issue, record, worktree);
             case BUILD -> build(issue, record, worktree);
-            case REVIEW -> review(issue, record, worktree);
+            case REVIEWS -> review(issue, record, worktree);
             case RISK -> assessRisk(issue, record, worktree);
-            case MERGE -> merge(issue, record, worktree);
-            case DONE -> finish(issue, record, worktree);
+            case MERGE_GATE -> merge(issue, record, worktree);
+            case FINISH -> finish(issue, record, worktree);
         };
     }
 
     private IssueRecord prepare(IssueRecord record, Path worktree) {
         workspace.create(record.issueNumber(), worktree);
-        return record.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
+        return LegacyPhase.IMPLEMENT.applyTo(record.withStatus(IssueStatus.IN_PROGRESS));
     }
 
     private IssueRecord implement(Issue issue, IssueRecord record, Path worktree)
             throws AgentException, ApiKeyDetectedException {
         if (conflictResolution.hasUnfinishedMergeCommit(worktree)) {
             conflictResolution.finishMergeCommit(worktree, ChangeTitle.describe(issue));
-            return record.withoutConflictedPaths().withPhase(Phase.BUILD);
+            return LegacyPhase.BUILD.applyTo(record.withoutConflictedPaths());
         }
         if (!phaseRunner.mayStartPhase()) {
             return record;
@@ -235,11 +236,11 @@ public final class IssueWorkflow {
             return commitSolvedConflict(issue, ran, worktree);
         }
         if (!git.hasUncommittedChanges(worktree)) {
-            return hasUnbuiltCommit(record, worktree) ? ran.withPhase(Phase.BUILD)
+            return hasUnbuiltCommit(record, worktree) ? LegacyPhase.BUILD.applyTo(ran)
                     : block(ran, "The agent made no change.");
         }
         git.commitAll(worktree, ChangeTitle.describe(issue));
-        return ran.withPhase(Phase.BUILD);
+        return LegacyPhase.BUILD.applyTo(ran);
     }
 
     /**
@@ -260,7 +261,7 @@ public final class IssueWorkflow {
             return fixLoop.start(record, worktree, List.of(remainingMarkers.get()));
         }
         conflictResolution.commitAsOneCommit(worktree, ChangeTitle.describe(issue));
-        return record.withoutConflictedPaths().withPhase(Phase.BUILD);
+        return LegacyPhase.BUILD.applyTo(record.withoutConflictedPaths());
     }
 
     private IssueRecord build(Issue issue, IssueRecord record, Path worktree) {
@@ -287,7 +288,7 @@ public final class IssueWorkflow {
         if (!published.isOnGitHub()) {
             return forwardCheckFailure.count(issue, record, built, headCommit, treeHash);
         }
-        return built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.REVIEW);
+        return LegacyPhase.REVIEW.applyTo(built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW));
     }
 
     /** The build passed for this tree and only the forward failed, so the build does not run again. */
@@ -316,7 +317,7 @@ public final class IssueWorkflow {
             return fixLoop.start(reviewed, worktree, outcome.findings());
         }
         String patchId = git.patchId(worktree, mergeTargetReference());
-        return reviewed.withReviewedTree(treeHash, patchId).withReviewedHeadCommit(headCommit).withPhase(Phase.RISK);
+        return LegacyPhase.RISK.applyTo(reviewed.withReviewedTree(treeHash, patchId).withReviewedHeadCommit(headCommit));
     }
 
     private IssueRecord assessRisk(Issue issue, IssueRecord record, Path worktree)
@@ -334,12 +335,12 @@ public final class IssueWorkflow {
             return retryReviewRound(record);
         }
         RiskResult risk = RiskResultReader.read(worktree);
-        return record.withoutFailedReviewRounds().withRisk(risk.risk(), risk.small()).withPhase(Phase.MERGE);
+        return LegacyPhase.MERGE.applyTo(record.withoutFailedReviewRounds().withRisk(risk.risk(), risk.small()));
     }
 
     private IssueRecord merge(Issue issue, IssueRecord record, Path worktree) {
         if (isMergedOnGitHub(record)) {
-            return record.withBuiltTree(git.treeHash(worktree)).withPhase(Phase.DONE);
+            return LegacyPhase.DONE.applyTo(record.withBuiltTree(git.treeHash(worktree)));
         }
         reviewedCommit.restoreRebasedHead(worktree, record);
         boolean isApproved = ownerApproval.isGiven(issue);
@@ -358,9 +359,9 @@ public final class IssueWorkflow {
     private IssueRecord mergePullRequest(Issue issue, IssueRecord record, Path worktree) {
         MergeResult result = merger.merge(worktree, record);
         return switch (result) {
-            case MergeResult.Merged merged -> merged.note().map(record::withNote).orElse(record)
-                    .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()).withPhase(Phase.DONE);
-            case MergeResult.NeedsNewReviews needsNewReviews -> record.withoutReviews().withPhase(Phase.BUILD);
+            case MergeResult.Merged merged -> LegacyPhase.DONE.applyTo(merged.note().map(record::withNote).orElse(record)
+                    .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()));
+            case MergeResult.NeedsNewReviews needsNewReviews -> LegacyPhase.BUILD.applyTo(record.withoutReviews());
             case MergeResult.NeedsFix needsFix -> fixLoop.startForTheMerge(record, worktree, needsFix);
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> record;

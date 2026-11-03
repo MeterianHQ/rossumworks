@@ -5,7 +5,7 @@ import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.LegacyPhase;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Path;
 import java.util.List;
@@ -33,7 +33,7 @@ final class FixLoop {
         }
         new FactoryFolder(worktree).writeFixPrompt(prompts.fix(findings));
         ownerApproval.withdraw(counted.issueNumber());
-        return counted.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
+        return LegacyPhase.IMPLEMENT.applyTo(counted.withStatus(IssueStatus.IN_PROGRESS));
     }
 
     /** Opens a merge with the target in the worktree, so that the agent solves a conflict in the files. */

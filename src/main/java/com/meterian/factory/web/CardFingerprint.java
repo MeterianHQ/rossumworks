@@ -28,7 +28,7 @@ public final class CardFingerprint {
         return String.join("\n",
                 record.status().labelName(),
                 record.waitReason().map(Enum::name).orElse(""),
-                record.phase().name(),
+                record.state(),
                 Integer.toString(record.fixLoops()),
                 record.reviewedTreeHash().orElse(""),
                 record.issueTextHash().orElse(""));
