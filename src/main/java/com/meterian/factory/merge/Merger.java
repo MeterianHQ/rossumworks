@@ -39,7 +39,7 @@ public final class Merger {
     private final ReviewedCommit reviewedCommit;
 
     /**
-     * @param clone             the clone of the target, whose lock the merges share
+     * @param clone             the clone of the repository, whose lock the merges share
      * @param mergeTargetBranch the merge target of the definition of the issues
      * @param build             the build of the definition of the issues, with the variables of the machine
      */

@@ -1,31 +1,19 @@
-target:
-  owner: MeterianHQ
-  name: heidi-fix
-  clone: /home/bbossola/projects/rocksolid/code/heidi-fix
-  build:
-    command: ./mvnw verify
-    environment:
-      LANG: C.utf8
-      JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
-merge:
-  target-branch: main
+repository: MeterianHQ/heidi-fix
+work-directory: /home/bbossola/.claude-ai-factory/work
+gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git
+# live-directory: /path/to/live         # optional, default: <work-directory>/live
 limits:                 # all keys optional
   parallel-issues: 2
-  fix-loops: 2
   poll-interval: 60s
   usage-threshold: 0.90
-accounts:
-  allowed: [bbossola]
+build:                  # optional: the variables of this machine; a value here replaces the value of .factory
+  environment:
+    JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
 isolation:              # optional
   mode: same-user
 claude:                 # optional
   command: claude
-  allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(git status*)", "Bash(./mvnw *)"]
   disallowed-tools: ["Bash(git push*)", "Bash(gh *)", WebFetch, WebSearch]
-work-directory: /home/bbossola/.claude-ai-factory/work
-gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git
-# prompts-directory: /path/to/prompts   # optional
-# live-directory: /path/to/live         # optional, default: <work-directory>/live
 # live:                 # optional
 #   terminal-command: [gnome-terminal, --]   # the worker adds the tmux attach command at the end
 # web:                  # optional; without it the worker serves no page

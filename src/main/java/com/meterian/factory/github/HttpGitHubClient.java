@@ -3,7 +3,7 @@ package com.meterian.factory.github;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.state.IssueStatus;
 import java.io.IOException;
 import java.net.URI;
@@ -50,24 +50,24 @@ public final class HttpGitHubClient implements GitHubClient {
     private final ConditionalRequestCache conditionalCache = new ConditionalRequestCache(CACHED_LIST_LIMIT);
     private final StatusLabelMemory statusLabels = new StatusLabelMemory();
 
-    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient) {
-        this(apiBase, token, target, httpClient, Clock.systemUTC());
+    public HttpGitHubClient(URI apiBase, String token, RepositoryName repository, HttpClient httpClient) {
+        this(apiBase, token, repository, httpClient, Clock.systemUTC());
     }
 
-    public HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient, Clock clock) {
-        this(apiBase, token, target, httpClient, REQUEST_TIMEOUT, clock);
+    public HttpGitHubClient(URI apiBase, String token, RepositoryName repository, HttpClient httpClient, Clock clock) {
+        this(apiBase, token, repository, httpClient, REQUEST_TIMEOUT, clock);
     }
 
-    HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
+    HttpGitHubClient(URI apiBase, String token, RepositoryName repository, HttpClient httpClient,
                      Duration requestTimeout) {
-        this(apiBase, token, target, httpClient, requestTimeout, Clock.systemUTC());
+        this(apiBase, token, repository, httpClient, requestTimeout, Clock.systemUTC());
     }
 
-    HttpGitHubClient(URI apiBase, String token, TargetRepository target, HttpClient httpClient,
+    HttpGitHubClient(URI apiBase, String token, RepositoryName repository, HttpClient httpClient,
                      Duration requestTimeout, Clock clock) {
         this.apiBase = apiBase;
         this.token = token;
-        this.repositoryPath = "/repos/" + target.fullName();
+        this.repositoryPath = "/repos/" + repository.fullName();
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
         this.requestCounter = new GitHubRequestCounter(repositoryPath);

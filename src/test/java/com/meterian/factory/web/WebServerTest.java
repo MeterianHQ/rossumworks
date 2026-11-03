@@ -8,8 +8,8 @@ import com.meterian.factory.board.BoardState;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.configuration.WebSettings;
@@ -142,13 +142,10 @@ class WebServerTest {
 
     private PageModelSource createModelSource() {
         Path workDirectory = temporaryDirectory.resolve("work");
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
-                ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
-                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"),
+                workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration,

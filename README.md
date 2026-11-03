@@ -7,7 +7,31 @@ Run `./mvnw verify`. The build needs a JDK 21 or later.
 
 ## Configuration
 
-Copy `factory.example.yaml` and change the values. The factory reads this file at start.
+Copy `factory.example.yaml` and change the values. The factory reads this file at start. The file holds only
+the facts of this machine:
+
+- `repository`: the repository on GitHub, as `owner/name`.
+- `work-directory`: the folder of the worker. The worker clones the repository into `<work-directory>/repository`
+  at the start, when this folder does not exist. A clone that exists stays as it is.
+- `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
+- `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`.
+- `build.environment`: the variables of this machine, for example `JAVA_HOME`.
+- `isolation`, `claude`, `live`, and `web`.
+
+The workflow, the build, the merge target, the accounts, and the allowed tools are in the folder `.factory`
+of the repository. A file with the old form (the keys `target`, `merge`, `accounts`, `prompts-directory`,
+`limits.fix-loops`, or `claude.allowed-tools`) does not start. The message points to
+`claude-ai-factory create`, which writes the new configuration.
+
+## .factory
+
+The folder `.factory` of the repository holds the definition of the factory: the workflow, the prompts, the
+build, the limits, the merge target, the allowed tools, and the allowed accounts. The main file is
+`.factory/factory.yaml`. The file [`src/main/resources/factory/factory.yaml`](src/main/resources/factory/factory.yaml)
+is the example of the format.
+
+Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
+Copy the folder `src/main/resources/factory/` to `.factory` and fill in `accounts.allowed`.
 
 ## The workflow definition
 
@@ -25,10 +49,8 @@ contains the built-in definition in `src/main/resources/factory`, as an example 
 - Without a version that loads, the worker takes no new issue.
 - A record without a commit, from before the definitions, runs with the built-in definition.
 
-In the configuration, `target.build.environment` gives the variables of this machine, for example
-`JAVA_HOME`. A value of the machine replaces a value of `.factory` with the same name. The keys
-`target.build.command`, `merge.target-branch`, `limits.fix-loops`, `accounts.allowed`, and
-`claude.allowed-tools` of the configuration have no effect: the definition gives these values.
+In the configuration, `build.environment` gives the variables of this machine, for example `JAVA_HOME`. A
+value of the machine replaces a value of `.factory` with the same name.
 
 ## Setup
 
@@ -136,7 +158,7 @@ After `/factory:continue`:
 - If the files changed in live mode, the build and the four reviews run again.
 - `/factory:continue` is never a merge approval. Only the label `factory:approve` approves a merge.
 - A blocked issue starts again in the phase where it stopped.
-- In the phase IMPLEMENT, the agent continues with the continue prompt.
+- In the state `implement`, the agent continues with the continue prompt.
 - The fix-loop count does not go back to 0.
 
 ### Files and security

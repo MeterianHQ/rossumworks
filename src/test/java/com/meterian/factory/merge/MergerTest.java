@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.build.BuildSettings;
-import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
@@ -63,9 +62,7 @@ class MergerTest {
         worktree = temporaryDirectory.resolve("worktree");
         git.addWorktree(clone, worktree, BRANCH, "origin/main");
         buildLog = temporaryDirectory.resolve("builds.txt");
-        TargetRepository target = new TargetRepository("owner", "name", clone, "echo ran >> " + buildLog,
-                Map.of());
-        merger = createMerger(target);
+        merger = createMerger("echo ran >> " + buildLog, Map.of());
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
         gitHub.squashMergeInto(clone);
         gitHub.readPullRequestHeadsFrom(github);
@@ -104,9 +101,7 @@ class MergerTest {
         String command = "echo ran >> " + buildLog + "; "
                 + (onlyOnce ? "if [ ! -e " + marker + " ]; then touch " + marker + "; " + movesTheBase + "; fi"
                         : movesTheBase);
-        TargetRepository moving = new TargetRepository("owner", "name", clone, command,
-                Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
-        return createMerger(moving);
+        return createMerger(command, Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
     }
 
     private static void waitUntilBlockedOrEnded(Thread thread) {
@@ -189,8 +184,7 @@ class MergerTest {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
-        TargetRepository failing = new TargetRepository("owner", "name", clone, "echo broken; exit 1", Map.of());
-        Merger failingMerger = createMerger(failing);
+        Merger failingMerger = createMerger("echo broken; exit 1", Map.of());
 
         MergeResult result = failingMerger.merge(worktree, record);
 
@@ -429,8 +423,7 @@ class MergerTest {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
-        TargetRepository dirtying = new TargetRepository("owner", "name", clone, "echo x > junk.txt", Map.of());
-        Merger dirtyingMerger = createMerger(dirtying);
+        Merger dirtyingMerger = createMerger("echo x > junk.txt", Map.of());
 
         MergeResult result = dirtyingMerger.merge(worktree, record);
 
@@ -522,8 +515,8 @@ class MergerTest {
         assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
-    private Merger createMerger(TargetRepository target) {
-        return new Merger(git, gitHub, new BuildRunner(), target.cloneDirectory(), "main",
-                new BuildSettings(target.buildCommand(), target.buildEnvironment()), gatekeeper, Duration.ZERO);
+    private Merger createMerger(String buildCommand, Map<String, String> buildEnvironment) {
+        return new Merger(git, gitHub, new BuildRunner(), clone, "main",
+                new BuildSettings(buildCommand, buildEnvironment), gatekeeper, Duration.ZERO);
     }
 }

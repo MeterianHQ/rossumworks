@@ -15,8 +15,8 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
@@ -88,10 +88,10 @@ class IssueWorkflowTest {
     @BeforeEach
     void createRepositoriesAndIssue() {
         origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget("true").sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
@@ -110,8 +110,8 @@ class IssueWorkflowTest {
         return queuedRecord(ISSUE);
     }
 
-    private TargetRepository createTarget(String buildCommand) {
-        return new TargetRepository("MeterianHQ", "sample", clone, buildCommand, Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private IssueWorkflow createWorkflow(String buildCommand) {
@@ -119,12 +119,10 @@ class IssueWorkflowTest {
     }
 
     private IssueWorkflow createWorkflow(String buildCommand, DefinitionLookup definitions) {
-        TargetRepository target = createTarget(buildCommand);
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(2, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), WorkerLimits.createDefaults(), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         DefinitionLookup withTheBuildOfTheTest =
                 record -> DefinitionCommits.withBuild(definitions.definitionOf(record), buildCommand);
@@ -171,14 +169,14 @@ class IssueWorkflowTest {
     /** The post-receive hook of the gatekeeper forwards to a repository that does not exist. */
     private void breakTheForward() {
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget("true").sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         run(gatekeeper, "config", "--unset", "url." + githubRepository + ".insteadOf");
         run(gatekeeper, "config", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf", targetUrl);
     }
 
     private void repairTheForward() {
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget("true").sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         run(gatekeeper, "config", "--unset", "url." + temporaryDirectory.resolve("missing.git") + ".insteadOf");
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
     }
@@ -1135,8 +1133,8 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksOnAGitFailure() throws ApiKeyDetectedException {
-        clone = temporaryDirectory.resolve("missing-clone");
+    void blocksOnAGitFailure() throws ApiKeyDetectedException, IOException {
+        Files.move(clone, temporaryDirectory.resolve("moved-clone"));
 
         IssueRecord record = createWorkflow("true").advance(queuedRecord());
 

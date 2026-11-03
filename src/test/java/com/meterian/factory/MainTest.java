@@ -6,11 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
@@ -26,6 +27,7 @@ import com.meterian.factory.workflow.RequestReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.lang.reflect.Proxy;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.URI;
@@ -36,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,7 +68,69 @@ class MainTest {
                 },
                 (configuration, token, errorStream) -> {
                     throw new AssertionError("The test reached the worker");
+                }, createRecordingGit(new ArrayList<>()));
+    }
+
+    /** A git that records each clone and does nothing else, so that a test never reaches the network. */
+    private static Git createRecordingGit(List<String> clones) {
+        return (Git) Proxy.newProxyInstance(Git.class.getClassLoader(), new Class<?>[] {Git.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("cloneRepository")) {
+                        clones.add(arguments[0] + " -> " + arguments[1]);
+                        Files.createDirectories((Path) arguments[1]);
+                        return null;
+                    }
+                    throw new AssertionError("The test used git." + method.getName());
                 });
+    }
+
+    private Map<String, String> createEnvironmentWithAllCommands() throws IOException {
+        Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
+        for (String command : List.of("claude", "git", "setsid", "kill", "tmux", "jq")) {
+            Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
+            assertThat(file.toFile().setExecutable(true)).isTrue();
+        }
+        return Map.of("PATH", binDirectory.toString(), "FACTORY_GITHUB_TOKEN", "test-token");
+    }
+
+    @Test
+    void clonesTheRepositoryWhenTheCloneIsMissing() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Path clone = temporaryDirectory.resolve("work").resolve("repository");
+        List<String> clones = new ArrayList<>();
+        List<Path> startedWithClone = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, token, errorStream) -> {
+                    startedWithClone.add(loaded.cloneDirectory());
+                    assertThat(clone).isDirectory();
+                    return 0;
+                }, createRecordingGit(clones));
+
+        assertThat(exitCode).isZero();
+        assertThat(clones).containsExactly("git@github.com:MeterianHQ/sample.git -> " + clone);
+        assertThat(startedWithClone).containsExactly(clone);
+    }
+
+    @Test
+    void keepsTheCloneThatExists() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Files.createDirectories(temporaryDirectory.resolve("work").resolve("repository"));
+        List<String> clones = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, token, errorStream) -> 0, createRecordingGit(clones));
+
+        assertThat(exitCode).isZero();
+        assertThat(clones).isEmpty();
     }
 
     private String errorText() {
@@ -75,22 +140,13 @@ class MainTest {
     private Path writeConfiguration(String claudeCommand) throws IOException {
         Path file = temporaryDirectory.resolve("factory.yaml");
         Files.writeString(file, """
-                target:
-                  owner: MeterianHQ
-                  name: sample
-                  clone: %s
-                  build:
-                    command: "true"
-                merge:
-                  target-branch: main
-                accounts:
-                  allowed: [bbossola]
+                repository: MeterianHQ/sample
                 claude:
                   command: %s
                 work-directory: %s
                 gatekeeper-directory: %s
-                """.formatted(temporaryDirectory.resolve("clone"), claudeCommand,
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git")));
+                """.formatted(claudeCommand, temporaryDirectory.resolve("work"),
+                temporaryDirectory.resolve("gatekeeper.git")));
         return file;
     }
 
@@ -291,11 +347,10 @@ class MainTest {
 
     private FactoryConfiguration configuration(Optional<WebSettings> web) {
         Path workDirectory = temporaryDirectory.resolve("work");
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        return new FactoryConfiguration(target, "main", new Limits(2, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), workDirectory,
-                temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(), temporaryDirectory.resolve("live"),
+        return new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"), workDirectory,
+                temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(2, Duration.ofSeconds(60), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(),
                 web, FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
@@ -328,7 +383,7 @@ class MainTest {
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
 
-        Main.createPhoneLinkSender(gitHub, configuration::allowedAccounts).sendLink(12, "https://claude.ai/code/session_abc123");
+        Main.createPhoneLinkSender(gitHub, () -> List.of("bbossola")).sendLink(12, "https://claude.ai/code/session_abc123");
 
         assertThat(gitHub.commentsOf(12)).singleElement().extracting(IssueComment::body)
                 .isEqualTo("The live conversation is open: https://claude.ai/code/session_abc123"
@@ -341,7 +396,7 @@ class MainTest {
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                 new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                Main.createPhoneLinkSender(new FakeGitHubClient(), configuration::allowedAccounts), BUILT_IN,
+                Main.createPhoneLinkSender(new FakeGitHubClient(), () -> List.of("bbossola")), BUILT_IN,
                 Optional::empty, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
@@ -355,7 +410,7 @@ class MainTest {
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                     new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                    Main.createPhoneLinkSender(new FakeGitHubClient(), configuration::allowedAccounts), BUILT_IN,
+                    Main.createPhoneLinkSender(new FakeGitHubClient(), () -> List.of("bbossola")), BUILT_IN,
                     Optional::empty, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -370,12 +425,12 @@ class MainTest {
         Main.SharedState shared = Main.SharedState.create(configuration);
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
-        RequestReader requests = Main.createRequestReader(gitHub, configuration::allowedAccounts, "factory-bot", shared);
+        RequestReader requests = Main.createRequestReader(gitHub, () -> List.of("bbossola"), "factory-bot", shared);
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
                         "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, configuration::allowedAccounts),
+                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, () -> List.of("bbossola")),
                 BUILT_IN, Optional::empty, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);

@@ -79,6 +79,9 @@ public interface Git {
 
     void excludeFactoryFolder(Path worktree);
 
+    /** Clones the repository from the URL into the directory. The parent of the directory must exist. */
+    void cloneRepository(String url, Path directory);
+
     /** Sets the URL of the remote. It adds the remote or replaces the URL. */
     void setRemote(Path repository, String name, String url);
 }

@@ -13,8 +13,8 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
@@ -107,6 +107,8 @@ class GitHubRequestBudgetTest {
     };
     private FakeGitHubServer server;
     private HttpGitHubClient gitHub;
+    private static final String BUILD_COMMAND = "true";
+
     private Path clone;
     private Worker worker;
 
@@ -118,17 +120,17 @@ class GitHubRequestBudgetTest {
     @BeforeEach
     void createRepositoriesAndGitHub() {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget().sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
         fakeGitHub.setAuthenticatedLogin(WORKER_LOGIN);
         fakeGitHub.readPullRequestHeadsFrom(githubRepository);
         server = new FakeGitHubServer(fakeGitHub, "MeterianHQ", "sample");
-        gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createTarget(), HttpClient.newHttpClient(), clock);
+        gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createRepositoryName(), HttpClient.newHttpClient(), clock);
         fakeGitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         fakeGitHub.addLabelBy(ISSUE, "factory", "bbossola");
     }
@@ -149,22 +151,21 @@ class GitHubRequestBudgetTest {
         WORKER_LOGGER.setLevel(Level.OFF);
     }
 
-    private TargetRepository createTarget() {
-        return new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
         BoardState board = new BoardState(clock);
-        FactoryConfiguration configuration = new FactoryConfiguration(createTarget(), "main",
-                new Limits(1, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), new WorkerLimits(1, Duration.ofSeconds(60), 0.90), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
-        commitDefinition(clone, mainFileFor(configuration.target().buildCommand(), configuration.allowedAccounts()));
+        commitDefinition(clone, mainFileFor(BUILD_COMMAND, List.of("bbossola")));
         DefinitionVersions versions = new DefinitionVersions(git, clone, "main",
-                builtInWithBuild(configuration.target().buildCommand()));
+                builtInWithBuild(BUILD_COMMAND));
         RequestReader requests = new RequestReader(gitHub, versions::allowedAccounts);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,

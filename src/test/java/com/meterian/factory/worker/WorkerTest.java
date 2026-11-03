@@ -17,8 +17,8 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
@@ -103,6 +103,7 @@ class WorkerTest {
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final List<ExecutorService> executors = new ArrayList<>();
+    private String buildCommand = "true";
     private Path clone;
 
     /** The tests cause the failures on purpose, so the log of the worker is only noise. */
@@ -114,10 +115,10 @@ class WorkerTest {
     @BeforeEach
     void createRepositoriesAndIssue() {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget().sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
@@ -139,24 +140,15 @@ class WorkerTest {
         gitHub.addLabelBy(number, FACTORY_LABEL, "bbossola");
     }
 
-    private TargetRepository createTarget() {
-        return createTarget("true");
-    }
-
-    private TargetRepository createTarget(String buildCommand) {
-        return new TargetRepository("MeterianHQ", "sample", clone, buildCommand, Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval) {
-        return createConfiguration(parallelIssues, pollInterval, "true");
-    }
-
-    private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval, String buildCommand) {
-        return new FactoryConfiguration(createTarget(buildCommand), "main",
-                new Limits(parallelIssues, 2, pollInterval, 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        return new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), new WorkerLimits(parallelIssues, pollInterval, 0.90), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
@@ -170,12 +162,12 @@ class WorkerTest {
 
     /** The default branch gets a .factory with the build command and the accounts of the configuration. */
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
-        commitDefinition(clone, mainFileFor(configuration.target().buildCommand(), configuration.allowedAccounts()));
+        commitDefinition(clone, mainFileFor(buildCommand, List.of("bbossola")));
         return createWorker(agent, configuration, board, createVersions(configuration));
     }
 
     private DefinitionVersions createVersions(FactoryConfiguration configuration) {
-        return new DefinitionVersions(git, clone, "main", builtInWithBuild(configuration.target().buildCommand()));
+        return new DefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
     }
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board,
@@ -814,8 +806,9 @@ class WorkerTest {
     @Test
     void aBlockStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
         gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
@@ -833,8 +826,9 @@ class WorkerTest {
     @Test
     void shutDownStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
 

@@ -23,9 +23,9 @@ record VersionServices(PromptLibrary prompts, BuildSettings build, List<String> 
     static VersionServices create(FactoryDefinition definition, StepServices services) {
         FactoryConfiguration configuration = services.configuration();
         String mergeTargetBranch = definition.mergeTargetBranch();
-        Path clone = configuration.target().cloneDirectory();
+        Path clone = configuration.cloneDirectory();
         Path gatekeeperDirectory = configuration.gatekeeperDirectory().toAbsolutePath();
-        BuildSettings build = BuildSettings.combine(definition.build(), configuration.target().buildEnvironment());
+        BuildSettings build = BuildSettings.combine(definition.build(), configuration.buildEnvironment());
         PromptLibrary prompts = new PromptLibrary(PromptTexts.from(definition), mergeTargetBranch);
         Merger merger = new Merger(services.git(), services.gitHub(), services.buildRunner(), clone,
                 mergeTargetBranch, build, gatekeeperDirectory, services.mergeRetryDelay());

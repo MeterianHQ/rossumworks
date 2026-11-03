@@ -68,7 +68,7 @@ public final class PageModelSource {
                 configuration.limits().parallelIssues(), readFixLoopLimits(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine,
+                readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
                 definitionWarning.get());
     }
 

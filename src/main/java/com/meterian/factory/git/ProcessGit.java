@@ -50,6 +50,11 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public void cloneRepository(String url, Path directory) {
+        runOverTheNetwork(directory.toAbsolutePath().getParent(), "clone", url, directory.toString());
+    }
+
+    @Override
     public void addWorktree(Path clone, Path worktree, String branch, String startPoint) {
         run(clone, "worktree", "add", "-B", branch, worktree.toString(), startPoint);
     }

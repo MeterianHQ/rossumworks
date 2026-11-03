@@ -165,19 +165,20 @@ public final class Main {
     }
 
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors) {
-        return run(arguments, environment, errors, Main::readTokenFromGh, Main::runWorker);
+        return run(arguments, environment, errors, Main::readTokenFromGh, Main::runWorker, new ProcessGit());
     }
 
     /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors, TokenSource ghToken,
-                   WorkerStarter workerStarter) {
+                   WorkerStarter workerStarter, Git git) {
         try {
             Path configurationFile = readConfigurationPath(arguments);
             verifyNoApiKey(environment);
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
-            Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.target().sshUrl());
+            Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.repository().sshUrl());
             String token = readToken(environment, ghToken);
+            cloneRepositoryIfMissing(configuration, git);
             return workerStarter.start(configuration, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
@@ -187,6 +188,20 @@ public final class Main {
             errors.println("The factory was interrupted.");
             return EXIT_FAILURE;
         }
+    }
+
+    /** The worker owns its clone. A clone that exists stays as it is. */
+    static void cloneRepositoryIfMissing(FactoryConfiguration configuration, Git git) {
+        Path clone = configuration.cloneDirectory();
+        if (Files.exists(clone)) {
+            return;
+        }
+        try {
+            Files.createDirectories(clone.toAbsolutePath().getParent());
+        } catch (IOException exception) {
+            throw new GitException("Cannot create the work folder " + clone.getParent(), exception);
+        }
+        git.cloneRepository(configuration.repository().sshUrl(), clone);
     }
 
     static Path readConfigurationPath(String[] arguments) throws StartupException {
@@ -308,7 +323,7 @@ public final class Main {
     private static int runWorker(FactoryConfiguration configuration, String token, PrintStream errors)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
-        GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
+        GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
@@ -354,7 +369,7 @@ public final class Main {
      */
     private static DefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
             throws StartupException {
-        Path clone = configuration.target().cloneDirectory();
+        Path clone = configuration.cloneDirectory();
         try {
             return new DefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
         } catch (GitException exception) {

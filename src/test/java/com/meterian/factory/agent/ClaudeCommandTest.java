@@ -3,6 +3,7 @@ package com.meterian.factory.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.testing.TestTools;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +78,6 @@ class ClaudeCommandTest {
     }
 
     private PhaseRequest requestOf(boolean newSession) {
-        return new PhaseRequest(7, sessionId, newSession, Path.of("."), "Fix it", settings.allowedTools());
+        return new PhaseRequest(7, sessionId, newSession, Path.of("."), "Fix it", TestTools.ALLOWED_TOOLS);
     }
 }

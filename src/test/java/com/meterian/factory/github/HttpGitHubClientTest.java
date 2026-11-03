@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.testing.MutableClock;
 import com.sun.net.httpserver.HttpServer;
@@ -14,7 +14,6 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -84,8 +83,8 @@ class HttpGitHubClientTest {
         });
         server.start();
         URI apiBase = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
-        TargetRepository target = new TargetRepository("o", "r", Path.of("clone"), "true", Map.of());
-        client = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient(),
+        RepositoryName repository = new RepositoryName("o", "r");
+        client = new HttpGitHubClient(apiBase, TOKEN, repository, HttpClient.newHttpClient(),
                 HttpGitHubClient.REQUEST_TIMEOUT, clock);
     }
 
@@ -110,8 +109,8 @@ class HttpGitHubClientTest {
             return new Answer(200, "{\"login\":\"bot\"}");
         };
         URI apiBase = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
-        TargetRepository target = new TargetRepository("o", "r", Path.of("clone"), "true", Map.of());
-        HttpGitHubClient slowClient = new HttpGitHubClient(apiBase, TOKEN, target, HttpClient.newHttpClient(),
+        RepositoryName repository = new RepositoryName("o", "r");
+        HttpGitHubClient slowClient = new HttpGitHubClient(apiBase, TOKEN, repository, HttpClient.newHttpClient(),
                 Duration.ofMillis(300));
 
         assertThatThrownBy(slowClient::authenticatedLogin)

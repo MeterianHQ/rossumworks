@@ -2,7 +2,7 @@ package com.meterian.factory.definition;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.testing.TestTools;
 import com.meterian.factory.state.WaitReason;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +43,7 @@ class BuiltInDefinitionTest {
 
     @Test
     void usesTodaysAllowedTools() {
-        assertThat(definition.allowedTools()).isEqualTo(ClaudeSettings.DEFAULT_ALLOWED_TOOLS);
+        assertThat(definition.allowedTools()).isEqualTo(TestTools.ALLOWED_TOOLS);
     }
 
     @Test
