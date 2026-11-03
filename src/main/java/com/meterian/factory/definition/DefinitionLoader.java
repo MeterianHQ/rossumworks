@@ -67,12 +67,14 @@ public final class DefinitionLoader {
     }
 
     private static List<String> readAllowedTools(DefinitionNode root) throws DefinitionException {
-        DefinitionNode section = root.findObject("claude").orElse(null);
-        if (section == null) {
-            return java.util.List.of();
-        }
+        DefinitionNode section = root.findObject("claude")
+                .orElseThrow(() -> DefinitionNode.createFailure("key claude.allowed-tools is missing"));
         section.requireOnlyKeys(Set.of("allowed-tools"));
-        return section.findTextList("allowed-tools");
+        List<String> allowedTools = section.findTextList("allowed-tools");
+        if (allowedTools.isEmpty()) {
+            throw DefinitionNode.createFailure("key claude.allowed-tools is missing or has no tool");
+        }
+        return allowedTools;
     }
 
     private static String readMergeTargetBranch(DefinitionNode section) throws DefinitionException {

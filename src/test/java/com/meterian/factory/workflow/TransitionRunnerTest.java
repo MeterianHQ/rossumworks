@@ -90,6 +90,8 @@ class TransitionRunnerTest {
               fix-loops: 1
             build:
               command: "true"
+            claude:
+              allowed-tools: [Read]
             merge:
               target-branch: main
             accounts:

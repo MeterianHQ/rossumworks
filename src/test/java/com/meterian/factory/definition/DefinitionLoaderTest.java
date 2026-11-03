@@ -245,6 +245,22 @@ class DefinitionLoaderTest {
     }
 
     @Test
+    void refusesAMissingClaudeSection() {
+        assertRefused(VALID_YAML.replace("claude:\n  allowed-tools: [Read, Edit]\n", ""), "claude.allowed-tools");
+    }
+
+    @Test
+    void refusesAMissingAllowedTools() {
+        assertRefused(VALID_YAML.replace("allowed-tools: [Read, Edit]", "{}"), "claude.allowed-tools");
+    }
+
+    @Test
+    void refusesAnEmptyAllowedTools() {
+        assertRefused(VALID_YAML.replace("allowed-tools: [Read, Edit]", "allowed-tools: []"),
+                "claude.allowed-tools");
+    }
+
+    @Test
     void refusesAnUnknownVersion() {
         assertRefused(VALID_YAML.replace("version: 1", "version: 2"), "version 2 is not supported");
     }
