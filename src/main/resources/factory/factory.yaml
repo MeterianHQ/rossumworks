@@ -59,6 +59,4 @@ claude:
                   "Bash(git show*)", "Bash(./mvnw *)", "Bash(mvn *)"]
 merge:
   target-branch: main
-accounts:
-  allowed: []
 repositories: []

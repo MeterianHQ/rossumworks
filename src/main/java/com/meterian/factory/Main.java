@@ -37,7 +37,6 @@ import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.LiveComment;
 import com.meterian.factory.workflow.PageRequests;
-import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.Console;
 import java.io.File;
@@ -329,21 +328,20 @@ public final class Main {
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
-        RequestReader requests = createRequestReader(gitHub, definitions::allowedAccounts, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner, requests,
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
                 workerLogin, liveSessions, shared, definitions);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, requests, workerLogin,
+        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, workerLogin,
                 executor, liveSessions, Clock.systemUTC(), shared.board());
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
-                createPhoneLinkSender(gitHub, definitions::allowedAccounts), definitions, definitions::warning,
+                createPhoneLinkSender(gitHub), definitions, definitions::warning,
                 () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
@@ -378,16 +376,6 @@ public final class Main {
         }
     }
 
-    /**
-     * The same page requests go to the reader and to the page, so that the reader accepts a label of the page.
-     *
-     * @param allowedAccounts the accounts of the newest definition version
-     */
-    static RequestReader createRequestReader(GitHubClient gitHub, Supplier<List<String>> allowedAccounts,
-                                             String workerLogin, SharedState shared) {
-        return new RequestReader(gitHub, allowedAccounts, workerLogin, shared.pageRequests());
-    }
-
     /** The page gets only these two label requests of the GitHub client. A 404 on a remove is not an error. */
     static LabelWriter createLabelWriter(GitHubClient gitHub) {
         return new LabelWriter() {
@@ -403,13 +391,9 @@ public final class Main {
         };
     }
 
-    /**
-     * The page sends the live link again with the comment of the worker: the mention notifies the phone. The
-     * mention is the first account of the newest definition version at the time of the send.
-     */
-    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub, Supplier<List<String>> allowedAccounts) {
-        return (issueNumber, link) -> gitHub.createComment(issueNumber,
-                LiveComment.render(link, allowedAccounts.get().stream().findFirst()));
+    /** The page sends the live link again with a comment of the worker. */
+    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub) {
+        return (issueNumber, link) -> gitHub.createComment(issueNumber, LiveComment.render(link));
     }
 
     /**
@@ -519,12 +503,12 @@ public final class Main {
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
-                                                RequestReader requests, String workerLogin,
+                                                String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared,
                                                 DefinitionVersions definitions) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions, definitions::allowedAccounts,
-                buildRunner, MERGE_RETRY_DELAY, shared.usage(), requests, layout, workerLogin, liveSessions,
+        return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
+                buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
                 shared.board(), shared.contexts(), shared.pageRequests());
     }
 }

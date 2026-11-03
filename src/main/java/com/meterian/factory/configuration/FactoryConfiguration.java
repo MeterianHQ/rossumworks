@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** The facts of this machine. The workflow, the build, and the accounts are in the folder .factory. */
+/** The facts of this machine. The workflow, the build are in the folder .factory. */
 public record FactoryConfiguration(
         RepositoryName repository,
         Path workDirectory,

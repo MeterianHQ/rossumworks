@@ -30,7 +30,7 @@ record VersionServices(PromptLibrary prompts, BuildSettings build, List<String> 
         Merger merger = new Merger(services.git(), services.gitHub(), services.buildRunner(), clone,
                 mergeTargetBranch, build, gatekeeperDirectory, services.mergeRetryDelay());
         TransitionRunner transitionRunner = new TransitionRunner(new FixLoop(prompts, services.ownerApproval()),
-                services.gitHub(), services.allowedAccounts(), services.liveMode());
+                services.gitHub(), services.liveMode());
         return new VersionServices(prompts, build, definition.allowedTools(), mergeTargetBranch, merger,
                 new ConflictResolution(services.git(), mergeTargetBranch),
                 new IssueWorkspace(configuration, services.git(), mergeTargetBranch),

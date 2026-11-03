@@ -47,7 +47,7 @@ public final class ConfigurationLoader {
         for (String key : OLD_FORM_KEYS) {
             if (containsKeyPath(tree, key)) {
                 throw new ConfigurationException("The configuration file " + file + " has the old form (the key "
-                        + key + "). The workflow, the build, the merge, and the accounts are now in the folder "
+                        + key + "). The workflow, the build, and the merge are now in the folder "
                         + ".factory of the repository. Run claude-ai-factory create to write the new configuration.");
             }
         }

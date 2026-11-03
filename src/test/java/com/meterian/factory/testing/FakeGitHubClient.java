@@ -25,15 +25,9 @@ import java.util.stream.Collectors;
 /** An in-memory GitHub for the workflow tests. All methods are thread safe. */
 public final class FakeGitHubClient implements GitHubClient {
 
-    /** One "labeled" event of an issue, in the order of the events. */
-    public record LabelEvent(int issueNumber, String label, String actor) {
-    }
-
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
-    private final List<LabelEvent> labelEvents = new ArrayList<>();
-    private final Map<Integer, Integer> labelEventReads = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
     private final Deque<MergeOutcome> mergeOutcomes = new ArrayDeque<>();
@@ -79,12 +73,6 @@ public final class FakeGitHubClient implements GitHubClient {
         issues.put(number, new Issue(number, title, body, Set.of()));
     }
 
-    public synchronized void addLabelBy(int issueNumber, String label, String actor) {
-        if (labels.get(issueNumber).add(label)) {
-            labelEvents.add(new LabelEvent(issueNumber, label, actor));
-        }
-    }
-
     public synchronized long addCommentBy(int issueNumber, String author, String body) {
         long id = nextCommentId++;
         commentsByIssue.get(issueNumber).add(new IssueComment(id, author, body));
@@ -111,10 +99,6 @@ public final class FakeGitHubClient implements GitHubClient {
 
     public synchronized Set<String> labelsOf(int issueNumber) {
         return Set.copyOf(labels.get(issueNumber));
-    }
-
-    public synchronized List<LabelEvent> labelEventsOf(int issueNumber) {
-        return labelEvents.stream().filter(event -> event.issueNumber() == issueNumber).toList();
     }
 
     public synchronized List<PullRequest> pullRequests() {
@@ -286,26 +270,13 @@ public final class FakeGitHubClient implements GitHubClient {
         }
     }
 
-    /** The order of the events gives their time, so a later event wins. */
-    @Override
-    public synchronized Map<String, String> lastLabelActors(int issueNumber) {
-        labelEventReads.merge(issueNumber, 1, Integer::sum);
-        Map<String, String> actors = new TreeMap<>();
-        labelEventsOf(issueNumber).forEach(event -> actors.put(event.label(), event.actor()));
-        return actors;
-    }
-
-    public synchronized int labelEventReadCount(int issueNumber) {
-        return labelEventReads.getOrDefault(issueNumber, 0);
-    }
-
     @Override
     public synchronized void ensureLabel(String label, String color, String description) {
     }
 
     @Override
     public synchronized void addLabel(int issueNumber, String label) {
-        addLabelBy(issueNumber, label, authenticatedLogin);
+        labels.get(issueNumber).add(label);
     }
 
     @Override

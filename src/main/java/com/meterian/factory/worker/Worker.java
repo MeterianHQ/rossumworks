@@ -18,11 +18,9 @@ import com.meterian.factory.state.StepType;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.ApprovalCheck;
-import com.meterian.factory.workflow.IssueLabelActors;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
-import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.time.Clock;
@@ -55,13 +53,11 @@ public final class Worker {
     private final IssueWorkflow workflow;
     private final DefinitionVersions definitions;
     private final PhaseStopper phaseStopper;
-    private final RequestReader requests;
     private final String workerLogin;
     private final ExecutorService executor;
     private final WorkspaceLayout layout;
     private final StatusPublisher statusPublisher;
     private final RestartPreparation restartPreparation;
-    private final IgnoredLabelNote ignoredLabelNote;
     private final EnterRequests enterRequests;
     private final LiveRecordCheck liveRecordCheck;
     private final RateLimitWait rateLimitWait;
@@ -77,7 +73,7 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  DefinitionVersions definitions, PhaseStopper phaseStopper, RequestReader requests,
+                  DefinitionVersions definitions, PhaseStopper phaseStopper,
                   String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
                   BoardUpdates board) {
         this.configuration = configuration;
@@ -85,15 +81,13 @@ public final class Worker {
         this.workflow = workflow;
         this.definitions = definitions;
         this.phaseStopper = phaseStopper;
-        this.requests = requests;
         this.workerLogin = workerLogin;
         this.executor = executor;
         this.board = board;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board);
         this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
-        this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
-        this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
+        this.enterRequests = new EnterRequests(gitHub, workflow);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
@@ -230,22 +224,17 @@ public final class Worker {
         }
     }
 
-    /** The events of the issue are read at most once in this check, and only for a request label. */
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
         int issueNumber = issue.number();
         if (isBlockInProgress(issueNumber)) {
             return Optional.empty();
         }
-        IssueLabelActors labelActors = requests.readLabelActorsOf(issueNumber);
         if (issue.labels().contains(BLOCK_LABEL)) {
-            if (labelActors.isGivenByAllowedAccount(BLOCK_LABEL)) {
-                requestBlock(issueNumber);
-                return Optional.empty();
-            }
-            ignoredLabelNote.write(labelActors, BLOCK_LABEL, gitHub.comments(issueNumber));
+            requestBlock(issueNumber);
+            return Optional.empty();
         }
         if (isInWork(issueNumber)) {
-            if (enterRequests.isRequested(issue, labelActors)) {
+            if (enterRequests.isRequested(issue)) {
                 rememberEnterRequest(issueNumber);
             }
             return Optional.empty();
@@ -257,9 +246,9 @@ public final class Worker {
         }
         Optional<IssueRecord> record = StatusComment.findRecord(comments, workerLogin);
         if (record.isEmpty()) {
-            return takeIntoQueue(issue, comments, labelActors);
+            return takeIntoQueue(issue);
         }
-        IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(record.get())
+        IssueRecord current = enterRequests.isRequested(issue) ? enterRequests.enter(record.get())
                 : record.get();
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
@@ -285,7 +274,6 @@ public final class Worker {
                 || waitsForAGivenApprovalLabel(issue, record);
     }
 
-    /** The workflow checks who gave the label, and notes a label from another account. */
     private static boolean waitsForAGivenApprovalLabel(Issue issue, IssueRecord record) {
         return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
@@ -294,14 +282,9 @@ public final class Worker {
      * Fail closed: without a definition version that loads, the worker takes no new issue. The versions log the
      * reason once for each commit, so the intake only waits.
      */
-    private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments,
-                                                IssueLabelActors labelActors) {
+    private Optional<IssueRecord> takeIntoQueue(Issue issue) {
         Optional<DefinitionVersion> version = definitions.current();
         if (version.isEmpty()) {
-            return Optional.empty();
-        }
-        if (!labelActors.isGivenByAllowedAccount(FACTORY_LABEL)) {
-            ignoredLabelNote.write(labelActors, FACTORY_LABEL, comments);
             return Optional.empty();
         }
         IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue))

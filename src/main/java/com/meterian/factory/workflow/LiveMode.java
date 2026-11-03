@@ -20,7 +20,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
 final class LiveMode {
@@ -42,20 +41,17 @@ final class LiveMode {
     private final GitHubClient gitHub;
     private final LiveSessions liveSessions;
     private final OwnerApproval ownerApproval;
-    private final Supplier<List<String>> allowedAccounts;
     private final PageRequests pageRequests;
     private final DefinitionLookup definitions;
 
-    /** @param allowedAccounts the accounts of the newest definition version: the phone link mentions the first */
     LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             Supplier<List<String>> allowedAccounts, PageRequests pageRequests, DefinitionLookup definitions) {
+             PageRequests pageRequests, DefinitionLookup definitions) {
         this.pageRequests = pageRequests;
         this.definitions = definitions;
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
         this.ownerApproval = ownerApproval;
-        this.allowedAccounts = allowedAccounts;
     }
 
     /** A record that already has a live state keeps its state before: a new session never replaces it. */
@@ -76,7 +72,7 @@ final class LiveMode {
             List<String> allowedTools = definitions.definitionOf(record).allowedTools();
             LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
             String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree, allowedTools);
-            postOpenComment(record.issueNumber(), link, place);
+            postOpenComment(record.issueNumber(), link);
             IssueRecord opened = record.withLive(stateBefore.withLink(link).withPlace(place))
                     .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
             return place == LivePlace.TERMINAL ? openTerminal(opened) : opened;
@@ -119,18 +115,13 @@ final class LiveMode {
     }
 
     /** The record must never know less than tmux: when the comment fails, the session closes. */
-    private void postOpenComment(int issueNumber, String link, LivePlace place) {
+    private void postOpenComment(int issueNumber, String link) {
         try {
-            gitHub.createComment(issueNumber, LiveComment.render(link, findMentionedLogin(place)));
+            gitHub.createComment(issueNumber, LiveComment.render(link));
         } catch (RuntimeException exception) {
             LiveSessionClosing.closeAfterAFailure(liveSessions, issueNumber, exception);
             throw exception;
         }
-    }
-
-    /** Only the phone needs the mention: the mention is what notifies it. */
-    private Optional<String> findMentionedLogin(LivePlace place) {
-        return place == LivePlace.PHONE ? allowedAccounts.get().stream().findFirst() : Optional.empty();
     }
 
     private IssueRecord chooseNextStep(Issue issue, IssueRecord record, LiveSession live, Path worktree) {

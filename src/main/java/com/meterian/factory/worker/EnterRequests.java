@@ -3,34 +3,23 @@ package com.meterian.factory.worker;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.workflow.IssueLabelActors;
 import com.meterian.factory.workflow.IssueWorkflow;
 
-/** The label factory:enter: who gave it, and the enter that removes it. */
+/** The label factory:enter and the enter that removes it. */
 final class EnterRequests {
 
     static final String ENTER_LABEL = "factory:enter";
 
     private final GitHubClient gitHub;
-    private final IgnoredLabelNote ignoredLabelNote;
     private final IssueWorkflow workflow;
 
-    EnterRequests(GitHubClient gitHub, IgnoredLabelNote ignoredLabelNote, IssueWorkflow workflow) {
+    EnterRequests(GitHubClient gitHub, IssueWorkflow workflow) {
         this.gitHub = gitHub;
-        this.ignoredLabelNote = ignoredLabelNote;
         this.workflow = workflow;
     }
 
-    /** Tells if the issue has the label from an allowed account. A label from another account gets a note once. */
-    boolean isRequested(Issue issue, IssueLabelActors labelActors) {
-        if (!issue.labels().contains(ENTER_LABEL)) {
-            return false;
-        }
-        if (labelActors.isGivenByAllowedAccount(ENTER_LABEL)) {
-            return true;
-        }
-        ignoredLabelNote.write(labelActors, ENTER_LABEL, gitHub.comments(issue.number()));
-        return false;
+    boolean isRequested(Issue issue) {
+        return issue.labels().contains(ENTER_LABEL);
     }
 
     /** The label goes away only after the record is on GitHub: a failure keeps it for the next poll. */

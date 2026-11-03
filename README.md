@@ -18,7 +18,7 @@ the facts of this machine:
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `isolation`, `claude`, `live`, and `web`.
 
-The workflow, the build, the merge target, the accounts, and the allowed tools are in the folder `.factory`
+The workflow, the build, the merge target, and the allowed tools are in the folder `.factory`
 of the repository. A file with the old form (the keys `target`, `merge`, `accounts`, `prompts-directory`,
 `limits.fix-loops`, or `claude.allowed-tools`) does not start. The message points to
 `claude-ai-factory create`, which writes the new configuration.
@@ -26,17 +26,17 @@ of the repository. A file with the old form (the keys `target`, `merge`, `accoun
 ## .factory
 
 The folder `.factory` of the repository holds the definition of the factory: the workflow, the prompts, the
-build, the limits, the merge target, the allowed tools, and the allowed accounts. The main file is
+build, the limits, the merge target, and the allowed tools. The main file is
 `.factory/factory.yaml`. The file [`src/main/resources/factory/factory.yaml`](src/main/resources/factory/factory.yaml)
 is the example of the format.
 
 Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
-Copy the folder `src/main/resources/factory/` to `.factory` and fill in `accounts.allowed`.
+Copy the folder `src/main/resources/factory/` to `.factory`.
 
 ## The workflow definition
 
 The folder `.factory` of the target repository holds the workflow, the prompts, the build, the limits, the
-merge target, the allowed tools, and the allowed accounts. The main file is `.factory/factory.yaml`. The jar
+merge target, and the allowed tools. The main file is `.factory/factory.yaml`. The jar
 contains the built-in definition in `src/main/resources/factory`, as an example of the format.
 
 - At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
@@ -44,7 +44,6 @@ contains the built-in definition in `src/main/resources/factory`, as an example 
 - A new issue gets the newest version that loads. Its record keeps the commit of that version.
 - Each issue runs with the workflow, the prompts, the build, the allowed tools, the limits, and the merge
   target of its own version. A new commit of `.factory` has no effect on the issues in work.
-- The accounts always come from the newest version that loads. So a removed account stops at once.
 - A version that does not load does not replace the last good version. The page shows the reason at the top.
 - Without a version that loads, the worker takes no new issue.
 - A record without a commit, from before the definitions, runs with the built-in definition.
@@ -66,8 +65,10 @@ The factory needs no GitHub Project. The worker creates its labels in the target
 5. Build the jar with `./mvnw verify`.
 6. Run the worker: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
 
-Add the label `factory` to an issue to give it to the factory. Only the accounts in `accounts.allowed` of
-`.factory/factory.yaml` on the default branch can do this.
+Add the label `factory` to an issue to give it to the factory. The worker obeys the labels `factory`,
+`factory:block`, `factory:enter`, and `factory:approve` from any account. GitHub permissions control the labels:
+only an account with triage access or more can add a label. The `.factory` has no list of accounts, and the
+loader refuses the key `accounts`.
 
 Note: if the token belongs to the owner, GitHub sends the owner no notification for the comments of the
 worker. A separate GitHub account for the worker gives the notifications.
@@ -90,7 +91,7 @@ In live mode the owner talks to the agent of an issue through Remote Control. Th
 
 ### Enter
 
-- The owner with an account of `accounts.allowed` adds the label `factory:enter` to the issue.
+- The owner adds the label `factory:enter` to the issue.
 - The agent can also ask a question. The issue then waits for the owner in the same way.
 
 The worker never stops a phase in the middle. It waits until the phase ends. Then it removes the label,

@@ -105,7 +105,7 @@ class ConfigurationLoaderTest {
             assertThatThrownBy(() -> ConfigurationLoader.load(file))
                     .isInstanceOf(ConfigurationException.class)
                     .hasMessage("The configuration file " + file + " has the old form (the key "
-                            + oldForm.getKey() + "). The workflow, the build, the merge, and the accounts are now "
+                            + oldForm.getKey() + "). The workflow, the build, and the merge are now "
                             + "in the folder .factory of the repository. "
                             + "Run claude-ai-factory create to write the new configuration.");
         }

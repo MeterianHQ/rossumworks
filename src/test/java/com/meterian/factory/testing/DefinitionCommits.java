@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -34,12 +33,11 @@ public final class DefinitionCommits {
         }
     }
 
-    /** The built-in main file with the build command of a test, no build variables, and the allowed accounts. */
-    public static String mainFileFor(String buildCommand, List<String> allowedAccounts) {
+    /** The built-in main file with the build command of a test and no build variables. */
+    public static String mainFileFor(String buildCommand) {
         return builtInMainFile()
                 .replace("command: ./mvnw verify", "command: " + quoteForYaml(buildCommand))
-                .replace("environment: { LANG: C.utf8 }", "environment: {}")
-                .replace("allowed: []", "allowed: [" + String.join(", ", allowedAccounts) + "]");
+                .replace("environment: { LANG: C.utf8 }", "environment: {}");
     }
 
     /** The built-in definition with the build command of a test and no build variables. */
@@ -51,7 +49,7 @@ public final class DefinitionCommits {
     public static FactoryDefinition withBuild(FactoryDefinition definition, String buildCommand) {
         return new FactoryDefinition(definition.workflow(), definition.limits(),
                 new BuildDefinition(buildCommand, Map.of()), definition.allowedTools(), definition.mergeTargetBranch(),
-                definition.allowedAccounts(), definition.repositories(), definition.prompts());
+                definition.repositories(), definition.prompts());
     }
 
     /** Loads a definition from the main file and the built-in prompts. */

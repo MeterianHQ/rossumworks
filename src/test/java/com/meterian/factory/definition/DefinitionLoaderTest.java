@@ -76,8 +76,6 @@ class DefinitionLoaderTest {
               allowed-tools: [Read, Edit]
             merge:
               target-branch: main
-            accounts:
-              allowed: [alice]
             repositories: [example/one]
             """;
 
@@ -113,7 +111,6 @@ class DefinitionLoaderTest {
         assertThat(definition.build().environment()).containsEntry("LANG", "C.utf8");
         assertThat(definition.allowedTools()).containsExactly("Read", "Edit");
         assertThat(definition.mergeTargetBranch()).isEqualTo("main");
-        assertThat(definition.allowedAccounts()).containsExactly("alice");
         assertThat(definition.repositories()).containsExactly("example/one");
         assertThat(definition.promptText("prompts/fix.md")).isEqualTo("text of prompts/fix.md");
     }
@@ -242,6 +239,11 @@ class DefinitionLoaderTest {
     @Test
     void refusesAnUnknownKey() {
         assertRefused(VALID_YAML.replace("repositories:", "repositorys:"), "unknown key repositorys");
+    }
+
+    @Test
+    void refusesTheRemovedAccountsSection() {
+        assertRefused(VALID_YAML + "accounts:\n  allowed: [alice]\n", "unknown key accounts");
     }
 
     @Test

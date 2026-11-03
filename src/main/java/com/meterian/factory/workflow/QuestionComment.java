@@ -1,7 +1,6 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.state.StatusComment;
-import java.util.List;
 
 /** Writes the comment of an agent question. The agent text cannot open a hidden block or fill the issue. */
 final class QuestionComment {
@@ -13,10 +12,8 @@ final class QuestionComment {
     private QuestionComment() {
     }
 
-    static String render(String question, List<String> allowedAccounts) {
-        String mention = allowedAccounts.stream().findFirst().map(login -> "@" + login).orElse("");
-        return "The agent asks this question:\n\n" + StatusComment.neutralizeCommentMarkers(cut(question))
-                + "\n\n" + mention;
+    static String render(String question) {
+        return "The agent asks this question:\n\n" + StatusComment.neutralizeCommentMarkers(cut(question));
     }
 
     private static String cut(String question) {

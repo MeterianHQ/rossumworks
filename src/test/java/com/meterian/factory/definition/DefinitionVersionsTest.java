@@ -60,10 +60,6 @@ class DefinitionVersionsTest {
         return builtInMainFile().replace("fix-loops: 2", "fix-loops: " + limit);
     }
 
-    private static String mainFileWithAccounts(String accounts) {
-        return builtInMainFile().replace("allowed: []", "allowed: [" + accounts + "]");
-    }
-
     private static String shortCommit(String commit) {
         return commit.substring(0, 7);
     }
@@ -135,8 +131,8 @@ class DefinitionVersionsTest {
 
     @Test
     void takesTheNewestGoodVersionAfterARestartWithABrokenHead() {
-        String older = commitDefinition(author, mainFileWithAccounts("alice"));
-        String good = commitDefinition(author, mainFileWithAccounts("alice, bob"));
+        String older = commitDefinition(author, mainFileWithFixLoops(3));
+        String good = commitDefinition(author, mainFileWithFixLoops(4));
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         assertThat(older).isNotEqualTo(good);
         DefinitionVersions afterRestart = createVersions();
@@ -145,7 +141,7 @@ class DefinitionVersionsTest {
 
         assertThat(afterRestart.current()).hasValueSatisfying(
                 version -> assertThat(version.commit()).isEqualTo(good));
-        assertThat(afterRestart.allowedAccounts()).containsExactly("alice", "bob");
+        assertThat(afterRestart.current().orElseThrow().definition().limits().get("fix-loops")).isEqualTo(4);
         assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The .factory of " + shortCommit(broken) + " does not load: ")
                 .endsWith(". The factory keeps the version " + shortCommit(good) + "."));
@@ -162,7 +158,6 @@ class DefinitionVersionsTest {
         afterRestart.refresh();
 
         assertThat(afterRestart.current()).isEmpty();
-        assertThat(afterRestart.allowedAccounts()).isEmpty();
         assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .endsWith(". The factory takes no new issue."));
     }
@@ -209,20 +204,6 @@ class DefinitionVersionsTest {
         DefinitionVersions versions = createVersions();
 
         assertThat(versions.definitionOf(IssueRecord.queued(7))).isSameAs(builtIn);
-    }
-
-    @Test
-    void takesTheAccountsFromTheNewestVersion() {
-        DefinitionVersions versions = createVersions();
-        assertThat(versions.allowedAccounts()).isEmpty();
-        commitDefinition(author, mainFileWithAccounts("alice, bob"));
-        versions.refresh();
-        assertThat(versions.allowedAccounts()).containsExactly("alice", "bob");
-
-        commitDefinition(author, mainFileWithAccounts("alice"));
-        versions.refresh();
-
-        assertThat(versions.allowedAccounts()).containsExactly("alice");
     }
 
     @Test

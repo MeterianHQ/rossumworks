@@ -27,18 +27,17 @@ final class MergeGateStep implements Step {
         }
         version.reviewedCommit().restoreRebasedHead(worktree, record);
         boolean isApproved = services.ownerApproval().isGiven(issue);
-        IssueRecord noted = isApproved ? record : services.ownerApproval().noteIgnoredLabel(issue, record);
         boolean questionOpen = new FactoryFolder(worktree).hasQuestion();
         if (!isApproved && changesDefinitionFolder(worktree)) {
-            return StepResult.endWith(noted, "factory-changed");
+            return StepResult.endWith(record, "factory-changed");
         }
-        MergeDecision decision = MergeGate.decide(noted, services.git().treeHash(worktree), questionOpen, isApproved);
+        MergeDecision decision = MergeGate.decide(record, services.git().treeHash(worktree), questionOpen, isApproved);
         return switch (decision) {
-            case MergeDecision.NeedsOwner needsOwner -> StepResult.endWith(noted, "needs-approval");
+            case MergeDecision.NeedsOwner needsOwner -> StepResult.endWith(record, "needs-approval");
             case MergeDecision.Refused refused ->
-                    StepResult.block(noted, "The merge gate refuses: " + refused.reason() + ".");
-            case MergeDecision.Automatic automatic -> mergePullRequest(issue, noted, worktree);
-            case MergeDecision.Approved approved -> mergePullRequest(issue, noted, worktree);
+                    StepResult.block(record, "The merge gate refuses: " + refused.reason() + ".");
+            case MergeDecision.Automatic automatic -> mergePullRequest(issue, record, worktree);
+            case MergeDecision.Approved approved -> mergePullRequest(issue, record, worktree);
         };
     }
 

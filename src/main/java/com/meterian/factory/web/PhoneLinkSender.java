@@ -1,6 +1,6 @@
 package com.meterian.factory.web;
 
-/** Sends the live link of an issue to the phone of the owner, with a comment that mentions the owner. */
+/** Sends the live link of an issue to the phone of the owner, with a comment. */
 public interface PhoneLinkSender {
 
     /**

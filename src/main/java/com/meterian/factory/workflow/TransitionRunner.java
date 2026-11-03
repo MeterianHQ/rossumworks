@@ -11,23 +11,17 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.WaitReason;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.function.Supplier;
 
 /** Finds the transition of a step outcome in the workflow definition, and moves the issue by it. */
 final class TransitionRunner {
 
     private final FixLoop fixLoop;
     private final GitHubClient gitHub;
-    private final Supplier<List<String>> allowedAccounts;
     private final LiveMode liveMode;
 
-    /** @param allowedAccounts the accounts of the newest definition version: the question mentions the first */
-    TransitionRunner(FixLoop fixLoop, GitHubClient gitHub, Supplier<List<String>> allowedAccounts,
-                     LiveMode liveMode) {
+    TransitionRunner(FixLoop fixLoop, GitHubClient gitHub, LiveMode liveMode) {
         this.fixLoop = fixLoop;
         this.gitHub = gitHub;
-        this.allowedAccounts = allowedAccounts;
         this.liveMode = liveMode;
     }
 
@@ -92,7 +86,7 @@ final class TransitionRunner {
 
     /** The owner answers in the live conversation. When it does not open, the question waits with a note. */
     private IssueRecord askOwner(Issue issue, IssueRecord waiting, String question, Path worktree) {
-        gitHub.createComment(issue.number(), QuestionComment.render(question, allowedAccounts.get()));
+        gitHub.createComment(issue.number(), QuestionComment.render(question));
         return liveMode.enter(waiting, worktree);
     }
 

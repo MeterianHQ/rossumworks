@@ -1,6 +1,5 @@
 package com.meterian.factory.worker;
 
-import static com.meterian.factory.testing.DefinitionCommits.builtInMainFile;
 import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
 import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
 import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
@@ -40,7 +39,6 @@ import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.PageRequests;
-import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -75,14 +73,8 @@ class WorkerTest {
     private static final String BLOCK_LABEL = "factory:block";
     private static final String APPROVE_LABEL = "factory:approve";
     private static final String ENTER_LABEL = "factory:enter";
-    private static final String MALLORY_ENTER_NOTE =
-            "The label factory:enter from mallory is ignored: the account is not in accounts.allowed.";
     private static final String ENDED_NOTE = "The live conversation ended without /factory:continue."
             + " Add the label factory:enter to open a new one.";
-    private static final String MALLORY_NOTE =
-            "The label factory from mallory is ignored: the account is not in accounts.allowed.";
-    private static final String MALLORY_BLOCK_NOTE =
-            "The label factory:block from mallory is ignored: the account is not in accounts.allowed.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
     private static final String FINISH_FAILURE_NOTE =
             "A step after the merge failed: java.lang.IllegalStateException. The change is merged.";
@@ -137,7 +129,7 @@ class WorkerTest {
 
     private void addLabeledIssue(int number) {
         gitHub.addIssue(number, "Change the greeting " + number, "The greeting must change.");
-        gitHub.addLabelBy(number, FACTORY_LABEL, "bbossola");
+        gitHub.addLabel(number, FACTORY_LABEL);
     }
 
     private RepositoryName createRepositoryName() {
@@ -160,9 +152,9 @@ class WorkerTest {
         return createWorker(agent, configuration, board);
     }
 
-    /** The default branch gets a .factory with the build command and the accounts of the configuration. */
+    /** The default branch gets a .factory with the build command of the configuration. */
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
-        commitDefinition(clone, mainFileFor(buildCommand, List.of("bbossola")));
+        commitDefinition(clone, mainFileFor(buildCommand));
         return createWorker(agent, configuration, board, createVersions(configuration));
     }
 
@@ -173,17 +165,16 @@ class WorkerTest {
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board,
                                 DefinitionVersions versions) {
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests = new RequestReader(gitHub, versions::allowedAccounts, WORKER_LOGIN, pageRequests);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
-                versions::allowedAccounts, buildRunner, Duration.ZERO,
-                new UsageTracker(0.90, Clock.systemUTC()), requests,
+                buildRunner, Duration.ZERO,
+                new UsageTracker(0.90, Clock.systemUTC()),
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, WORKER_LOGIN, executor,
                 liveSessions, Clock.systemUTC(), board);
     }
 
@@ -258,26 +249,13 @@ class WorkerTest {
 
     @Test
     void givesTheIntakeTheCurrentCommit() {
-        String commit = commitDefinition(clone, mainFileFor("true", List.of("bbossola")));
+        String commit = commitDefinition(clone, mainFileFor("true"));
         FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
         Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
 
         worker.pollOnce();
 
         assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
-    }
-
-    @Test
-    void takesNoNewIssueWhenTheNewestDefinitionRemovesTheAccount() {
-        commitDefinition(clone, builtInMainFile().replace("command: ./mvnw verify", "command: \"true\""));
-        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
-        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
-
-        worker.pollOnce();
-
-        assertThat(readRecord(ISSUE)).isEmpty();
-        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body).containsExactly(
-                "The label factory from bbossola is ignored: the account is not in accounts.allowed.");
     }
 
     @Test
@@ -340,18 +318,6 @@ class WorkerTest {
     }
 
     @Test
-    void anIssueFromAnotherAccountMakesNoCard() {
-        gitHub.addIssue(STRANGER_ISSUE, "Delete the history", "Delete it.");
-        gitHub.addLabelBy(STRANGER_ISSUE, FACTORY_LABEL, "stranger");
-        Worker worker = createWorker(new FakeAgentRunner(), 0);
-
-        worker.pollOnce();
-
-        assertThat(findCard(board, STRANGER_ISSUE)).isEmpty();
-        assertThat(findCard(board, ISSUE)).isPresent();
-    }
-
-    @Test
     void takesALabeledIssueIntoTheQueue() {
         Worker worker = createWorker(new FakeAgentRunner(), 0);
 
@@ -366,17 +332,16 @@ class WorkerTest {
     }
 
     @Test
-    void ignoresAnIssueLabeledByAnotherAccount() {
-        gitHub.addIssue(8, "Delete the history", "Delete it.");
-        gitHub.addLabelBy(8, FACTORY_LABEL, "mallory");
+    void takesAnIssueWithTheFactoryLabelFromAnyAccountIntoTheQueue() {
+        addLabeledIssue(8);
         Worker worker = createWorker(new FakeAgentRunner(), 0);
 
         worker.pollOnce();
         worker.pollOnce();
 
-        assertThat(readRecord(8)).isEmpty();
-        assertThat(gitHub.commentsOf(8)).extracting(IssueComment::body).containsExactly(MALLORY_NOTE);
-        assertThat(gitHub.statusOf(8)).isEmpty();
+        assertThat(readRecord(8).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(gitHub.statusOf(8)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.commentsOf(8)).hasSize(1);
     }
 
     @Test
@@ -419,7 +384,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
         waitForTheLoops();
@@ -440,7 +405,7 @@ class WorkerTest {
     void blocksAnIssueThatIsNotInWork() {
         Worker worker = createWorker(new FakeAgentRunner(), 0);
         worker.pollOnce();
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
 
@@ -451,26 +416,12 @@ class WorkerTest {
     }
 
     @Test
-    void ignoresABlockFromAnotherAccount() {
-        Worker worker = createWorker(new FakeAgentRunner(), 0);
-        worker.pollOnce();
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "mallory");
-
-        worker.pollOnce();
-        worker.pollOnce();
-
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
-        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
-                .filteredOn(body -> body.equals(MALLORY_BLOCK_NOTE)).hasSize(1);
-    }
-
-    @Test
     void aBlockDuringTheMergeKeepsTheMerge() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         Worker worker = createWorker(agent, 2);
         gitHub.whenSquashMerging(() -> {
-            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            gitHub.addLabel(ISSUE, BLOCK_LABEL);
             worker.pollOnce();
         });
 
@@ -491,7 +442,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         gitHub.failTheRemoveLabelAfterTheMerge();
         gitHub.whenSquashMerging(() -> {
-            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            gitHub.addLabel(ISSUE, BLOCK_LABEL);
             worker.pollOnce();
         });
 
@@ -555,7 +506,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         gitHub.failTheCommentEditAfterTheMerge();
         gitHub.whenSquashMerging(() -> {
-            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            gitHub.addLabel(ISSUE, BLOCK_LABEL);
             worker.pollOnce();
         });
         worker.pollOnce();
@@ -577,12 +528,12 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        gitHub.addLabelBy(ISSUE, FACTORY_LABEL, "bbossola");
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, FACTORY_LABEL);
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
 
         worker.pollOnce();
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
@@ -632,7 +583,7 @@ class WorkerTest {
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
         gitHub.whenACommentEditContains(WaitReason.BLOCKED_BY_OWNER.sentence(), worker::pollOnce);
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
         waitForTheLoops();
@@ -745,7 +696,7 @@ class WorkerTest {
                 .pollOnce();
         waitForTheLoops();
         assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
@@ -761,7 +712,7 @@ class WorkerTest {
         waitForTheLoops();
         assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
         pageRequests.remember(ISSUE, APPROVE_LABEL);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, WORKER_LOGIN);
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
@@ -771,28 +722,13 @@ class WorkerTest {
     }
 
     @Test
-    void aPageLabelAfterARestartIsIgnoredWithANote() throws InterruptedException {
-        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
-                .pollOnce();
-        waitForTheLoops();
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, WORKER_LOGIN);
-
-        createWorker(new FakeAgentRunner(), 2).pollOnce();
-        waitForTheLoops();
-
-        assertThat(gitHub.squashMergeCalls()).isEmpty();
-        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
-                .anyMatch(body -> body.contains("from " + WORKER_LOGIN + " is ignored"));
-    }
-
-    @Test
     void continuesAnIssueAfterTheOwnerAcceptsAChangedText() throws InterruptedException {
         createWorker(new FakeAgentRunner(), 0).pollOnce();
         gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
         assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
 
@@ -811,7 +747,7 @@ class WorkerTest {
                 createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
         waitForTheLoops();
@@ -941,7 +877,7 @@ class WorkerTest {
     /** The owner gives factory:enter on the waiting issue, and a new worker reads it. */
     private Worker enterTheWaitingIssue() throws InterruptedException {
         runToTheMergeApproval();
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
         worker.pollOnce();
         assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
@@ -955,7 +891,7 @@ class WorkerTest {
     @Test
     void enterOpensTheConversationOfAWaitingIssue() throws InterruptedException {
         runToTheMergeApproval();
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
 
         worker.pollOnce();
@@ -980,7 +916,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         awaitQuietly(phaseStarted);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
 
         worker.pollOnce();
         assertThat(liveSessions.openCalls()).isEmpty();
@@ -1003,21 +939,6 @@ class WorkerTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("The wait was interrupted", exception);
         }
-    }
-
-    @Test
-    void enterFromAnotherAccountIsIgnored() throws InterruptedException {
-        runToTheMergeApproval();
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "mallory");
-        Worker worker = createWorker(new FakeAgentRunner(), 2);
-
-        worker.pollOnce();
-        worker.pollOnce();
-
-        assertThat(gitHub.commentsOf(ISSUE)).extracting(IssueComment::body)
-                .filteredOn(MALLORY_ENTER_NOTE::equals).hasSize(1);
-        assertThat(liveSessions.openCalls()).isEmpty();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
     }
 
     @Test
@@ -1051,7 +972,7 @@ class WorkerTest {
         assertThat(readLiveLink()).isEmpty();
         assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
         assertThat(liveSessions.openCalls()).hasSize(2);
         assertThat(readLiveLink()).isPresent();
@@ -1077,7 +998,7 @@ class WorkerTest {
     @Test
     void blockClosesTheLiveSession() throws InterruptedException {
         Worker worker = enterTheWaitingIssue();
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
         worker.pollOnce();
@@ -1095,7 +1016,7 @@ class WorkerTest {
     void shutDownKeepsTheLiveSession() throws InterruptedException {
         runToTheMergeApproval();
         addLabeledIssue(8);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails();
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
@@ -1131,10 +1052,10 @@ class WorkerTest {
         Worker worker = createWorker(new FakeAgentRunner().then(changeFileAfter(phaseStarted, phaseMayEnd)), 2);
         worker.pollOnce();
         awaitQuietly(phaseStarted);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
         liveSessions.whenOpening(() -> {
-            gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+            gitHub.addLabel(ISSUE, BLOCK_LABEL);
             worker.pollOnce();
         });
 
@@ -1156,9 +1077,9 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
-        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty()
                 && readRecord(ISSUE).orElseThrow().status() == IssueStatus.BLOCKED);
@@ -1184,7 +1105,7 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         awaitQuietly(phaseStarted);
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
         gitHub.removeLabel(ISSUE, ENTER_LABEL);
         phaseMayEnd.countDown();
@@ -1200,7 +1121,7 @@ class WorkerTest {
     @Test
     void aGitHubFailureInTheEnterKeepsTheLabelForTheNextPoll() throws InterruptedException {
         runToTheMergeApproval();
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
         gitHub.failTheNextCommentEdit();
 
@@ -1217,7 +1138,7 @@ class WorkerTest {
     @Test
     void aFailedLabelRemovalAfterTheEnterRemovesTheLabelAtTheNextPoll() throws InterruptedException {
         runToTheMergeApproval();
-        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
         gitHub.failTheNextRemoveLabel();
 

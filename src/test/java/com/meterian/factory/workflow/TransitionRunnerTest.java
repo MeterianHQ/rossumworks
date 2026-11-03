@@ -94,8 +94,6 @@ class TransitionRunnerTest {
               allowed-tools: [Read]
             merge:
               target-branch: main
-            accounts:
-              allowed: [bbossola]
             """;
     private static final List<Finding> FINDINGS = List.of(new Finding("The build failed", "a test fails"));
 
@@ -114,11 +112,10 @@ class TransitionRunnerTest {
         gitHub.setAuthenticatedLogin("factory-bot");
         gitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         issue = gitHub.issue(ISSUE);
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, () -> List.of("bbossola")));
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub);
         LiveMode liveMode = new LiveMode(new ProcessGit(), gitHub, new FakeLiveSessions(), ownerApproval,
-                () -> List.of("bbossola"), new PageRequests(Clock.systemUTC()), DefinitionLookup.builtInOnly(definition));
-        runner = new TransitionRunner(new FixLoop(prompts, ownerApproval), gitHub, () -> List.of("bbossola"),
-                liveMode);
+                new PageRequests(Clock.systemUTC()), DefinitionLookup.builtInOnly(definition));
+        runner = new TransitionRunner(new FixLoop(prompts, ownerApproval), gitHub, liveMode);
     }
 
     private static FactoryDefinition loadSmallDefinition() throws DefinitionException {
@@ -161,7 +158,7 @@ class TransitionRunnerTest {
 
     @Test
     void entersTheLoopAndWritesTheFixPrompt() throws IOException {
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord next = apply(recordIn("build", IssueStatus.IN_REVIEW), "failed", Optional.empty(), FINDINGS);
 

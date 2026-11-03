@@ -113,11 +113,6 @@ public final class DefinitionVersions implements DefinitionLookup {
         return record.definitionCommit().map(this::definitionOfCommit).orElse(builtIn);
     }
 
-    /** The accounts of the newest good version; empty without a good version. */
-    public List<String> allowedAccounts() {
-        return current.map(version -> version.definition().allowedAccounts()).orElse(List.of());
-    }
-
     /** A failure of the fetch keeps the current version. */
     private Optional<String> fetchNewestCommit() {
         try {

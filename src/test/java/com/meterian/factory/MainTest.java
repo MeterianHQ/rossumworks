@@ -23,7 +23,6 @@ import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.web.CardFingerprint;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
-import com.meterian.factory.workflow.RequestReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -378,16 +377,16 @@ class MainTest {
     }
 
     @Test
-    void thePhoneLinkSenderPostsTheLinkWithTheMentionOfTheOwner() {
+    void thePhoneLinkSenderPostsTheLinkWithNoMention() {
         FactoryConfiguration configuration = configuration(Optional.empty());
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
 
-        Main.createPhoneLinkSender(gitHub, () -> List.of("bbossola")).sendLink(12, "https://claude.ai/code/session_abc123");
+        Main.createPhoneLinkSender(gitHub).sendLink(12, "https://claude.ai/code/session_abc123");
 
         assertThat(gitHub.commentsOf(12)).singleElement().extracting(IssueComment::body)
                 .isEqualTo("The live conversation is open: https://claude.ai/code/session_abc123"
-                        + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola");
+                        + "\n\nType /factory:continue in the conversation when you are done.");
     }
 
     @Test
@@ -396,7 +395,7 @@ class MainTest {
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                 new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                Main.createPhoneLinkSender(new FakeGitHubClient(), () -> List.of("bbossola")), BUILT_IN,
+                Main.createPhoneLinkSender(new FakeGitHubClient()), BUILT_IN,
                 Optional::empty, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
@@ -410,7 +409,7 @@ class MainTest {
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                     new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()),
-                    Main.createPhoneLinkSender(new FakeGitHubClient(), () -> List.of("bbossola")), BUILT_IN,
+                    Main.createPhoneLinkSender(new FakeGitHubClient()), BUILT_IN,
                     Optional::empty, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -425,12 +424,11 @@ class MainTest {
         Main.SharedState shared = Main.SharedState.create(configuration);
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
-        RequestReader requests = Main.createRequestReader(gitHub, () -> List.of("bbossola"), "factory-bot", shared);
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
                         "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub, () -> List.of("bbossola")),
+                Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub),
                 BUILT_IN, Optional::empty, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
@@ -446,8 +444,7 @@ class MainTest {
                     HttpResponse.BodyHandlers.ofString());
 
             assertThat(approve.statusCode()).isEqualTo(303);
-            assertThat(gitHub.lastLabelActor(12, "factory:approve")).contains("factory-bot");
-            assertThat(requests.isGivenByAllowedAccount(12, "factory:approve")).isTrue();
+            assertThat(gitHub.labelsOf(12)).contains("factory:approve");
             assertThat(shared.board().snapshot().cards().getFirst().labels()).contains("factory:approve");
             assertThat(errorText()).contains("The web page is at http://127.0.0.1:" + server.port() + "/")
                     .doesNotContain("open to the LAN");

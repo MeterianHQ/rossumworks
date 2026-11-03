@@ -13,7 +13,7 @@ public final class DefinitionLoader {
 
     private static final int SUPPORTED_VERSION = 1;
     private static final Set<String> ROOT_KEYS = Set.of(
-            "version", "workflow", "limits", "build", "claude", "merge", "accounts", "repositories");
+            "version", "workflow", "limits", "build", "claude", "merge", "repositories");
 
     private DefinitionLoader() {
     }
@@ -33,7 +33,6 @@ public final class DefinitionLoader {
                 readBuild(root.requireObject("build")),
                 readAllowedTools(root),
                 readMergeTargetBranch(root.requireObject("merge")),
-                readAllowedAccounts(root),
                 root.findTextList("repositories"),
                 promptTexts);
     }
@@ -80,14 +79,5 @@ public final class DefinitionLoader {
     private static String readMergeTargetBranch(DefinitionNode section) throws DefinitionException {
         section.requireOnlyKeys(Set.of("target-branch"));
         return section.requireText("target-branch");
-    }
-
-    private static List<String> readAllowedAccounts(DefinitionNode root) throws DefinitionException {
-        DefinitionNode section = root.findObject("accounts").orElse(null);
-        if (section == null) {
-            return java.util.List.of();
-        }
-        section.requireOnlyKeys(Set.of("allowed"));
-        return section.findTextList("allowed");
     }
 }

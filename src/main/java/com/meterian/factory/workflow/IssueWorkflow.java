@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 /**
  * Moves one issue through the states of its workflow. Each call of advance runs one step and publishes the new
@@ -60,29 +59,28 @@ public final class IssueWorkflow {
 
     /**
      * @param definitions     the definition version of each record
-     * @param allowedAccounts the accounts of the newest definition version
      * @param mergeRetryDelay the wait between two attempts of a squash merge
      */
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
-                         DefinitionLookup definitions, Supplier<List<String>> allowedAccounts,
+                         DefinitionLookup definitions,
                          BuildRunner buildRunner, Duration mergeRetryDelay, UsageTracker usage,
-                         RequestReader requests, WorkspaceLayout layout, String workerLogin,
+                         WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
                          PageRequests pageRequests) {
         this.gitHub = gitHub;
         this.definitions = definitions;
         this.layout = layout;
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, requests);
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub);
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board);
         this.issueTextCheck = new IssueTextCheck(ownerApproval, definitions);
         this.approvalCheck = new ApprovalCheck(ownerApproval, issueTextCheck, definitions);
         PhaseRunner phaseRunner = new PhaseRunner(agentRunner, usage, contexts);
-        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, allowedAccounts, pageRequests,
+        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, pageRequests,
                 definitions);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
         this.services = new StepServices(configuration, gitHub, git, buildRunner, mergeRetryDelay, ownerApproval,
-                statusPublisher, new ForwardCheckFailure(statusPublisher), phaseRunner, liveMode, allowedAccounts,
+                statusPublisher, new ForwardCheckFailure(statusPublisher), phaseRunner, liveMode,
                 reviewNotesToPublish);
     }
 

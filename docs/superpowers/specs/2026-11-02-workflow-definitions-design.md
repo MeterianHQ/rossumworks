@@ -58,7 +58,7 @@ Anti-goals:
   reach GitHub, a real token, the real `claude`, or the default tmux
   server.
 - The owner said: "This is a personal tool. I do what I want." So `.factory`
-  can configure everything, also the accounts that can give requests. The
+  can configure everything. The
   design does not protect the owner from their own repository.
 - Java 21, Maven, Jackson for YAML, as today.
 - Simplified Technical English in the docs, the comments, and the texts of
@@ -76,7 +76,6 @@ repository:
 - the build command and its environment;
 - the limits of the work on an issue, for example the fix loops;
 - the merge rules: the target branch, and when a merge is automatic;
-- the accounts that can give requests;
 - the other repositories of the factory (for plan 4).
 
 ### 4.2 The configuration of the worker
@@ -121,9 +120,9 @@ running issue never meets a state or a step that its workflow does not know.
 
 My call on the parts: an issue keeps the workflow, the prompts, the build,
 the allowed tools, the limits, and the merge target of its start version.
-The accounts always come from the newest version, because they say who can
-give a request now. So a removed account stops at once, also on a running
-issue.
+The `.factory` has no list of accounts. GitHub permissions control the
+labels: only an account with triage access or more can add a label. The
+loader refuses the key `accounts` as an unknown key.
 
 My calls:
 
@@ -286,8 +285,6 @@ claude:
   allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(./mvnw *)"]
 merge:
   target-branch: main
-accounts:
-  allowed: [bbossola]
 repositories: []
 ```
 

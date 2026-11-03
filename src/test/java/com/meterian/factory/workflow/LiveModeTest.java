@@ -65,8 +65,8 @@ class LiveModeTest {
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
 
     private LiveMode createLiveMode(LiveSessions sessions) {
-        OwnerApproval ownerApproval = new OwnerApproval(gitHub, new RequestReader(gitHub, () -> List.of("bbossola")));
-        return new LiveMode(git, gitHub, sessions, ownerApproval, () -> List.of("bbossola"), pageRequests,
+        OwnerApproval ownerApproval = new OwnerApproval(gitHub);
+        return new LiveMode(git, gitHub, sessions, ownerApproval, pageRequests,
                 DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
@@ -99,16 +99,16 @@ class LiveModeTest {
         assertThat(live.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement().satisfies(comment -> assertThat(comment.body())
                 .isEqualTo("The live conversation is open: " + LINK
-                        + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola"));
+                        + "\n\nType /factory:continue in the conversation when you are done."));
     }
 
     @Test
-    void anEnterWithoutAPageRequestIsPhoneWithTheMention() {
+    void anEnterWithoutAPageRequestIsPhoneWithNoMention() {
         IssueRecord live = createLiveMode().enter(recordInState("review"), worktree);
 
         assertThat(live.live().orElseThrow().place()).isEqualTo(LivePlace.PHONE);
         assertThat(gitHub.commentsOf(ISSUE)).singleElement()
-                .satisfies(comment -> assertThat(comment.body()).contains("@bbossola"));
+                .satisfies(comment -> assertThat(comment.body()).doesNotContain("@"));
         assertThat(liveSessions.openedTerminals()).isEmpty();
     }
 
@@ -271,7 +271,7 @@ class LiveModeTest {
 
     @Test
     void continueWithChangesWithdrawsTheApproval() throws IOException {
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
         LiveMode liveMode = createLiveMode();
         IssueRecord live = liveMode.enter(waitingRecord(WaitReason.MERGE_NEEDS_APPROVAL), worktree);
         writeUncommittedFile();

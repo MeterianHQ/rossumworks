@@ -32,21 +32,10 @@ class FakeGitHubClientTest {
     }
 
     @Test
-    void addsNoLabeledEventForALabelThatIsAlreadyOnTheIssue() {
-        github.addIssue(4, "T", "B");
-        github.addLabelBy(4, "factory:approve", "owner");
-
-        github.addLabelBy(4, "factory:approve", "someone-else");
-        github.addLabel(4, "factory:approve");
-
-        assertThat(github.lastLabelActor(4, "factory:approve")).contains("owner");
-    }
-
-    @Test
     void setsTheStatusAsALabel() {
         github.addIssue(4, "T", "B");
-        github.addLabelBy(4, "factory:status:queued", "factory-bot");
-        github.addLabelBy(4, "bug", "owner");
+        github.addLabel(4, "factory:status:queued");
+        github.addLabel(4, "bug");
 
         github.setStatus(github.issue(4), IssueStatus.IN_REVIEW);
 
@@ -57,8 +46,8 @@ class FakeGitHubClientTest {
     @Test
     void keepsOnlyOneStatusLabel() {
         github.addIssue(4, "T", "B");
-        github.addLabelBy(4, "factory:status:queued", "factory-bot");
-        github.addLabelBy(4, "factory:status:blocked", "factory-bot");
+        github.addLabel(4, "factory:status:queued");
+        github.addLabel(4, "factory:status:blocked");
 
         github.setStatus(github.issue(4), IssueStatus.DONE);
 
@@ -68,11 +57,11 @@ class FakeGitHubClientTest {
     @Test
     void addsNothingWhenTheStatusIsAlreadySet() {
         github.addIssue(4, "T", "B");
-        github.addLabelBy(4, "factory:status:done", "owner");
+        github.addLabel(4, "factory:status:done");
 
         github.setStatus(github.issue(4), IssueStatus.DONE);
 
-        assertThat(github.lastLabelActor(4, "factory:status:done")).contains("owner");
+        assertThat(github.statusLabelsOf(4)).containsExactly("factory:status:done");
     }
 
     @Test
@@ -85,8 +74,8 @@ class FakeGitHubClientTest {
     @Test
     void givesNoStatusWhenThereAreTwoStatusLabels() {
         github.addIssue(4, "T", "B");
-        github.addLabelBy(4, "factory:status:queued", "owner");
-        github.addLabelBy(4, "factory:status:done", "owner");
+        github.addLabel(4, "factory:status:queued");
+        github.addLabel(4, "factory:status:done");
 
         assertThat(github.statusOf(4)).isEmpty();
         assertThat(github.statusLabelsOf(4)).containsExactlyInAnyOrder("factory:status:queued", "factory:status:done");

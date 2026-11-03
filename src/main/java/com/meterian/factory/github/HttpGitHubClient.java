@@ -16,11 +16,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -135,27 +133,6 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public void editComment(long commentId, String body) {
         send("PATCH", repositoryPath + "/issues/comments/" + commentId, Map.of("body", body));
-    }
-
-    @Override
-    public Map<String, String> lastLabelActors(int issueNumber) {
-        Map<String, String> newestTimes = new HashMap<>();
-        Map<String, String> newestActors = new HashMap<>();
-        String eventsPath = repositoryPath + "/issues/" + issueNumber + "/events?per_page=" + PAGE_SIZE;
-        for (JsonNode event : readAllPages(eventsPath)) {
-            if (!"labeled".equals(event.path("event").asText())) {
-                continue;
-            }
-            String label = event.path("label").path("name").asText();
-            String createdAt = event.path("created_at").asText("");
-            if (createdAt.compareTo(newestTimes.getOrDefault(label, "")) >= 0) {
-                newestTimes.put(label, createdAt);
-                JsonNode login = event.path("actor").path("login");
-                newestActors.put(label, login.isTextual() ? login.asText() : null);
-            }
-        }
-        newestActors.values().removeIf(Objects::isNull);
-        return Map.copyOf(newestActors);
     }
 
     @Override

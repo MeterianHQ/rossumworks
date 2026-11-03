@@ -31,16 +31,13 @@ public final class ApprovalCheck {
                 && record.waitReason().filter(APPROVABLE_REASONS::contains).isPresent();
     }
 
-    /**
-     * A label from an account that is not allowed gets a note, and the issue keeps waiting. An approved merge
-     * stays in its state and gets the status of the state again.
-     */
+    /** An approved merge stays in its state and gets the status of the state again. */
     IssueRecord continueAfterApproval(Issue issue, IssueRecord record) {
         if (!waitsForApproval(record)) {
             return record;
         }
         if (!ownerApproval.isGiven(issue)) {
-            return ownerApproval.noteIgnoredLabel(issue, record);
+            return record;
         }
         if (record.waitReason().equals(Optional.of(WaitReason.ISSUE_TEXT_CHANGED))) {
             return issueTextCheck.acceptNewText(issue, record);
