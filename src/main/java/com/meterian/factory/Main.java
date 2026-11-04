@@ -310,7 +310,8 @@ public final class Main {
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
-        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
+        Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
         RequestReader requests = createRequestReader(gitHub, configuration, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
@@ -323,7 +324,6 @@ public final class Main {
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
                 liveSessions, Clock.systemUTC(), shared.board());
-        Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
                 worker::requestEarlyPoll, claudeHome);

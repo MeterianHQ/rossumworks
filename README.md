@@ -50,10 +50,17 @@ In live mode the owner talks to the agent of an issue through Remote Control. Th
 - The owner with an account of `accounts.allowed` adds the label `factory:enter` to the issue.
 - The agent can also ask a question. The issue then waits for the owner in the same way.
 
-The worker never stops a phase in the middle. It waits until the phase ends. Then it removes the label,
-sets the status "Waits for you", and starts the session in tmux. The session uses the same session UUID as
-the agent: `claude --resume <uuid> --remote-control "Fix #<n>"`. The worker answers the trust prompt on
-the tmux screen. It never edits `~/.claude.json`.
+The worker stops the running step at once, because only one process can use the session of the agent. The agent
+loses its current turn. Its edits stay in the worktree, and the step runs again after the conversation. Then the
+worker removes the label, sets the status "Waits for you", and starts the session in tmux. The session uses the
+same session UUID as the agent: `claude --resume <uuid> --remote-control "Fix #<n>"`. The worker answers the trust
+prompt on the tmux screen. It never edits `~/.claude.json`.
+
+A step with no agent and no build, for example the merge call to GitHub, ends first. An Enter in the first seconds of a new session
+opens no conversation: Claude Code has no session file yet, so the session cannot resume. The issue gets a note and
+the agent starts again in a new session. Use Enter again when the card shows the button.
+
+The worker sees a label that the page adds in about 2 seconds. It sees a label from the GitHub app at the next poll.
 
 The factory uses its own tmux server, never your default tmux server. So the token of the worker never goes
 into the environment of your tmux server. To see a session, run
@@ -229,7 +236,12 @@ with the mention. Browser is a link to the Remote Control link. It opens a new t
 After a click, the button shows a turning wheel and you cannot click it again. When you ask the browser for
 less motion, the button shows "…". After the action, the card shows a blue line, for example "Approval sent.
 The worker takes it in a few seconds." This line replaces the reason of the wait. It goes away when the
-record of the issue shows the effect of the request.
+record of the issue shows the effect of the request. For example, the line of Block stays until the card moves to
+Blocked.
+
+The same line shows for `/factory:continue` in the conversation. The worker watches the live folder, so it tells
+the page and starts a poll in about 2 seconds. The line also shows for a label from the GitHub app, when the worker
+accepts the label at a poll.
 
 After each action, the page asks the worker for an early poll. The worker polls 2 s later and does not wait
 for the end of the poll interval. So Enter opens the conversation, and Approve, Block, and Continue take

@@ -930,6 +930,49 @@ class WorkerTest {
     }
 
     @Test
+    void aStoppedPhaseRunsAgainInTheSameSessionAfterTheContinue() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+        worker.pollOnce();
+        waitForTheLoops();
+        liveSessions.requestContinue(ISSUE);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        PhaseRequest secondRun = agent.requests().get(1);
+        assertThat(secondRun.newSession()).isFalse();
+        assertThat(secondRun.sessionId()).isEqualTo(agent.requests().get(0).sessionId());
+        assertThat(secondRun.prompt()).startsWith("The owner discussed the issue with you");
+        assertThat(record.live()).isEmpty();
+        assertThat(record.fixLoops()).isZero();
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void enterBeforeTheSessionFileExistsOpensNoConversationAndBlocksNothing() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().withoutASavedSession().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(record.agentSessionStarted()).isFalse();
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+    }
+
+    @Test
     void enterStopsTheRunningBuildAndOpensTheConversation() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),

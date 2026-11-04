@@ -583,6 +583,32 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void aFirstSessionStoppedBeforeItsFileExistsStartsAgainAsANewSession() throws ApiKeyDetectedException {
+        agent.withoutASavedSession().thenChangeNothing().thatIsStopped().thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord ready = advanceUntilPhase(workflow, queuedRecord(), Phase.IMPLEMENT);
+
+        IssueRecord stopped = workflow.advance(ready);
+        workflow.advance(stopped);
+
+        assertThat(stopped.agentSessionStarted()).isFalse();
+        assertThat(readRecordFromGitHub().agentSessionStarted()).isTrue();
+        assertThat(agent.requests().get(1).newSession()).isTrue();
+    }
+
+    @Test
+    void aResumedSessionStaysStartedAfterAStop() throws ApiKeyDetectedException {
+        agent.thenChangeNothing().thatIsStopped().withoutASavedSession().thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord ready = advanceUntilPhase(workflow, queuedRecord(), Phase.IMPLEMENT);
+        IssueRecord started = ready.withAgentSessionStarted();
+
+        IssueRecord stopped = workflow.advance(started);
+
+        assertThat(stopped.agentSessionStarted()).isTrue();
+    }
+
+    @Test
     void aStoppedReviewSessionIsNotAFailedReviewRound() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveReview().thatIsStopped();
         IssueWorkflow workflow = createWorkflow("true");

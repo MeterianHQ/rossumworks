@@ -30,13 +30,8 @@ public final class LiveContextReader {
     }
 
     public Optional<Long> readTokensInUse(UUID sessionId, Path worktree) {
-        Path sessionFile = locateSessionFile(sessionId, worktree);
+        Path sessionFile = ClaudeSessionFile.locate(claudeHome, sessionId, worktree);
         return readTail(sessionFile).flatMap(LiveContextReader::findTokensInLastAssistantLine);
-    }
-
-    private Path locateSessionFile(UUID sessionId, Path worktree) {
-        String folderName = worktree.toAbsolutePath().toString().replaceAll("[^A-Za-z0-9]", "-");
-        return claudeHome.resolve("projects").resolve(folderName).resolve(sessionId + ".jsonl");
     }
 
     private Optional<String> readTail(Path file) {

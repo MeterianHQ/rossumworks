@@ -121,7 +121,7 @@ class ClaudeAgentRunnerTest {
     void honorsAStopRequestedBeforeTheProcessStarts() throws Exception {
         ClaudeSettings settings = settingsFor("success.jsonl", Map.of("FAKE_CLAUDE_SLEEP", "30"));
         ClaudeAgentRunner[] holder = new ClaudeAgentRunner[1];
-        holder[0] = new ClaudeAgentRunner(settings, Clock.systemUTC(), System.getenv(),
+        holder[0] = new ClaudeAgentRunner(settings, Clock.systemUTC(), directory, System.getenv(),
                 issueNumber -> holder[0].stopPhase(issueNumber));
         long start = System.nanoTime();
 
@@ -129,6 +129,25 @@ class ClaudeAgentRunnerTest {
 
         assertThat(report.success()).isFalse();
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LIMIT);
+    }
+
+    @Test
+    void aSessionFileInTheFolderOfTheWorktreeIsASavedSession() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        Path sessionFile = directory.resolve("projects/-work-issue-7/" + sessionId + ".jsonl");
+        Files.createDirectories(sessionFile.getParent());
+        Files.writeString(sessionFile, "{}\n");
+
+        boolean isSaved = runnerFor("success.jsonl", "", "0").hasSavedSession(sessionId, Path.of("/work/issue_7"));
+
+        assertThat(isSaved).isTrue();
+    }
+
+    @Test
+    void noSessionFileIsNoSavedSession() throws Exception {
+        boolean isSaved = runnerFor("success.jsonl", "", "0").hasSavedSession(UUID.randomUUID(), Path.of("/work/issue_7"));
+
+        assertThat(isSaved).isFalse();
     }
 
     @Test
@@ -231,7 +250,8 @@ class ClaudeAgentRunnerTest {
 
     private ClaudeAgentRunner runnerFor(String stream, Map<String, String> options, Map<String, String> parent)
             throws IOException, URISyntaxException {
-        return new ClaudeAgentRunner(settingsFor(stream, options), Clock.systemUTC(), parent, issueNumber -> { });
+        return new ClaudeAgentRunner(settingsFor(stream, options), Clock.systemUTC(), directory, parent,
+                issueNumber -> { });
     }
 
     private ClaudeSettings settingsFor(String stream, Map<String, String> options)

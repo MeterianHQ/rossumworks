@@ -229,7 +229,7 @@ public final class IssueWorkflow {
             return askOwner(ran, factoryFolder.readQuestion(), worktree);
         }
         if (report.stopped()) {
-            return started;
+            return keepSessionThatCanResume(issue, record, started, worktree);
         }
         if (!report.success()) {
             return block(ran, "The agent session failed: " + report.resultText());
@@ -417,6 +417,12 @@ public final class IssueWorkflow {
             statusPublisher.publish(issue, started, record);
         }
         return record;
+    }
+
+    /** A first session that stopped before claude saved it cannot resume, so the next run starts a new session. */
+    private IssueRecord keepSessionThatCanResume(Issue issue, IssueRecord record, IssueRecord started, Path worktree) {
+        boolean isLost = !record.agentSessionStarted() && !phaseRunner.hasSavedSession(started.sessionId(), worktree);
+        return isLost ? undoSessionStart(issue, started, record) : started;
     }
 
     /** Publishes the start before the run, so that a retry resumes the session and does not start it again. */

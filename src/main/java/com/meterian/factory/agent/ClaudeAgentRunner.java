@@ -2,6 +2,8 @@ package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.process.ProcessGroup;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntConsumer;
@@ -28,15 +31,17 @@ public final class ClaudeAgentRunner implements AgentRunner {
     private final Clock clock;
     private final Map<String, String> parentEnvironment;
     private final IntConsumer afterRegistration;
+    private final Path claudeHome;
     private final Map<Integer, Run> runs = new ConcurrentHashMap<>();
     private volatile boolean refusesNewPhases;
 
-    public ClaudeAgentRunner(ClaudeSettings settings, Clock clock) {
-        this(settings, clock, System.getenv(), issueNumber -> { });
+    public ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome) {
+        this(settings, clock, claudeHome, System.getenv(), issueNumber -> { });
     }
 
-    ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Map<String, String> parentEnvironment,
+    ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome, Map<String, String> parentEnvironment,
             IntConsumer afterRegistration) {
+        this.claudeHome = claudeHome;
         this.settings = settings;
         this.clock = clock;
         this.parentEnvironment = parentEnvironment;
@@ -69,6 +74,11 @@ public final class ClaudeAgentRunner implements AgentRunner {
         if (run != null) {
             run.requestStop();
         }
+    }
+
+    @Override
+    public boolean hasSavedSession(UUID sessionId, Path worktree) {
+        return Files.isRegularFile(ClaudeSessionFile.locate(claudeHome, sessionId, worktree));
     }
 
     @Override

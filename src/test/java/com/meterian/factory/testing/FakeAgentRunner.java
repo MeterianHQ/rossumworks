@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +51,7 @@ public final class FakeAgentRunner implements AgentRunner {
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final AtomicInteger waitingPhases = new AtomicInteger();
     private volatile boolean refusesNewPhases;
+    private volatile boolean sessionFileIsSaved = true;
     private int changeCount;
 
     public synchronized FakeAgentRunner then(Action action) {
@@ -61,6 +63,12 @@ public final class FakeAgentRunner implements AgentRunner {
     public synchronized FakeAgentRunner thatFails() {
         ScriptedPhase last = phases.removeLast();
         phases.add(new ScriptedPhase(last.action(), FAILURE));
+        return this;
+    }
+
+    /** The stop comes so early that claude has no session file yet. */
+    public FakeAgentRunner withoutASavedSession() {
+        sessionFileIsSaved = false;
         return this;
     }
 
@@ -210,6 +218,12 @@ public final class FakeAgentRunner implements AgentRunner {
     @Override
     public void refuseNewPhases() {
         refusesNewPhases = true;
+    }
+
+    /** Not synchronized: a waiting phase holds the lock of the runner. */
+    @Override
+    public boolean hasSavedSession(UUID sessionId, Path worktree) {
+        return sessionFileIsSaved;
     }
 
     /** Not synchronized: a waiting phase holds the lock of the runner. */

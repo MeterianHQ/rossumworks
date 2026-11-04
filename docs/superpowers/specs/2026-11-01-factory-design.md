@@ -351,9 +351,17 @@ There are two ways to enter:
 - The agent has a question (section 7.2).
 - The owner adds the label `factory:enter`.
 
-The worker never stops a phase in the middle, because a stopped phase can
-leave changes that are not complete. If a phase runs, the worker waits
-until it ends. Then the worker:
+The owner must not wait for the end of a phase, so the worker stops the
+running agent or build at once. A stopped session is not a failed session.
+The record stays as it was before the step, and the step runs again after
+the conversation. Changes that are not complete stay in the worktree. In the
+phase IMPLEMENT the agent continues on them. In the other phases the worker
+commits them after the conversation, and then the build and all reviews run
+again.
+
+A first session that stopped before Claude Code saved its file cannot resume.
+The worker undoes the session start, writes the "too early" note, and the
+next run starts a new session. Then the worker:
 
 1. Removes the label `factory:enter`. This shows the owner that the worker
    took the request.
