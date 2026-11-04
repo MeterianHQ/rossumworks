@@ -6,6 +6,7 @@ import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
@@ -44,12 +45,24 @@ class PageModelSourceTest {
 
     private final MutableClock clock = new MutableClock(NOW);
     private final BoardState board = new BoardState(clock);
+    private PickUpSwitch pickUp;
     private final UsageTracker usage = new UsageTracker(0.90, clock);
     private final ContextTracker contexts = new ContextTracker();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final PageRequests pageRequests = new PageRequests(clock);
 
+    @Test
+    void readsThePauseOfThePickUp() {
+        PageModelSource source = source();
+        assertThat(source.read(true).pickUpPaused()).isFalse();
+
+        pickUp.pause();
+
+        assertThat(source.read(true).pickUpPaused()).isTrue();
+    }
+
     private PageModelSource source() {
+        pickUp = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
         Path workDirectory = temporaryDirectory.resolve("work");
         TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
                 "true", Map.of());
@@ -58,7 +71,7 @@ class PageModelSourceTest {
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
+        return new PageModelSource(board, pickUp, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
                 pageRequests, new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }
 

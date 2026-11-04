@@ -10,6 +10,7 @@ import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.IssueCard;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -96,6 +97,8 @@ class WorkerTest {
     @TempDir
     Path temporaryDirectory;
 
+    private PickUpSwitch pickUpSwitch;
+
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T09:00:00Z"));
     private final BoardState board = new BoardState(clock);
@@ -133,6 +136,13 @@ class WorkerTest {
             executor.shutdownNow();
             executor.awaitTermination(TIME_BOUND.toSeconds(), TimeUnit.SECONDS);
         }
+    }
+
+    private PickUpSwitch pickUp() {
+        if (pickUpSwitch == null) {
+            pickUpSwitch = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
+        }
+        return pickUpSwitch;
     }
 
     private void addLabeledIssue(int number) {
@@ -185,7 +195,7 @@ class WorkerTest {
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC(), board);
+                liveSessions, Clock.systemUTC(), board, pickUp());
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -404,6 +414,47 @@ class WorkerTest {
                 .withWaitReason(WaitReason.BLOCKED_BY_OWNER);
         gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, 2));
         return blocked;
+    }
+
+    @Test
+    void aPausedPickUpKeepsANewIssueInQueued() {
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 2);
+        pickUp().pause();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(worker.issuesInWork()).isEmpty();
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void anIssueStartsAtTheFirstPollAfterTheResume() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        pickUp().pause();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        pickUp().resume();
+        worker.pollOnce();
+        waitUntil(() -> !agent.requests().isEmpty());
+        waitForTheLoops();
+    }
+
+    @Test
+    void aPausedPickUpLetsAStartedIssueContinue() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        pickUp().pause();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        IssueRecord started = readRecord(ISSUE).orElseThrow().withAgentSessionStarted()
+                .withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, 2));
+
+        worker.pollOnce();
+
+        waitUntil(() -> !agent.requests().isEmpty());
+        waitForTheLoops();
     }
 
     @Test

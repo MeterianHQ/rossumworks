@@ -259,6 +259,19 @@ The page makes no GitHub request of its own. It shows the state from the last po
 usually makes only one request: it adds one label. When the label is already on the issue, the action makes
 two requests: it removes the label and adds it again.
 
+### Pick up
+
+The header has a tile "Pick up" with one button. **Pause** stops the pick up, and **Start** turns it on again. The
+worker then starts the waiting issues in about 2 seconds.
+
+While the pick up is paused:
+
+- A new `factory` label still puts the issue in Queued, but the agent does not start. You can prepare a set of issues.
+- An issue that the worker started continues through its phases. Enter, Approve, Block, and Continue still work.
+- Start again also waits, because it makes the issue new. Its card stays in Queued until you click **Start**.
+
+A pause stays after a restart of the worker. The marker file is `<work-directory>/pick-up-paused`.
+
 ### Known limits
 
 - The page uses plain HTTP. On the LAN, another device can read the password and the cookie.

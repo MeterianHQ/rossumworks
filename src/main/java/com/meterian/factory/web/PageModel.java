@@ -29,7 +29,8 @@ public record PageModel(
         Map<Integer, Set<String>> rememberedLabels,
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
-        boolean viewerOnThisMachine) {
+        boolean viewerOnThisMachine,
+        boolean pickUpPaused) {
 
     public PageModel {
         usageWindows = List.copyOf(usageWindows);

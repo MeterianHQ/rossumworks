@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
@@ -91,10 +92,12 @@ class WebServerTest {
     private volatile Optional<RuntimeException> sendFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
+    private PickUpSwitch pickUp;
     private WebServer server;
 
     @BeforeEach
     void startServer() throws IOException {
+        pickUp = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
         PageActions actions = createPageActions();
@@ -147,7 +150,7 @@ class WebServerTest {
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
+        return new PageModelSource(board, pickUp, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }
@@ -361,6 +364,47 @@ class WebServerTest {
         postAction("/issues/12/continue", cookie);
 
         assertThat(postAction("/issues/12/continue", cookie).statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void theOwnerPausesThePickUp() {
+        HttpResponse<String> answer = postForm("/pick-up/pause", logIn(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/");
+        assertThat(pickUp.isPaused()).isTrue();
+    }
+
+    @Test
+    void theOwnerStartsThePickUpAgainAndTheWorkerPollsEarly() {
+        pickUp.pause();
+
+        HttpResponse<String> answer = postForm("/pick-up/resume", logIn(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(pickUp.isPaused()).isFalse();
+        assertThat(earlyPollRequests).hasValue(1);
+    }
+
+    @Test
+    void thePickUpNeedsALogin() {
+        HttpResponse<String> answer = postForm("/pick-up/pause", Optional.empty(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(401);
+        assertThat(pickUp.isPaused()).isFalse();
+    }
+
+    @Test
+    void thePickUpRefusesAnotherOrigin() {
+        HttpResponse<String> answer = post("/pick-up/pause", logIn(), "https://other.example");
+
+        assertThat(answer.statusCode()).isEqualTo(403);
+        assertThat(pickUp.isPaused()).isFalse();
+    }
+
+    @Test
+    void thePickUpKnowsOnlyTwoActions() {
+        assertThat(postForm("/pick-up/other", logIn(), "").statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -765,7 +809,7 @@ class WebServerTest {
 
     private PageActions createPageActions() {
         return new PageActions(createLabelWriter(), pageRequests, liveSessions, this::recordSentLink, board,
-                earlyPollRequests::incrementAndGet);
+                pickUp, earlyPollRequests::incrementAndGet);
     }
 
     @Test

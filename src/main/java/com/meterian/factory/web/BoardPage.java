@@ -62,6 +62,10 @@ public final class BoardPage {
         if (isLastCheckOld(model)) {
             html.append("<p class=\"warning\">The last GitHub check is old.</p>");
         }
+        if (model.pickUpPaused()) {
+            html.append("<p class=\"notice\">Pick up is paused. New issues wait in Queued. "
+                    + "The issues in work continue.</p>");
+        }
         model.usageResumesAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
                 .append(Html.escape("New phases start again at " + formatTime(resumesAt) + "."))
                 .append("</p>"));
@@ -74,6 +78,7 @@ public final class BoardPage {
         appendTile(html, "Last GitHub check", board.lastCheckAt().map(this::formatTime).orElse("none yet"));
         appendTile(html, "Issues in work", model.issuesInWork() + " of " + model.parallelLimit());
         appendTile(html, "Isolation", describeIsolation(model));
+        appendPickUpTile(html, model.pickUpPaused());
         model.usageWindows().forEach(window -> appendUsageTile(html, window));
         html.append("</div>");
     }
@@ -81,6 +86,13 @@ public final class BoardPage {
     private void appendTile(StringBuilder html, String label, String value) {
         html.append("<div class=\"tile\"><span class=\"tile-label\">").append(Html.escape(label))
                 .append("</span><span class=\"tile-value\">").append(Html.escape(value)).append("</span></div>");
+    }
+
+    private void appendPickUpTile(StringBuilder html, boolean paused) {
+        html.append("<div class=\"tile pick-up\"><span class=\"tile-label\">Pick up</span>")
+                .append("<span class=\"tile-value\">").append(paused ? "Paused" : "On").append("</span>")
+                .append("<form method=\"post\" action=\"/pick-up/").append(paused ? "resume" : "pause")
+                .append("\"><button>").append(paused ? "Start" : "Pause").append("</button></form></div>");
     }
 
     /** The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. */

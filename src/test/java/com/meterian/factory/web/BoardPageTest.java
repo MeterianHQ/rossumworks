@@ -109,7 +109,14 @@ class BoardPageTest {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
         return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
                 usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
-                viewerOnThisMachine);
+                viewerOnThisMachine, false);
+    }
+
+    private static PageModel withPausedPickUp(PageModel model) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.fixLoopLimit(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
+                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), true);
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -388,6 +395,26 @@ class BoardPageTest {
                 Map.of(12, Set.of("factory:block"))));
 
         assertThat(html).contains(requestLine("Block sent. The worker stops the issue in a few seconds."));
+    }
+
+    @Test
+    void anActivePickUpHasAPauseButton() {
+        String html = page.renderBoard(model(List.of()));
+
+        assertThat(html).contains("<span class=\"tile-label\">Pick up</span><span class=\"tile-value\">On</span>")
+                .contains("<form method=\"post\" action=\"/pick-up/pause\"><button>Pause</button></form>");
+        assertThat(html).doesNotContain("/pick-up/resume");
+    }
+
+    @Test
+    void aPausedPickUpHasAStartButtonAndANotice() {
+        String html = page.renderBoard(withPausedPickUp(model(List.of())));
+
+        assertThat(html).contains("<span class=\"tile-label\">Pick up</span><span class=\"tile-value\">Paused</span>")
+                .contains("<form method=\"post\" action=\"/pick-up/resume\"><button>Start</button></form>")
+                .contains("<p class=\"notice\">Pick up is paused. New issues wait in Queued. "
+                        + "The issues in work continue.</p>");
+        assertThat(html).doesNotContain("/pick-up/pause");
     }
 
     @Test

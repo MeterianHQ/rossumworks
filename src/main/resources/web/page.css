@@ -203,6 +203,10 @@ button {
     background: var(--surface-raised);
 }
 
+.pick-up button {
+    margin-top: 0.25rem;
+}
+
 .tile-label {
     color: var(--text-muted);
     font-size: 0.72rem;
