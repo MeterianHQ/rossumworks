@@ -1,6 +1,7 @@
 package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
+import com.meterian.factory.agent.ContinueMarkerWatcher;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
@@ -327,6 +328,11 @@ public final class Main {
                 createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
                 worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
+        ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
+            shared.board().recordRequestChange();
+            worker.requestEarlyPoll();
+        });
+        startContinueMarkerWatcher(continueMarkerWatcher, errors);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
                 UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
@@ -334,6 +340,7 @@ public final class Main {
             worker.runUntilStopped();
             worker.shutDown(LOOP_END_TIMEOUT);
         } finally {
+            continueMarkerWatcher.close();
             webServer.ifPresent(WebServer::stop);
         }
         if (!worker.foundAnApiKey()) {
@@ -445,6 +452,15 @@ public final class Main {
     }
 
     /** The install runs before the first poll: a live folder that is not private stops the start. */
+    /** Without the watch the worker still works: it sees /factory:continue at the next poll. */
+    private static void startContinueMarkerWatcher(ContinueMarkerWatcher watcher, PrintStream errors) {
+        try {
+            watcher.start();
+        } catch (IOException exception) {
+            errors.println("The worker sees /factory:continue only at the next poll: " + exception.getMessage());
+        }
+    }
+
     private static LiveFiles installLiveFiles(FactoryConfiguration configuration) throws StartupException {
         LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
         try {

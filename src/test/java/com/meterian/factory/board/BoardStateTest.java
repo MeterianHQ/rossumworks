@@ -28,6 +28,15 @@ class BoardStateTest {
     }
 
     @Test
+    void aRequestChangeWakesTheWaitingPage() throws InterruptedException {
+        long knownVersion = board.snapshot().version();
+
+        board.recordRequestChange();
+
+        assertThat(board.awaitChange(knownVersion, Duration.ZERO)).isEqualTo(knownVersion + 1);
+    }
+
+    @Test
     void aPollSetsTheCheckTimeAndTheTitles() {
         board.recordIssue(issue(7, "Old title"), record(7, IssueStatus.QUEUED));
         clock.advance(Duration.ofMinutes(1));

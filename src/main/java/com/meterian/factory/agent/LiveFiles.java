@@ -16,11 +16,13 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /** The files of live mode: the factory plugin, the continue hook, and the settings and marker of each issue. */
 public final class LiveFiles {
 
     private static final String HOOK_FILE_NAME = "continue-hook.sh";
+    private static final Pattern CONTINUE_MARKER_NAME = Pattern.compile("issue-\\d+\\.continue");
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
     private static final int STICKY_BIT = 01000;
@@ -178,6 +180,10 @@ public final class LiveFiles {
     /** The marker is outside the worktree, so the agent does not see it in its folder. */
     public Path continueMarker(int issueNumber) {
         return liveDirectory.resolve("issue-" + issueNumber + ".continue");
+    }
+
+    static boolean isContinueMarkerName(String fileName) {
+        return CONTINUE_MARKER_NAME.matcher(fileName).matches();
     }
 
     public boolean isContinueRequested(int issueNumber) {

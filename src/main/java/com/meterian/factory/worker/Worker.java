@@ -229,6 +229,7 @@ public final class Worker {
             return Optional.empty();
         }
         IssueLabelActors labelActors = requests.readLabelActorsOf(issueNumber);
+        showAcceptedRequests(issue, labelActors);
         if (issue.labels().contains(BLOCK_LABEL)) {
             if (labelActors.isGivenByAllowedAccount(BLOCK_LABEL)) {
                 requestBlock(issueNumber);
@@ -256,6 +257,19 @@ public final class Worker {
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
+    }
+
+    /** The card shows the waiting state of an accepted label also when the label comes from the GitHub app. */
+    private void showAcceptedRequests(Issue issue, IssueLabelActors labelActors) {
+        boolean hasNewRequest = false;
+        for (String label : List.of(APPROVE_LABEL, BLOCK_LABEL, EnterRequests.ENTER_LABEL)) {
+            if (issue.labels().contains(label) && labelActors.isGivenByAllowedAccount(label)) {
+                hasNewRequest |= requests.rememberAcceptedRequest(issue.number(), label);
+            }
+        }
+        if (hasNewRequest) {
+            board.recordRequestChange();
+        }
     }
 
     /**

@@ -40,6 +40,13 @@ public final class PageRequests {
         placeByIssue.put(issueNumber, new PlaceRequest(place, clock.instant().plus(REQUEST_LIFETIME)));
     }
 
+    /** A label from the GitHub app has no place. Without a place of the page, the conversation opens on the phone. */
+    public void rememberPhoneUnlessAPlaceIsRemembered(int issueNumber) {
+        if (findEnterPlace(issueNumber).isEmpty()) {
+            rememberEnterPlace(issueNumber, LivePlace.PHONE);
+        }
+    }
+
     /** Gives the remembered place and keeps it. Gives nothing when no place is remembered or it expired. */
     public Optional<LivePlace> findEnterPlace(int issueNumber) {
         PlaceRequest request = placeByIssue.get(issueNumber);

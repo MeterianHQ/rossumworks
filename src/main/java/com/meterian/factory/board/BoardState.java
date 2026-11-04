@@ -64,6 +64,11 @@ public final class BoardState implements BoardUpdates {
         markChanged();
     }
 
+    @Override
+    public synchronized void recordRequestChange() {
+        markChanged();
+    }
+
     /** Shows the label at once, so the button of the action goes away before the next poll. */
     public synchronized void recordLabelAdded(int issueNumber, String label) {
         IssueCard card = cardsByNumber.get(issueNumber);

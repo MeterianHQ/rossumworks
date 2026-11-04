@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
@@ -19,6 +20,7 @@ import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
@@ -165,7 +167,7 @@ class WorkerTest {
         return createWorker(agent, configuration, board);
     }
 
-    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardState board) {
+    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board) {
         BuildRunner buildRunner = new BuildRunner();
         RequestReader requests =
                 new RequestReader(gitHub, configuration.allowedAccounts(), WORKER_LOGIN, pageRequests);
@@ -990,6 +992,86 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).isEmpty();
         phaseMayEnd.countDown();
         waitForTheLoops();
+    }
+
+    /** Counts the calls that tell the page about a request. The other calls go to the board of the test. */
+    private final class CountingBoardUpdates implements BoardUpdates {
+
+        private int requestChanges;
+
+        @Override
+        public void recordPoll(List<Issue> labeledIssues) {
+            board.recordPoll(labeledIssues);
+        }
+
+        @Override
+        public void recordIssue(Issue issue, IssueRecord record) {
+            board.recordIssue(issue, record);
+        }
+
+        @Override
+        public synchronized void recordRequestChange() {
+            requestChanges++;
+        }
+
+        synchronized int requestChanges() {
+            return requestChanges;
+        }
+    }
+
+    @Test
+    void aBlockLabelFromTheGitHubAppBecomesAWaitingRequest() throws InterruptedException {
+        CountingBoardUpdates updates = new CountingBoardUpdates();
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60)), updates);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(pageRequests.isRemembered(ISSUE, BLOCK_LABEL)).isTrue();
+        assertThat(updates.requestChanges()).isEqualTo(1);
+    }
+
+    @Test
+    void anEnterLabelFromTheGitHubAppBecomesAWaitingRequest() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(pageRequests.isRemembered(ISSUE, ENTER_LABEL)).isTrue();
+    }
+
+    @Test
+    void anApproveLabelFromTheGitHubAppBecomesAWaitingRequest() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(pageRequests.isRemembered(ISSUE, APPROVE_LABEL)).isTrue();
+    }
+
+    @Test
+    void aLabelFromAnotherAccountIsNotAWaitingRequest() throws InterruptedException {
+        runToTheMergeApproval();
+        CountingBoardUpdates updates = new CountingBoardUpdates();
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "mallory");
+
+        createWorker(new FakeAgentRunner(), createConfiguration(2, Duration.ofSeconds(60)), updates).pollOnce();
+        waitForTheLoops();
+
+        assertThat(pageRequests.isRemembered(ISSUE, ENTER_LABEL)).isFalse();
+        assertThat(pageRequests.findEnterPlace(ISSUE)).isEmpty();
+        assertThat(updates.requestChanges()).isZero();
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

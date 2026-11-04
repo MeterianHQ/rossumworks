@@ -2,6 +2,7 @@ package com.meterian.factory.workflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.MutableClock;
 import java.time.Duration;
@@ -112,6 +113,20 @@ class RequestReaderTest {
 
         assertThat(requests.isGivenByAllowedAccount(8, "factory:approve")).isFalse();
         assertThat(requests.isGivenByAllowedAccount(7, "factory:block")).isFalse();
+    }
+
+    @Test
+    void rememberingAnAcceptedRequestTellsIfItIsNew() {
+        assertThat(requests.rememberAcceptedRequest(7, "factory:block")).isTrue();
+        assertThat(requests.rememberAcceptedRequest(7, "factory:block")).isFalse();
+        assertThat(pageRequests.isRemembered(7, "factory:block")).isTrue();
+    }
+
+    @Test
+    void anAcceptedEnterWithoutAPageRequestOpensOnThePhone() {
+        requests.rememberAcceptedRequest(7, "factory:enter");
+
+        assertThat(pageRequests.findEnterPlace(7)).contains(LivePlace.PHONE);
     }
 
     @Test

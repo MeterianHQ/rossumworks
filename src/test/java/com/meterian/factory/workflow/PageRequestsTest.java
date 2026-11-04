@@ -25,6 +25,22 @@ class PageRequestsTest {
     }
 
     @Test
+    void aLabelFromTheGitHubAppShowsThePhone() {
+        pageRequests.rememberPhoneUnlessAPlaceIsRemembered(ISSUE);
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.PHONE);
+    }
+
+    @Test
+    void aLabelFromTheGitHubAppKeepsThePlaceOfThePage() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        pageRequests.rememberPhoneUnlessAPlaceIsRemembered(ISSUE);
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.TERMINAL);
+    }
+
+    @Test
     void anExpiredEnterPlaceIsPhone() {
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
         clock.advance(Duration.ofHours(24).plusSeconds(1));

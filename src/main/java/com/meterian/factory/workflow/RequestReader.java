@@ -8,6 +8,8 @@ import java.util.Optional;
 /** Tells who gave a request label. Fails closed: a label with no event is not a request. */
 public final class RequestReader {
 
+    private static final String ENTER_LABEL = "factory:enter";
+
     private final GitHubClient gitHub;
     private final List<String> allowedAccounts;
     private final String workerLogin;
@@ -28,6 +30,23 @@ public final class RequestReader {
 
     public boolean isGivenByAllowedAccount(int issueNumber, String label) {
         return readLabelActorsOf(issueNumber).isGivenByAllowedAccount(label);
+    }
+
+    /**
+     * Remembers a request label that the worker accepted, so that the page shows its waiting state also for a label
+     * from the GitHub app.
+     *
+     * @return true when the page did not know this request before
+     */
+    public boolean rememberAcceptedRequest(int issueNumber, String label) {
+        boolean isNew = !pageRequests.isRemembered(issueNumber, label);
+        if (isNew) {
+            pageRequests.remember(issueNumber, label);
+        }
+        if (ENTER_LABEL.equals(label)) {
+            pageRequests.rememberPhoneUnlessAPlaceIsRemembered(issueNumber);
+        }
+        return isNew;
     }
 
     /** Returns the account that added the label last. */
