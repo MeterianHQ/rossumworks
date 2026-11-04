@@ -8,6 +8,7 @@ import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.workflow.ApprovalCheck;
 import com.meterian.factory.workflow.PageRequests;
+import com.meterian.factory.workflow.StartAgainCheck;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -32,6 +33,8 @@ public enum PageAction {
     APPROVE("approve", "Approve", "factory:approve", null,
             "Approval sent. The worker takes it in a few seconds.", ""),
     BLOCK("block", "Block", "factory:block", null, "Block sent. The worker stops the issue in a few seconds.", ""),
+    START_AGAIN("start-again", "Start again", "factory:start-again", null,
+            "Start again sent. The worker starts the issue again in a few seconds.", ""),
     CONTINUE("continue", "Continue", null, null, "Continue sent. The factory takes the issue back in a few seconds.",
             ""),
     OPEN_TERMINAL("open-terminal", "Terminal", null, null, null,
@@ -74,7 +77,7 @@ public enum PageAction {
         return this == ENTER_TERMINAL || this == OPEN_TERMINAL;
     }
 
-    /** The help text of the button. It is empty for Approve, Block, and Continue. */
+    /** The help text of the button. It is empty for Approve, Block, Start again, and Continue. */
     public String tooltip() {
         return tooltip;
     }
@@ -124,6 +127,7 @@ public enum PageAction {
             case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE -> isEnterPossible(record);
             case APPROVE -> ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isBlockPossible(record);
+            case START_AGAIN -> StartAgainCheck.isPossible(record);
             case CONTINUE -> record.live().isPresent() && !continueRequested;
             case OPEN_TERMINAL -> findLiveLink(record).isPresent() && !continueRequested;
             case SEND_TO_PHONE -> findLiveLink(record).filter(TmuxLiveSessions::isRemoteControlLink).isPresent()
@@ -142,6 +146,7 @@ public enum PageAction {
                     isRequestedLabelOnTheCard(card, rememberedLabels) && isEnterPossible(record);
             case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && isBlockPossible(record);
+            case START_AGAIN -> isRequestedLabelOnTheCard(card, rememberedLabels) && StartAgainCheck.isPossible(record);
             case CONTINUE -> continueRequested && record.live().isPresent();
             case OPEN_TERMINAL, SEND_TO_PHONE -> false;
         };

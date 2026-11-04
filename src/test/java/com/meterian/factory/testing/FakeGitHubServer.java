@@ -44,6 +44,7 @@ public final class FakeGitHubServer implements AutoCloseable {
     private static final Pattern ISSUE_LABELS = Pattern.compile("/issues/(\\d+)/labels");
     private static final Pattern ISSUE_LABEL = Pattern.compile("/issues/(\\d+)/labels/(.+)");
     private static final Pattern PULL_REQUEST = Pattern.compile("/pulls/(\\d+)");
+    private static final Pattern BRANCH = Pattern.compile("/branches/([^/]+)");
     private static final Pattern PULL_REQUEST_MERGE = Pattern.compile("/pulls/(\\d+)/merge");
     private static final Pattern MERGE_COMMIT = Pattern.compile("/git/commits/merge-of-(\\d+)");
     private static final Pattern NUMBER_SEGMENT = Pattern.compile("/\\d+(?=/|$)");
@@ -198,6 +199,10 @@ public final class FakeGitHubServer implements AutoCloseable {
             gitHub.openPullRequest(branch).ifPresent(pullRequest -> pullRequests.add(toPullRequestJson(pullRequest)));
             return ok(pullRequests);
         }
+        if ((matcher = BRANCH.matcher(route)).matches()) {
+            return gitHub.findBranchHead(URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8))
+                    .map(this::toBranchJson).map(this::ok).orElseGet(this::notFound);
+        }
         if ((matcher = PULL_REQUEST.matcher(route)).matches()) {
             return findPullRequest(number(matcher)).map(this::toFullPullRequestJson).map(this::ok)
                     .orElseGet(this::notFound);
@@ -208,6 +213,12 @@ public final class FakeGitHubServer implements AutoCloseable {
                     .orElseGet(this::notFound);
         }
         return notFound();
+    }
+
+    private JsonNode toBranchJson(String head) {
+        ObjectNode branch = mapper.createObjectNode();
+        branch.putObject("commit").put("sha", head);
+        return branch;
     }
 
     private Answer answerCreate(String route, JsonNode payload) {

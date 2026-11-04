@@ -25,7 +25,7 @@ final class CardRenderer {
     private static final List<PageAction> ENTER_ACTIONS =
             List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER, PageAction.ENTER_PHONE);
     private static final List<PageAction> OTHER_ACTIONS =
-            List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.CONTINUE);
+            List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.START_AGAIN, PageAction.CONTINUE);
 
     private final DateTimeFormatter dateFormat;
 
@@ -211,7 +211,7 @@ final class CardRenderer {
     }
 
     /**
-     * The forms work without JavaScript. page.js finds the Block form by its class and asks for a confirm.
+     * The forms work without JavaScript. page.js finds the forms of Block and Start again by their class and asks for a confirm.
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
      * The Enter buttons are one group before the other forms.
      */
@@ -256,6 +256,9 @@ final class CardRenderer {
                 .append(action.pathName()).append('"');
         if (action == PageAction.BLOCK) {
             html.append(" class=\"confirm-block\" data-issue=\"").append(issueNumber).append('"');
+        }
+        if (action == PageAction.START_AGAIN) {
+            html.append(" class=\"confirm-start-again\" data-issue=\"").append(issueNumber).append('"');
         }
         if (action == PageAction.ENTER_BROWSER) {
             html.append(" target=\"_blank\"");

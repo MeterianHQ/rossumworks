@@ -310,6 +310,21 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void readsTheHeadOfABranch() {
+        responder = request -> new Answer(200, "{\"name\":\"factory/issue-7\",\"commit\":{\"sha\":\"abc\"}}");
+
+        assertThat(client.findBranchHead("factory/issue-7")).contains("abc");
+        assertThat(requests.get(requests.size() - 1).target()).isEqualTo("/repos/o/r/branches/factory%2Fissue-7");
+    }
+
+    @Test
+    void aBranchThatGitHubDoesNotHaveHasNoHead() {
+        responder = request -> new Answer(404, "{\"message\":\"Branch not found\"}");
+
+        assertThat(client.findBranchHead("factory/issue-7")).isEmpty();
+    }
+
+    @Test
     void readsTheBodyOfAPullRequest() {
         responder = request -> new Answer(200, "[{\"number\":5,\"html_url\":\"u\",\"head\":{\"ref\":\"b\"},"
                 + "\"body\":\"The body\"}]");

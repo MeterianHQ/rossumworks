@@ -93,7 +93,7 @@ public final class PageActions {
             case OPEN_TERMINAL -> openTerminal(card.issueNumber());
             case SEND_TO_PHONE -> sendLinkToPhone(card);
             case CONTINUE -> requestEarlyPollAfter(() -> liveSessions.requestContinue(card.issueNumber()));
-            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE, APPROVE, BLOCK ->
+            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE, APPROVE, BLOCK, START_AGAIN ->
                     requestEarlyPollAfter(() -> sendLabelRequest(card, action));
         };
     }

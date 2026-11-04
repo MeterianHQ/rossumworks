@@ -217,6 +217,17 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public Optional<String> findBranchHead(String branch) {
+        String path = repositoryPath + "/branches/" + encode(branch);
+        HttpResponse<String> response = sendRaw("GET", path, null);
+        if (response.statusCode() == 404) {
+            return Optional.empty();
+        }
+        requireSuccess("GET", path, response);
+        return Optional.of(parse(response.body()).path("commit").path("sha").asText()).filter(sha -> !sha.isBlank());
+    }
+
+    @Override
     public boolean isMerged(int pullRequestNumber) {
         return send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null).path("merged").asBoolean(false);
     }

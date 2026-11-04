@@ -286,7 +286,10 @@ public final class IssueWorkflow {
         }
         ownerApproval.withdraw(record.issueNumber());
         PullRequestPublisher.PublishedBranch published = pullRequestPublisher.publish(issue, worktree, headCommit);
-        IssueRecord built = record.withBuiltTree(treeHash).withPullRequest(published.pullRequest().number());
+        IssueRecord withTree = record.withBuiltTree(treeHash);
+        IssueRecord built = published.pullRequest()
+                .map(pullRequest -> withTree.withPullRequest(pullRequest.number()))
+                .orElse(withTree);
         if (!published.isOnGitHub()) {
             return forwardCheckFailure.count(issue, record, built, headCommit, treeHash);
         }

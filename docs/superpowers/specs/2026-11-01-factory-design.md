@@ -645,6 +645,7 @@ the same way.
 | Enter | `factory:enter` | Opens live mode (section 8.1). |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and sets "Blocked". |
+| Start again | `factory:start-again` | Discards the earlier work of a Blocked issue and runs the issue from the start. |
 
 My decisions on "Block":
 
@@ -653,8 +654,12 @@ My decisions on "Block":
   owner can use Block to stop a wrong change. The worktree keeps the files
   as they are. A blocked issue never
   merges, so a phase that is not complete does no harm.
-- To start a blocked issue again, the owner clicks "Enter", discusses with
-  the agent, and then clicks "Continue".
+- To continue a blocked issue with its work, the owner clicks "Enter",
+  discusses with the agent, and then clicks "Continue".
+- To discard the work of a blocked issue, the owner clicks "Start again"
+  and confirms. The worker writes a new record with a new session. The phase
+  PREPARE removes the worktree and resets the branch. A merged pull request
+  moves the issue to Done, so the change never runs again.
 
 A button shows only when its action is possible, for example "Approve"
 only for the reason "merge needs approval". The worker checks the same

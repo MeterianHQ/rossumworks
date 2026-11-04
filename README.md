@@ -12,7 +12,7 @@ Copy `factory.example.yaml` and change the values. The factory reads this file a
 ## Setup
 
 The factory needs no GitHub Project. The worker creates its labels in the target repository: `factory`,
-`factory:approve`, `factory:block`, `factory:enter`, and the six status labels `factory:status:<slug>`.
+`factory:approve`, `factory:block`, `factory:enter`, `factory:start-again`, and the six status labels `factory:status:<slug>`.
 
 1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
    refuses to start when it is set.
@@ -215,7 +215,14 @@ A button of an old page gets "This action is not possible now." when the card ch
 | Terminal, Browser, Phone | `factory:enter` | Opens live mode in the chosen place. |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and stops the running `claude` process. |
+| Start again | `factory:start-again` | Discards the earlier work of a Blocked issue and runs the issue from the start. |
 | Continue | (none) | Ends live mode, as `/factory:continue` in the conversation. |
+
+There are two ways to continue a Blocked issue. Enter and `/factory:continue` keep the work and start again in the
+phase where the issue stopped. Start again discards the work: the worker writes a new record, removes the worktree,
+resets the branch, and starts a new session. The page asks for a confirm first. An open pull request stays open and
+gets the new commit. A pull request that GitHub merged moves the issue to Done, so the change never runs again.
+Start again shows only on a Blocked issue without a live conversation.
 
 The three Enter buttons are one joined row of three parts. They have no icons, because a card is 240 px wide.
 Each part has a tooltip. A phone shows no tooltip, so the names are clear alone. Approve and Block go on the

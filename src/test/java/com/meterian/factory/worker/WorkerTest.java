@@ -41,6 +41,7 @@ import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -74,6 +75,7 @@ class WorkerTest {
     private static final String BLOCK_LABEL = "factory:block";
     private static final String APPROVE_LABEL = "factory:approve";
     private static final String ENTER_LABEL = "factory:enter";
+    private static final String START_AGAIN_LABEL = "factory:start-again";
     private static final String MALLORY_ENTER_NOTE =
             "The label factory:enter from mallory is ignored: the account is not in accounts.allowed.";
     private static final String ENDED_NOTE = "The live conversation ended without /factory:continue."
@@ -390,6 +392,119 @@ class WorkerTest {
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+    }
+
+    private IssueRecord writeBlockedRecordWithEarlierWork() {
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow()
+                .withAgentSessionStarted()
+                .withFixLoop()
+                .withBuiltTree("tree")
+                .withPhase(Phase.BUILD)
+                .withStatus(IssueStatus.BLOCKED)
+                .withWaitReason(WaitReason.BLOCKED_BY_OWNER);
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, 2));
+        return blocked;
+    }
+
+    @Test
+    void startAgainSetsABlockedIssueBackToTheStart() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord blocked = writeBlockedRecordWithEarlierWork();
+        gitHub.addLabelBy(ISSUE, START_AGAIN_LABEL, "bbossola");
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(record.sessionId()).isNotEqualTo(blocked.sessionId());
+        assertThat(record.agentSessionStarted()).isFalse();
+        assertThat(record.fixLoops()).isZero();
+        assertThat(record.builtTreeHash()).isEmpty();
+        assertThat(record.waitReason()).isEmpty();
+        assertThat(record.notes()).contains("The owner started the issue again. The earlier work is discarded.");
+        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
+        assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void startAgainRunsTheAgentInANewSessionAndACleanWorktree() throws InterruptedException, IOException {
+        AtomicBoolean strayFileSeen = new AtomicBoolean();
+        Path strayFile = worktree().resolve("stray.txt");
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails()
+                .then(request -> strayFileSeen.set(Files.exists(strayFile)));
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, BLOCK_LABEL, "bbossola");
+        worker.pollOnce();
+        waitUntil(() -> !gitHub.labelsOf(ISSUE).contains(BLOCK_LABEL));
+        Files.writeString(strayFile, "a file of the earlier work\n");
+        gitHub.addLabelBy(ISSUE, START_AGAIN_LABEL, "bbossola");
+
+        waitUntil(() -> {
+            worker.pollOnce();
+            return agent.requests().size() >= 2;
+        });
+        waitForTheLoops();
+
+        List<PhaseRequest> requests = agent.requests();
+        assertThat(requests).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(requests.get(1).sessionId()).isNotEqualTo(requests.get(0).sessionId());
+        assertThat(requests.get(1).newSession()).isTrue();
+        assertThat(strayFileSeen).isFalse();
+    }
+
+    @Test
+    void startAgainFromAnotherAccountIsIgnored() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord blocked = writeBlockedRecordWithEarlierWork();
+        gitHub.addLabelBy(ISSUE, START_AGAIN_LABEL, "mallory");
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.sessionId()).isEqualTo(blocked.sessionId());
+        assertThat(gitHub.commentsOf(ISSUE)).anyMatch(comment -> comment.body().equals(
+                "The label factory:start-again from mallory is ignored: the account is not in accounts.allowed."));
+    }
+
+    @Test
+    void startAgainHasNoEffectOnAnIssueThatIsNotBlocked() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord queued = readRecord(ISSUE).orElseThrow();
+        gitHub.addLabelBy(ISSUE, START_AGAIN_LABEL, "bbossola");
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.sessionId()).isEqualTo(queued.sessionId());
+        assertThat(record.notes()).contains(
+                "Start again has no effect: it works only on a Blocked issue without a live conversation.");
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
+    }
+
+    @Test
+    void startAgainNeverMakesTheChangeOfAMergedIssueAgain() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord blocked = writeBlockedRecordWithEarlierWork()
+                .withPullRequest(gitHub.addMergedPullRequest("factory/issue-" + ISSUE));
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, 2));
+        gitHub.addLabelBy(ISSUE, START_AGAIN_LABEL, "bbossola");
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.sessionId()).isEqualTo(blocked.sessionId());
+        assertThat(record.notes()).contains("GitHub already merged the pull request, so the issue does not start again.");
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
     }
 
     @Test

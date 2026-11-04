@@ -153,6 +153,18 @@ class PageActionTest {
     }
 
     @Test
+    void startAgainIsPossibleOnlyOnABlockedIssueWithoutALiveConversation() {
+        PageAction startAgain = PageAction.findByPathName("start-again").orElseThrow();
+
+        assertThat(startAgain.label()).contains("factory:start-again");
+        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.BLOCKED, Phase.BUILD)), false)).isTrue();
+        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.BUILD)), false)).isFalse();
+        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.BLOCKED, Phase.DONE)), false)).isFalse();
+        assertThat(isPossible(startAgain, card(liveRecord(Optional.empty()).withStatus(IssueStatus.BLOCKED)), false))
+                .isFalse();
+    }
+
+    @Test
     void continueHasNoLabel() {
         assertThat(PageAction.CONTINUE.label()).isEmpty();
         assertThat(PageAction.BLOCK.label()).contains("factory:block");

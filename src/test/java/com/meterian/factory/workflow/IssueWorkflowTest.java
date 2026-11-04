@@ -815,6 +815,7 @@ class IssueWorkflowTest {
                 .isInstanceOf(GitHubException.class)
                 .hasMessage("GitHub does not have the pushed commit yet.");
         assertThat(readRecordFromGitHub().failedForwardChecks()).isEqualTo(1);
+        assertThat(gitHub.pullRequests()).isEmpty();
         repairTheForward();
 
         IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
@@ -822,6 +823,21 @@ class IssueWorkflowTest {
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(record.failedForwardChecks()).isZero();
         assertThat(buildCount()).isEqualTo(1);
+        assertThat(gitHub.pullRequests()).hasSize(1);
+    }
+
+    @Test
+    void anIssueWithALostForwardAndNoCountGetsItsPullRequest() throws ApiKeyDetectedException, IOException {
+        breakTheForward();
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
+        repairTheForward();
+
+        IssueRecord record = advanceUntilWaiting(workflow, beforeBuild);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.pullRequests()).hasSize(1);
     }
 

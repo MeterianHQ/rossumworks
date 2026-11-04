@@ -59,6 +59,7 @@ public final class Worker {
     private final RestartPreparation restartPreparation;
     private final IgnoredLabelNote ignoredLabelNote;
     private final EnterRequests enterRequests;
+    private final StartAgainRequests startAgainRequests;
     private final LiveRecordCheck liveRecordCheck;
     private final RateLimitWait rateLimitWait;
     private final BoardUpdates board;
@@ -88,6 +89,7 @@ public final class Worker {
         this.restartPreparation = new RestartPreparation(gitHub, layout);
         this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
         this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
+        this.startAgainRequests = new StartAgainRequests(gitHub, ignoredLabelNote, statusPublisher);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
@@ -196,6 +198,8 @@ public final class Worker {
         gitHub.ensureLabel(APPROVE_LABEL, "0e8a16", "The owner approves the merge of the factory.");
         gitHub.ensureLabel(BLOCK_LABEL, "b60205", "The owner stops the factory on this issue.");
         gitHub.ensureLabel(EnterRequests.ENTER_LABEL, "fbca04", "The owner enters the session of the agent.");
+        gitHub.ensureLabel(StartAgainRequests.START_AGAIN_LABEL, "5319e7",
+                "The owner starts a blocked issue again and discards the earlier work.");
         gitHub.ensureStatusLabels();
         labelsEnsured = true;
     }
@@ -252,8 +256,10 @@ public final class Worker {
         if (record.isEmpty()) {
             return takeIntoQueue(issue, comments, labelActors);
         }
-        IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(record.get())
-                : record.get();
+        IssueRecord afterStartAgain = startAgainRequests.isRequested(issue, labelActors)
+                ? startAgainRequests.startAgain(issue, record.get()) : record.get();
+        IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(afterStartAgain)
+                : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
@@ -262,7 +268,8 @@ public final class Worker {
     /** The card shows the waiting state of an accepted label also when the label comes from the GitHub app. */
     private void showAcceptedRequests(Issue issue, IssueLabelActors labelActors) {
         boolean hasNewRequest = false;
-        for (String label : List.of(APPROVE_LABEL, BLOCK_LABEL, EnterRequests.ENTER_LABEL)) {
+        for (String label : List.of(APPROVE_LABEL, BLOCK_LABEL, EnterRequests.ENTER_LABEL,
+                StartAgainRequests.START_AGAIN_LABEL)) {
             if (issue.labels().contains(label) && labelActors.isGivenByAllowedAccount(label)) {
                 hasNewRequest |= requests.rememberAcceptedRequest(issue.number(), label);
             }

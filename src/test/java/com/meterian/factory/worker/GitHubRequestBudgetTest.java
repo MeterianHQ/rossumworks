@@ -326,7 +326,7 @@ class GitHubRequestBudgetTest {
         workerLog.clear();
         worker.pollOnce();
         assertThat(pollLines()).as("the requests of the issue thread count in the next poll line")
-                .singleElement().asString().contains("POST /repos/{o}/{r}/pulls=1");
+                .singleElement().asString().contains("GET /repos/{o}/{r}/pulls=1");
         workerLog.clear();
 
         server.resetRequestCounts();
@@ -349,7 +349,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
 
         assertThat(pollLines()).hasSize(1).first().asString()
-                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=10, .*");
+                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=11, .*");
     }
 
     private List<String> pollLines() {

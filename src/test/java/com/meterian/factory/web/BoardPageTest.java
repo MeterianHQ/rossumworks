@@ -391,6 +391,43 @@ class BoardPageTest {
     }
 
     @Test
+    void aBlockedCardHasAStartAgainButtonThatAsksForAConfirm() {
+        String html = page.renderBoard(model(List.of(card(record(12, IssueStatus.BLOCKED)))));
+
+        assertThat(html).contains(
+                "<form method=\"post\" action=\"/issues/12/start-again\" class=\"confirm-start-again\" data-issue=\"12\">")
+                .contains("<button>Start again</button>");
+    }
+
+    @Test
+    void aCardThatIsNotBlockedHasNoStartAgainButton() {
+        String html = page.renderBoard(model(List.of(card(record(12, IssueStatus.IN_PROGRESS)))));
+
+        assertThat(html).doesNotContain("/start-again");
+    }
+
+    @Test
+    void aStartAgainRequestShowsItsLineAndHidesItsButton() {
+        IssueRecord record = record(12, IssueStatus.BLOCKED);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:start-again")),
+                Map.of(12, Set.of("factory:start-again"))));
+
+        assertThat(html).contains(requestLine("Start again sent. The worker starts the issue again in a few seconds."));
+        assertThat(html).doesNotContain("/start-again");
+    }
+
+    @Test
+    void aStartAgainRequestEndsWhenTheIssueLeavesBlocked() {
+        IssueRecord record = record(12, IssueStatus.QUEUED);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:start-again")),
+                Map.of(12, Set.of("factory:start-again"))));
+
+        assertThat(html).doesNotContain("class=\"request\"");
+    }
+
+    @Test
     void aBlockRequestEndsWhenTheIssueIsBlocked() {
         IssueRecord record = record(12, IssueStatus.BLOCKED);
 

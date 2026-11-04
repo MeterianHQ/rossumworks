@@ -338,11 +338,41 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized PullRequest createPullRequest(String headBranch, String baseBranch, String title,
                                                       String body) {
+        verifyBranchIsOnGitHub(headBranch);
         int number = nextPullRequestNumber++;
         PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch, body);
         pullRequests.add(pullRequest);
         baseBranches.put(number, baseBranch);
         return pullRequest;
+    }
+
+    /** GitHub answers 422 for a pull request with a head branch that it does not have. */
+    private void verifyBranchIsOnGitHub(String branch) {
+        if (pullRequestRepository != null && readBranchHead(branch).isEmpty()) {
+            throw new GitHubException("GitHub answered 422 for POST /pulls");
+        }
+    }
+
+    private Optional<String> readBranchHead(String branch) {
+        try {
+            return Optional.of(TemporaryRepository.run(pullRequestRepository, "rev-parse", "--verify",
+                    "refs/heads/" + branch));
+        } catch (GitException missingBranch) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public synchronized Optional<String> findBranchHead(String branch) {
+        return readBranchHead(branch);
+    }
+
+    /** A pull request that GitHub merged before the test starts. */
+    public synchronized int addMergedPullRequest(String branch) {
+        int number = nextPullRequestNumber++;
+        pullRequests.add(new PullRequest(number, "https://github.test/pull/" + number, branch, ""));
+        mergedPullRequests.add(number);
+        return number;
     }
 
     @Override

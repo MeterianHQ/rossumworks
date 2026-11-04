@@ -59,6 +59,9 @@ public interface GitHubClient {
 
     void editPullRequestBody(int pullRequestNumber, String body);
 
+    /** Returns the commit hash of the head of the branch on GitHub. Empty when GitHub does not have the branch. */
+    Optional<String> findBranchHead(String branch);
+
     /** Tells if GitHub merged the pull request. */
     boolean isMerged(int pullRequestNumber);
 
