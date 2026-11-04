@@ -228,6 +228,9 @@ public final class IssueWorkflow {
         if (factoryFolder.hasQuestion()) {
             return askOwner(ran, factoryFolder.readQuestion(), worktree);
         }
+        if (report.stopped()) {
+            return started;
+        }
         if (!report.success()) {
             return block(ran, "The agent session failed: " + report.resultText());
         }
@@ -307,6 +310,9 @@ public final class IssueWorkflow {
         if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
             return block(outcome.record(), "A review changed the files.");
         }
+        if (outcome.sessionStopped()) {
+            return record;
+        }
         if (outcome.sessionFailed()) {
             return retryReviewRound(record);
         }
@@ -329,6 +335,9 @@ public final class IssueWorkflow {
         SessionReport report = phaseRunner.runInNewSession(record.issueNumber(), worktree, prompts.risk(issue));
         if (git.hasUncommittedChanges(worktree) || !git.headCommit(worktree).equals(headCommit)) {
             return block(record, "The risk session changed the files.");
+        }
+        if (report.stopped()) {
+            return record;
         }
         if (!report.success()) {
             return retryReviewRound(record);

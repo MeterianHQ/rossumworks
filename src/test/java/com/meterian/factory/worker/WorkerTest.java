@@ -907,7 +907,47 @@ class WorkerTest {
     }
 
     @Test
-    void enterWaitsForTheRunningPhaseToEnd() throws InterruptedException {
+    void enterStopsTheRunningPhaseAndOpensTheConversation() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.stoppedIssues()).contains(ISSUE);
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.agentSessionStarted()).isTrue();
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.notes()).noneMatch(note -> note.startsWith("The agent session failed"));
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+    }
+
+    @Test
+    void enterStopsTheRunningBuildAndOpensTheConversation() throws InterruptedException {
+        Path started = temporaryDirectory.resolve("build-started");
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(started));
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.fixLoops()).isZero();
+        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+    }
+
+    @Test
+    void enterKeepsTheResultOfAStepThatEndsBeforeTheStop() throws InterruptedException {
         CountDownLatch phaseStarted = new CountDownLatch(1);
         CountDownLatch phaseMayEnd = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
@@ -921,17 +961,35 @@ class WorkerTest {
         gitHub.addLabelBy(ISSUE, ENTER_LABEL, "bbossola");
 
         worker.pollOnce();
-        assertThat(liveSessions.openCalls()).isEmpty();
         phaseMayEnd.countDown();
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(agent.stoppedIssues()).isEmpty();
         assertThat(agent.requests()).hasSize(1);
         assertThat(liveSessions.openCalls()).hasSize(1);
         assertThat(record.phase()).isEqualTo(Phase.BUILD);
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
-        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+    }
+
+    @Test
+    void enterFromAnotherAccountDoesNotStopTheRunningPhase() throws InterruptedException {
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change in the phase\n");
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+        gitHub.addLabelBy(ISSUE, ENTER_LABEL, "mallory");
+
+        worker.pollOnce();
+
+        assertThat(agent.stoppedIssues()).isEmpty();
+        phaseMayEnd.countDown();
+        waitForTheLoops();
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

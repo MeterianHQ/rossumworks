@@ -67,7 +67,7 @@ public final class Worker {
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
-    /** The issues in work with a request of factory:enter. The loop enters after its current step. */
+    /** The issues in work with a request of factory:enter. The worker stops the step, and the loop then enters. */
     private final Set<Integer> enterRequestedIssues = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
@@ -238,7 +238,7 @@ public final class Worker {
         }
         if (isInWork(issueNumber)) {
             if (enterRequests.isRequested(issue, labelActors)) {
-                rememberEnterRequest(issueNumber);
+                stopTheStepForTheEnter(issueNumber);
             }
             return Optional.empty();
         }
@@ -256,6 +256,15 @@ public final class Worker {
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
+    }
+
+    /**
+     * The live conversation resumes the session of the agent, so the agent ends first. Each poll with the label
+     * stops again: a step that started just after the last stop still ends.
+     */
+    private void stopTheStepForTheEnter(int issueNumber) {
+        rememberEnterRequest(issueNumber);
+        phaseStopper.stopRunningWork(issueNumber);
     }
 
     /** A loop that ended already gets no request: the label stays, and the next poll enters at once. */
@@ -342,7 +351,7 @@ public final class Worker {
 
     /**
      * Keeps the result of a step only when no block and no stop came during the step, or when it is final. A request
-     * of factory:enter ends the loop after the current step, and the loop enters on the record that it kept.
+     * of factory:enter stops the current step, and the loop enters on the record that it kept.
      */
     private void runIssue(IssueRecord start) {
         int issueNumber = start.issueNumber();

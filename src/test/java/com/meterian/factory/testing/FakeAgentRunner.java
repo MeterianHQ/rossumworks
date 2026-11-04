@@ -38,6 +38,9 @@ public final class FakeAgentRunner implements AgentRunner {
     private static final SessionReport FAILURE = new SessionReport(false, "stopped", Optional.of("none"),
             Optional.empty(), List.of());
 
+    private static final SessionReport STOPPED = new SessionReport(false, "The phase was stopped.", Optional.empty(),
+            Optional.empty(), List.of(), true);
+
     private record ScriptedPhase(Action action, SessionReport report) {
     }
 
@@ -58,6 +61,13 @@ public final class FakeAgentRunner implements AgentRunner {
     public synchronized FakeAgentRunner thatFails() {
         ScriptedPhase last = phases.removeLast();
         phases.add(new ScriptedPhase(last.action(), FAILURE));
+        return this;
+    }
+
+    /** The last scripted phase does its action, and then its session reports the stop of the worker. */
+    public synchronized FakeAgentRunner thatIsStopped() {
+        ScriptedPhase last = phases.removeLast();
+        phases.add(new ScriptedPhase(last.action(), STOPPED));
         return this;
     }
 

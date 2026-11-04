@@ -568,6 +568,48 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void aStoppedImplementSessionKeepsTheIssueInProgress() throws ApiKeyDetectedException {
+        agent.then(writeFile("half-done.txt", "half done\n")).thatIsStopped();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord ready = advanceUntilPhase(workflow, queuedRecord(), Phase.IMPLEMENT);
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.agentSessionStarted()).isTrue();
+        assertThat(record.notes()).isEmpty();
+        assertThat(worktree().resolve("half-done.txt")).exists();
+    }
+
+    @Test
+    void aStoppedReviewSessionIsNotAFailedReviewRound() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveReview().thatIsStopped();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord ready = advanceUntilPhase(workflow, queuedRecord(), Phase.REVIEW);
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(record.phase()).isEqualTo(Phase.REVIEW);
+        assertThat(record.failedReviewRounds()).isZero();
+        assertThat(record.notes()).doesNotContain(REVIEW_RETRY_NOTE);
+        assertThat(agent.requests()).hasSize(2);
+    }
+
+    @Test
+    void aStoppedRiskSessionIsNotAFailedReviewRound() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatIsStopped();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord ready = advanceUntilPhase(workflow, queuedRecord(), Phase.RISK);
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(record.phase()).isEqualTo(Phase.RISK);
+        assertThat(record.failedReviewRounds()).isZero();
+        assertThat(record.notes()).doesNotContain(REVIEW_RETRY_NOTE);
+    }
+
+    @Test
     void blocksAfterTwoFailedReviewRounds() throws ApiKeyDetectedException {
         agent.thenChangeFile().thenApproveReview().thatFails().thenApproveReview().thatFails();
 

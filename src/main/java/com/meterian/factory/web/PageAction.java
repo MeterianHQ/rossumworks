@@ -21,13 +21,13 @@ import java.util.stream.Collectors;
  */
 public enum PageAction {
     ENTER_TERMINAL("enter-terminal", "Terminal", "factory:enter", LivePlace.TERMINAL,
-            "Enter sent. A terminal window opens on this machine in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current step, and a terminal window opens in a few seconds.",
             "Opens the conversation in a terminal window on this machine. Close the window with Ctrl-b d."),
     ENTER_BROWSER("enter-browser", "Browser", "factory:enter", LivePlace.BROWSER,
-            "Enter sent. The new tab goes to the conversation in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current step, and the new tab opens the conversation in a few seconds.",
             "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link."),
     ENTER_PHONE("enter-phone", "Phone", "factory:enter", LivePlace.PHONE,
-            "Enter sent. The link goes to your phone in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds.",
             "Sends the link of the conversation to your phone, with a GitHub notification."),
     APPROVE("approve", "Approve", "factory:approve", null,
             "Approval sent. The worker takes it in a few seconds.", ""),

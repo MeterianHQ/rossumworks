@@ -74,7 +74,9 @@ class ClaudeAgentRunnerTest {
 
         runner.stopPhase(7);
 
-        assertThat(run.get(5, TimeUnit.SECONDS).success()).isFalse();
+        SessionReport report = run.get(5, TimeUnit.SECONDS);
+        assertThat(report.success()).isFalse();
+        assertThat(report.stopped()).isTrue();
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LIMIT.plusSeconds(1));
     }
 

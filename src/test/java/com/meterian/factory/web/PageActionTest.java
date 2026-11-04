@@ -232,7 +232,7 @@ class PageActionTest {
         assertThat(PageAction.OPEN_TERMINAL.requestSentence()).isEmpty();
         assertThat(PageAction.SEND_TO_PHONE.requestSentence()).isEmpty();
         assertThat(PageAction.ENTER_PHONE.requestSentence())
-                .contains("Enter sent. The link goes to your phone in a few seconds, or after the current step.");
+                .contains("Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds.");
     }
 
     @Test

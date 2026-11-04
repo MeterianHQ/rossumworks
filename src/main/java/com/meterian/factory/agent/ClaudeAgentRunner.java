@@ -118,7 +118,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
             return buildReport(run, parser);
         } catch (IOException exception) {
             if (run.isStopRequested()) {
-                return new SessionReport(false, STOPPED_TEXT, Optional.empty(), Optional.empty(), List.of());
+                return new SessionReport(false, STOPPED_TEXT, Optional.empty(), Optional.empty(), List.of(), true);
             }
             throw new AgentException("The claude output cannot be read: " + exception.getMessage(), exception);
         } catch (InterruptedException exception) {
@@ -142,9 +142,9 @@ public final class ClaudeAgentRunner implements AgentRunner {
         if (report.success() && report.apiKeySource().isEmpty()) {
             throw new ApiKeyDetectedException(UNKNOWN_SOURCE_MESSAGE);
         }
-        if (report.success() && (exitCode != 0 || run.isStopRequested())) {
+        if (run.isStopRequested() || (report.success() && exitCode != 0)) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),
-                    report.contextUsage(), report.usageWindows());
+                    report.contextUsage(), report.usageWindows(), run.isStopRequested());
         }
         return report;
     }

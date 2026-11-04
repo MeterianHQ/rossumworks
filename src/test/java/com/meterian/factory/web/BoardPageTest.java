@@ -369,7 +369,7 @@ class BoardPageTest {
                 Map.of(12, LivePlace.PHONE)));
 
         assertThat(html).contains(requestLine(
-                "Enter sent. The link goes to your phone in a few seconds, or after the current step."));
+                "Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds."));
     }
 
     @Test
