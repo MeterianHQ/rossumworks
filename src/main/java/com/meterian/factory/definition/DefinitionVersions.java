@@ -97,6 +97,13 @@ public final class DefinitionVersions implements DefinitionLookup {
         return current;
     }
 
+    /** Without a current version, the page shows the columns of the built-in definition. */
+    @Override
+    public List<String> findCurrentColumns() {
+        FactoryDefinition shown = current.map(DefinitionVersion::definition).orElse(builtIn);
+        return shown.workflow().columns();
+    }
+
     /** The reason why the newest commit does not load, while an older good version stays current. */
     public Optional<String> warning() {
         return warning;

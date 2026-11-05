@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.TreeMap;
 
 /**
  * A short value that changes when the thing to act on changes. Each form of the page sends it in the field
@@ -26,10 +27,9 @@ public final class CardFingerprint {
 
     private static String describe(IssueRecord record) {
         return String.join("\n",
-                record.status().labelName(),
-                record.waitReason().map(Enum::name).orElse(""),
+                record.column(),
                 record.state(),
-                Integer.toString(record.fixLoops()),
+                new TreeMap<>(record.entries()).toString(),
                 record.reviewedTreeHash().orElse(""),
                 record.issueTextHash().orElse(""));
     }

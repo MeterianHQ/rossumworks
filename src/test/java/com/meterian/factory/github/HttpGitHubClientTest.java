@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.configuration.RepositoryName;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.ColumnLabels;
 import com.meterian.factory.testing.MutableClock;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 class HttpGitHubClientTest {
 
     private static final String TOKEN = "secret-token-value";
+    private static final String LABEL_CREATION = "POST /repos/o/r/labels";
     private static final Instant NOW = Instant.parse("2026-11-01T10:00:00Z");
     private static final Instant RESET = Instant.parse("2026-11-01T10:20:00Z");
 
@@ -173,7 +174,8 @@ class HttpGitHubClientTest {
 
     private List<String> changes() {
         return requests.stream().filter(request -> !"GET".equals(request.method()))
-                .map(request -> request.method() + " " + request.target()).toList();
+                .map(request -> request.method() + " " + request.target())
+                .filter(change -> !change.equals(LABEL_CREATION)).toList();
     }
 
     private static Issue issueWithLabels(String... labelNames) {
@@ -186,65 +188,89 @@ class HttpGitHubClientTest {
     }
 
     @Test
-    void setsTheStatusAsALabel() {
+    void setsTheColumnAsALabel() {
         answerIssueWithLabels();
 
-        client.setStatus(issueWithLabels("factory:status:queued", "bug"), IssueStatus.IN_REVIEW);
+        client.setColumn(issueWithLabels("factory:is:queued", "bug"), "in-review");
 
         assertThat(reads()).isEmpty();
-        assertThat(changes()).containsExactly("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
+        assertThat(changes()).containsExactly("DELETE /repos/o/r/issues/4/labels/factory%3Ais%3Aqueued",
                 "POST /repos/o/r/issues/4/labels");
-        assertThat(requests.get(requests.size() - 1).body()).contains("factory:status:in-review");
+        assertThat(requests.get(requests.size() - 1).body()).contains("factory:is:in-review");
     }
 
     @Test
-    void keepsOnlyOneStatusLabel() {
+    void keepsOnlyOneColumnLabel() {
         answerIssueWithLabels();
 
-        client.setStatus(issueWithLabels("factory:status:queued", "factory:status:blocked", "factory:status:done"),
-                IssueStatus.DONE);
+        client.setColumn(issueWithLabels("factory:is:queued", "factory:is:blocked", "factory:is:done"),
+                "done");
 
-        assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
-                "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Ablocked");
+        assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Ais%3Aqueued",
+                "DELETE /repos/o/r/issues/4/labels/factory%3Ais%3Ablocked");
     }
 
     @Test
-    void addsNothingWhenTheStatusIsAlreadySet() {
+    void addsNothingWhenTheColumnIsAlreadySet() {
         answerIssueWithLabels();
 
-        client.setStatus(issueWithLabels("factory:status:in-review", "bug"), IssueStatus.IN_REVIEW);
+        client.setColumn(issueWithLabels("factory:is:in-review", "bug"), "in-review");
 
-        assertThat(requests).isEmpty();
+        assertThat(changes()).isEmpty();
     }
 
     @Test
-    void remembersTheStatusLabelThatItSetWhenTheCallerHasOlderLabels() {
+    void remembersTheColumnLabelThatItSetWhenTheCallerHasOlderLabels() {
         answerIssueWithLabels();
-        Issue readBeforeTheStep = issueWithLabels("factory:status:in-progress");
-        client.setStatus(readBeforeTheStep, IssueStatus.WAITS_FOR_YOU);
+        Issue readBeforeTheAction = issueWithLabels("factory:is:in-progress");
+        client.setColumn(readBeforeTheAction, "waits-for-you");
         requests.clear();
 
-        client.setStatus(readBeforeTheStep, IssueStatus.IN_PROGRESS);
+        client.setColumn(readBeforeTheAction, "in-progress");
 
         assertThat(reads()).isEmpty();
         assertThat(changes()).containsExactly(
-                "DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Awaits-for-you",
+                "DELETE /repos/o/r/issues/4/labels/factory%3Ais%3Awaits-for-you",
                 "POST /repos/o/r/issues/4/labels");
-        assertThat(requests.get(requests.size() - 1).body()).contains("factory:status:in-progress");
+        assertThat(requests.get(requests.size() - 1).body()).contains("factory:is:in-progress");
     }
 
     @Test
-    void ensuresTheSixStatusLabels() {
-        client.ensureStatusLabels();
+    void setsTheLabelOfTheColumnAndRemovesTheOldStatusLabel() {
+        answerIssueWithLabels();
 
-        assertThat(requests).hasSize(6).allSatisfy(request -> {
-            assertThat(request.method()).isEqualTo("POST");
-            assertThat(request.target()).isEqualTo("/repos/o/r/labels");
-        });
-        assertThat(requests.get(0).body()).contains("\"name\":\"factory:status:queued\"")
-                .contains("\"description\":\"Factory status: Queued. The factory sets this label.\"");
-        assertThat(requests.stream().map(RecordedRequest::body).toList())
-                .anyMatch(body -> body.contains("factory:status:waits-for-you"));
+        client.setColumn(issueWithLabels("factory:status:queued", "bug"), "in-review");
+
+        assertThat(changes()).containsExactlyInAnyOrder("DELETE /repos/o/r/issues/4/labels/factory%3Astatus%3Aqueued",
+                "POST /repos/o/r/issues/4/labels");
+        assertThat(requests.get(requests.size() - 1).body()).contains("factory:is:in-review");
+    }
+
+    @Test
+    void createsTheLabelOfANewColumnOnce() {
+        answerIssueWithLabels();
+
+        client.setColumn(issueWithLabels(), "needs-me");
+        client.setColumn(issueWithLabels("factory:is:needs-me"), "needs-me");
+        client.setColumn(issueWithLabels("factory:is:needs-me"), "done");
+
+        List<RecordedRequest> creations = requests.stream()
+                .filter(request -> "POST".equals(request.method()) && request.target().equals("/repos/o/r/labels"))
+                .toList();
+        assertThat(creations).hasSize(2);
+        assertThat(creations.get(0).body()).contains("\"name\":\"factory:is:needs-me\"")
+                .contains("\"color\":\"" + ColumnLabels.colorOf("needs-me") + "\"");
+        assertThat(creations.get(1).body()).contains("\"name\":\"factory:is:done\"");
+    }
+
+    @Test
+    void writesTheDisplayNameOfAFreeColumn() {
+        answerIssueWithLabels();
+
+        client.setColumn(issueWithLabels(), "needs-me");
+
+        assertThat(requests.get(0).body())
+                .contains("\"description\":\"Factory column: Needs me. The factory sets this label.\"");
     }
 
     @Test
@@ -292,6 +318,21 @@ class HttpGitHubClientTest {
                 .isInstanceOf(GitHubException.class)
                 .hasMessageContaining("PATCH")
                 .satisfies(exception -> assertThat(exception.getMessage()).doesNotContain(TOKEN));
+    }
+
+    @Test
+    void readsTheHeadOfABranch() {
+        responder = request -> new Answer(200, "{\"name\":\"factory/issue-7\",\"commit\":{\"sha\":\"abc\"}}");
+
+        assertThat(client.findBranchHead("factory/issue-7")).contains("abc");
+        assertThat(requests.get(requests.size() - 1).target()).isEqualTo("/repos/o/r/branches/factory%2Fissue-7");
+    }
+
+    @Test
+    void aBranchThatGitHubDoesNotHaveHasNoHead() {
+        responder = request -> new Answer(404, "{\"message\":\"Branch not found\"}");
+
+        assertThat(client.findBranchHead("factory/issue-7")).isEmpty();
     }
 
     @Test

@@ -41,14 +41,24 @@
         });
     }
 
-    // The board changes its content, so the listener is on the document and finds the form by its class.
-    function confirmBlock(event) {
-        var form = event.target;
-        if (!form.classList || !form.classList.contains("confirm-block")) {
-            return;
+    function findConfirmQuestion(form) {
+        if (!form.classList) {
+            return null;
         }
-        var question = "Block issue #" + form.dataset.issue + "? The running claude process stops.";
-        if (!window.confirm(question)) {
+        if (form.classList.contains("confirm-block")) {
+            return "Block issue #" + form.dataset.issue + "? The running claude process stops.";
+        }
+        if (form.classList.contains("confirm-start-again")) {
+            return "Start issue #" + form.dataset.issue + " again? The factory discards the earlier work and "
+                + "runs the issue from the start in a new session.";
+        }
+        return null;
+    }
+
+    // The board changes its content, so the listener is on the document and finds the form by its class.
+    function confirmAction(event) {
+        var question = findConfirmQuestion(event.target);
+        if (question && !window.confirm(question)) {
             event.preventDefault();
         }
     }
@@ -74,8 +84,8 @@
         }
     }
 
-    // The order matters: showBusyButton must see the result of the confirm of Block.
-    document.addEventListener("submit", confirmBlock);
+    // The order matters: showBusyButton must see the result of the confirm.
+    document.addEventListener("submit", confirmAction);
     document.addEventListener("submit", showBusyButton);
     window.addEventListener("pageshow", refreshBoardFromHistory);
     openEvents();

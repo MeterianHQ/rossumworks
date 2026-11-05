@@ -1,12 +1,12 @@
 package com.meterian.factory.definition;
 
-import com.meterian.factory.state.StepType;
+import com.meterian.factory.state.ActionType;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-public record WorkflowDefinition(String start, Map<String, StateDefinition> states,
-        Map<String, LoopDefinition> loops) {
+/** The state machine of the workflow. The map of the states keeps the order of the YAML. */
+public record WorkflowDefinition(String start, OnAnyState onAnyState, Map<String, StateDefinition> states) {
 
     public StateDefinition state(String name) {
         StateDefinition state = states.get(name);
@@ -16,19 +16,20 @@ public record WorkflowDefinition(String start, Map<String, StateDefinition> stat
         return state;
     }
 
-    /** Returns the one state with the step type. It refuses if there are none or several. */
-    public StateDefinition stateWithStep(StepType type) {
-        List<StateDefinition> matches = states.values().stream()
-                .filter(state -> state.step().type() == type)
-                .toList();
-        if (matches.size() != 1) {
-            throw new IllegalArgumentException("The workflow needs exactly one state with the step type "
-                    + type.yamlName() + ", but it has " + matches.size() + ".");
-        }
-        return matches.get(0);
+    /** The first state with the action type, in the order of the YAML. */
+    public Optional<StateDefinition> findStateWithAction(ActionType type) {
+        return states.values().stream()
+                .filter(state -> state.actionType().equals(Optional.of(type)))
+                .findFirst();
     }
 
-    public Optional<LoopDefinition> loop(String name) {
-        return Optional.ofNullable(loops.get(name));
+    public StateDefinition finishState() {
+        return findStateWithAction(ActionType.FINISH)
+                .orElseThrow(() -> new IllegalStateException("The workflow has no state with the action finish."));
+    }
+
+    /** The distinct columns, in the order of their first use in the YAML. */
+    public List<String> columns() {
+        return states.values().stream().map(StateDefinition::column).distinct().toList();
     }
 }

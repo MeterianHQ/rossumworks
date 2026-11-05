@@ -3,10 +3,10 @@ package com.meterian.factory.web;
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.LivePlace;
-import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.Verdict;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -14,6 +14,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -25,7 +26,7 @@ final class CardRenderer {
     private static final List<PageAction> ENTER_ACTIONS =
             List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER, PageAction.ENTER_PHONE);
     private static final List<PageAction> OTHER_ACTIONS =
-            List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.CONTINUE);
+            List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.START_AGAIN, PageAction.CONTINUE);
 
     private final DateTimeFormatter dateFormat;
 
@@ -35,7 +36,7 @@ final class CardRenderer {
 
     String render(IssueCard card, PageModel model) {
         IssueRecord record = card.record();
-        boolean waits = record.status() == IssueStatus.WAITS_FOR_YOU;
+        boolean waits = record.action().filter(ActionType::waitsForYou).isPresent();
         StringBuilder html = new StringBuilder();
         html.append("<article class=\"").append(waits ? "card waits" : "card").append("\">");
         html.append("<div class=\"card-head\"><span class=\"phase\">").append(Html.escape(record.state()))
@@ -43,15 +44,18 @@ final class CardRenderer {
         appendTitle(html, card, model.repositoryFullName());
         List<PageAction> pendingRequests = findPendingRequests(card, model);
         appendRequests(html, pendingRequests);
-        if (waits && pendingRequests.isEmpty()) {
+        boolean showsTheReason = waits && pendingRequests.isEmpty();
+        if (showsTheReason) {
             appendReason(html, record);
         }
         appendLiveBox(html, card, model);
-        appendReviews(html, record);
-        appendFacts(html, record, model.fixLoopLimitOf(record.issueNumber()));
+        appendReviews(html, record, model.reviewNamesOf(record.issueNumber()));
+        appendFacts(html, record, model.limitsOf(record.issueNumber()));
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
-        appendNewestNote(html, record);
+        if (!showsTheReason) {
+            appendNewestNote(html, record);
+        }
         card.doneAt().ifPresent(doneAt -> appendDoneDate(html, doneAt));
         appendActions(html, card, model);
         html.append("</article>");
@@ -85,9 +89,10 @@ final class CardRenderer {
         boolean continueRequested = model.continueRequested().contains(card.issueNumber());
         Set<String> rememberedLabels = model.findRememberedLabels(card.issueNumber());
         Optional<LivePlace> enterPlace = model.findEnterPlace(card.issueNumber());
+        boolean inBlockTarget = model.isInBlockTarget(card.issueNumber());
         return Arrays.stream(PageAction.values())
                 .filter(action -> action.enterPlace().isEmpty() || action.enterPlace().equals(enterPlace))
-                .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels))
+                .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels, inBlockTarget))
                 .toList();
     }
 
@@ -99,9 +104,10 @@ final class CardRenderer {
         }
     }
 
+    /** The newest note of a waiting card tells why it waits. */
     private void appendReason(StringBuilder html, IssueRecord record) {
-        record.waitReason().ifPresent(reason ->
-                html.append("<p class=\"reason\">").append(Html.escape(reason.sentence())).append("</p>"));
+        record.newestNote().ifPresent(note ->
+                html.append("<p class=\"reason\">").append(Html.escape(note)).append("</p>"));
     }
 
     /** The box shows where the owner opened the live conversation, and the places where it opens again. */
@@ -156,11 +162,11 @@ final class CardRenderer {
     }
 
     /** Each review is a chip. Its class gives the color, and its title gives the result in words. */
-    private void appendReviews(StringBuilder html, IssueRecord record) {
+    private void appendReviews(StringBuilder html, IssueRecord record, List<String> reviewNames) {
         html.append("<ul class=\"reviews\">");
-        for (ReviewKind kind : ReviewKind.values()) {
-            Optional<String> result = Optional.ofNullable(record.reviews().get(kind)).map(this::describeVerdict);
-            String name = capitalize(kind.name());
+        for (String reviewName : reviewNames) {
+            Optional<String> result = Optional.ofNullable(record.reviews().get(reviewName)).map(this::describeVerdict);
+            String name = Html.escape(capitalize(reviewName));
             html.append("<li class=\"review ").append(result.orElse("none")).append("\" title=\"").append(name)
                     .append(": ").append(result.orElse(NO_VALUE)).append("\">").append(name).append("</li>");
         }
@@ -171,12 +177,24 @@ final class CardRenderer {
         return verdict == Verdict.APPROVE ? "positive" : "negative";
     }
 
-    private void appendFacts(StringBuilder html, IssueRecord record, int fixLoopLimit) {
+    private void appendFacts(StringBuilder html, IssueRecord record, Map<String, Integer> limits) {
         String risk = record.risk().map(level -> toLowerCase(level.name())).orElse(NO_VALUE);
         String riskClass = record.risk().map(level -> " class=\"risk-" + toLowerCase(level.name()) + "\"").orElse("");
-        html.append("<dl class=\"facts\"><div><dt>Fix loops</dt><dd>").append(record.fixLoops()).append(" of ")
-                .append(fixLoopLimit).append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
+        html.append("<dl class=\"facts\"><div><dt>Entries</dt><dd>")
+                .append(Html.escape(StatusComment.describeEntries(record, limits)))
+                .append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
                 .append(risk).append("</dd></div></dl>");
+        appendRiskReasons(html, record);
+    }
+
+    private void appendRiskReasons(StringBuilder html, IssueRecord record) {
+        List<String> lines = StatusComment.describeRisk(record);
+        if (lines.isEmpty()) {
+            return;
+        }
+        html.append("<p class=\"risk-line\">").append(Html.escape(lines.get(0))).append("</p><ul class=\"risk-reasons\">");
+        record.riskReasons().forEach(reason -> html.append("<li>").append(Html.escape(reason)).append("</li>"));
+        html.append("</ul>");
     }
 
     /** The policy of the page forbids an inline style, so the bar is a meter element. */
@@ -211,7 +229,7 @@ final class CardRenderer {
     }
 
     /**
-     * The forms work without JavaScript. page.js finds the Block form by its class and asks for a confirm.
+     * The forms work without JavaScript. page.js finds the forms of Block and Start again by their class and asks for a confirm.
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
      * The Enter buttons are one group before the other forms.
      */
@@ -239,7 +257,8 @@ final class CardRenderer {
 
     private static boolean isPossible(PageAction action, IssueCard card, PageModel model) {
         return action.isPossible(card, model.continueRequested().contains(card.issueNumber()),
-                model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine());
+                model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine(),
+                model.isInBlockTarget(card.issueNumber()));
     }
 
     /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */
@@ -257,6 +276,9 @@ final class CardRenderer {
         if (action == PageAction.BLOCK) {
             html.append(" class=\"confirm-block\" data-issue=\"").append(issueNumber).append('"');
         }
+        if (action == PageAction.START_AGAIN) {
+            html.append(" class=\"confirm-start-again\" data-issue=\"").append(issueNumber).append('"');
+        }
         if (action == PageAction.ENTER_BROWSER) {
             html.append(" target=\"_blank\"");
         }
@@ -270,12 +292,12 @@ final class CardRenderer {
                 + Html.escape(name) + ". " + tooltipText + "\"";
     }
 
-    private static String capitalize(String constantName) {
-        String lowerCase = toLowerCase(constantName);
+    private static String capitalize(String text) {
+        String lowerCase = toLowerCase(text);
         return Character.toUpperCase(lowerCase.charAt(0)) + lowerCase.substring(1);
     }
 
-    private static String toLowerCase(String constantName) {
-        return constantName.toLowerCase(Locale.ROOT);
+    private static String toLowerCase(String text) {
+        return text.toLowerCase(Locale.ROOT);
     }
 }

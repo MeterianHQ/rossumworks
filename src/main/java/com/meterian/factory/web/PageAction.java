@@ -3,11 +3,11 @@ package com.meterian.factory.web;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
-import com.meterian.factory.state.StepType;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.workflow.ApprovalCheck;
 import com.meterian.factory.workflow.PageRequests;
+import com.meterian.factory.workflow.StartAgainCheck;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -21,17 +21,19 @@ import java.util.stream.Collectors;
  */
 public enum PageAction {
     ENTER_TERMINAL("enter-terminal", "Terminal", "factory:enter", LivePlace.TERMINAL,
-            "Enter sent. A terminal window opens on this machine in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current action, and a terminal window opens in a few seconds.",
             "Opens the conversation in a terminal window on this machine. Close the window with Ctrl-b d."),
     ENTER_BROWSER("enter-browser", "Browser", "factory:enter", LivePlace.BROWSER,
-            "Enter sent. The new tab goes to the conversation in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current action, and the new tab opens the conversation in a few seconds.",
             "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link."),
     ENTER_PHONE("enter-phone", "Phone", "factory:enter", LivePlace.PHONE,
-            "Enter sent. The link goes to your phone in a few seconds, or after the current step.",
+            "Enter sent. The worker stops the current action, and the link goes to your phone in a few seconds.",
             "Sends the link of the conversation to your phone, with a GitHub notification."),
     APPROVE("approve", "Approve", "factory:approve", null,
             "Approval sent. The worker takes it in a few seconds.", ""),
     BLOCK("block", "Block", "factory:block", null, "Block sent. The worker stops the issue in a few seconds.", ""),
+    START_AGAIN("start-again", "Start again", "factory:start-again", null,
+            "Start again sent. The worker starts the issue again in a few seconds.", ""),
     CONTINUE("continue", "Continue", null, null, "Continue sent. The factory takes the issue back in a few seconds.",
             ""),
     OPEN_TERMINAL("open-terminal", "Terminal", null, null, null,
@@ -74,7 +76,7 @@ public enum PageAction {
         return this == ENTER_TERMINAL || this == OPEN_TERMINAL;
     }
 
-    /** The help text of the button. It is empty for Approve, Block, and Continue. */
+    /** The help text of the button. It is empty for Approve, Block, Start again, and Continue. */
     public String tooltip() {
         return tooltip;
     }
@@ -110,9 +112,10 @@ public enum PageAction {
      * @param continueRequested true when the marker of Continue exists
      * @param rememberedLabels the labels that the page asked for on this issue, see {@link #findRememberedLabels}
      * @param viewerOnThisMachine true when the browser runs on the machine of the worker, see {@link ViewerLocation}
+     * @param inBlockTarget true when the state of the card is the block target of its definition
      */
     public boolean isPossible(IssueCard card, boolean continueRequested, Set<String> rememberedLabels,
-            boolean viewerOnThisMachine) {
+            boolean viewerOnThisMachine, boolean inBlockTarget) {
         if (needsThisMachine() && !viewerOnThisMachine) {
             return false;
         }
@@ -124,7 +127,8 @@ public enum PageAction {
             case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE -> isEnterPossible(record);
             case APPROVE -> ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isBlockPossible(record);
-            case CONTINUE -> record.live().isPresent() && !continueRequested;
+            case START_AGAIN -> StartAgainCheck.isPossible(record, inBlockTarget);
+            case CONTINUE -> waitsForContinue(record) && !continueRequested;
             case OPEN_TERMINAL -> findLiveLink(record).isPresent() && !continueRequested;
             case SEND_TO_PHONE -> findLiveLink(record).filter(TmuxLiveSessions::isRemoteControlLink).isPresent()
                     && !continueRequested;
@@ -135,14 +139,17 @@ public enum PageAction {
      * Tells if the page sent this request and the record does not show its effect yet. A label that the page
      * did not request is never a pending request.
      */
-    public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
+    public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels,
+            boolean inBlockTarget) {
         IssueRecord record = card.record();
         return switch (this) {
             case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE ->
                     isRequestedLabelOnTheCard(card, rememberedLabels) && isEnterPossible(record);
             case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && isBlockPossible(record);
-            case CONTINUE -> continueRequested && record.live().isPresent();
+            case START_AGAIN -> isRequestedLabelOnTheCard(card, rememberedLabels)
+                    && StartAgainCheck.isPossible(record, inBlockTarget);
+            case CONTINUE -> continueRequested && waitsForContinue(record);
             case OPEN_TERMINAL, SEND_TO_PHONE -> false;
         };
     }
@@ -158,16 +165,24 @@ public enum PageAction {
 
     /** A live state without a link can enter again, because the open of the session did not end. */
     private static boolean isEnterPossible(IssueRecord record) {
-        return record.agentSessionStarted() && record.step() != StepType.FINISH && findLiveLink(record).isEmpty();
+        return record.agentSessionStarted() && !isInTheFinishState(record) && findLiveLink(record).isEmpty();
+    }
+
+    /** A live conversation and a state without an action end with a continue request. */
+    private static boolean waitsForContinue(IssueRecord record) {
+        return record.live().isPresent() || record.action().isEmpty();
     }
 
     private static Optional<String> findLiveLink(IssueRecord record) {
         return record.live().flatMap(live -> live.link());
     }
 
+    /** A state without an action runs nothing to stop, and a record in the finish state has a merged change. */
     private static boolean isBlockPossible(IssueRecord record) {
-        return record.status() != IssueStatus.BLOCKED
-                && record.status() != IssueStatus.DONE
-                && record.step() != StepType.FINISH;
+        return record.action().isPresent() && !isInTheFinishState(record);
+    }
+
+    private static boolean isInTheFinishState(IssueRecord record) {
+        return record.action().equals(Optional.of(ActionType.FINISH));
     }
 }

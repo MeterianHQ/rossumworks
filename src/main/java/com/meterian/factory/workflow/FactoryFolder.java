@@ -1,19 +1,26 @@
 package com.meterian.factory.workflow;
 
-import com.meterian.factory.state.ReviewKind;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.meterian.factory.prompt.Finding;
+import com.meterian.factory.prompt.ReviewResultReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 /** The files of the factory in the scratch folder of a worktree. Git does not commit this folder. */
 final class FactoryFolder {
 
     private static final String QUESTION_FILE = "question.md";
-    private static final String FIX_PROMPT_FILE = "fix-prompt.md";
+    private static final String PENDING_FINDINGS_FILE = "pending-findings.json";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final TypeReference<List<Finding>> FINDINGS_TYPE = new TypeReference<>() {
+    };
     private static final String RISK_FILE = "risk.json";
 
     private final Path folder;
@@ -35,23 +42,32 @@ final class FactoryFolder {
         delete(folder.resolve(QUESTION_FILE));
     }
 
-    /** Keeps the fix prompt for the next implement step, also after a restart of the worker. */
-    void writeFixPrompt(String prompt) {
+    /** Keeps the findings of the pending prompt for the next coding action, also after a restart of the worker. */
+    void writePendingFindings(List<Finding> findings) {
         try {
             Files.createDirectories(folder);
-            Files.writeString(folder.resolve(FIX_PROMPT_FILE), prompt, StandardCharsets.UTF_8);
+            Files.writeString(folder.resolve(PENDING_FINDINGS_FILE), MAPPER.writeValueAsString(findings),
+                    StandardCharsets.UTF_8);
         } catch (IOException exception) {
-            throw new UncheckedIOException("Cannot write the fix prompt in " + folder, exception);
+            throw new UncheckedIOException("Cannot write the pending findings in " + folder, exception);
         }
     }
 
-    Optional<String> readFixPrompt() {
-        Path file = folder.resolve(FIX_PROMPT_FILE);
-        return Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) ? Optional.of(read(file)) : Optional.empty();
+    /** Empty when the file does not exist. */
+    Optional<List<Finding>> readPendingFindings() {
+        Path file = folder.resolve(PENDING_FINDINGS_FILE);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(MAPPER.readValue(read(file), FINDINGS_TYPE));
+        } catch (IOException exception) {
+            throw new UncheckedIOException("Cannot read the pending findings in " + file, exception);
+        }
     }
 
-    void deleteReviewResult(ReviewKind kind) {
-        delete(folder.resolve(kind.fileName()));
+    void deleteReviewResult(String reviewName) {
+        delete(folder.resolve(ReviewResultReader.fileNameOf(reviewName)));
     }
 
     void deleteRiskResult() {

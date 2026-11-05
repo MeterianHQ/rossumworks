@@ -1,5 +1,6 @@
 package com.meterian.factory.merge;
 
+import java.util.List;
 import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
@@ -16,7 +17,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.ReviewKind;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -73,13 +74,13 @@ class MergerTest {
     }
 
     private IssueRecord reviewedRecord(int issueNumber, Path issueWorktree, PullRequest issuePullRequest) {
-        IssueRecord record = IssueRecord.queued(issueNumber).withPullRequest(issuePullRequest.number())
-                .withRisk(RiskLevel.LOW, true)
+        IssueRecord record = RecordStates.queued(issueNumber).withPullRequest(issuePullRequest.number())
+                .withRisk(RiskLevel.LOW, true, List.of())
                 .withReviewedTree(git.treeHash(issueWorktree), git.patchId(issueWorktree, "origin/main"))
                 .withReviewedHeadCommit(git.headCommit(issueWorktree))
                 .withBuiltTree(git.treeHash(issueWorktree));
-        for (ReviewKind kind : ReviewKind.values()) {
-            record = record.withReview(kind, Verdict.APPROVE);
+        for (String reviewName : RecordStates.REVIEW_NAMES) {
+            record = record.withReview(reviewName, Verdict.APPROVE);
         }
         return record;
     }
@@ -219,7 +220,7 @@ class MergerTest {
 
     @Test
     void failsWhenTheIssueHasNoPullRequest() {
-        IssueRecord record = IssueRecord.queued(7);
+        IssueRecord record = RecordStates.queued(7);
 
         MergeResult result = merger.merge(worktree, record);
 
@@ -277,7 +278,7 @@ class MergerTest {
     @Test
     void failsWithoutABuiltTreeWhenTheBaseDidNotMove() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
-        IssueRecord record = IssueRecord.queued(7).withPullRequest(pullRequest.number());
+        IssueRecord record = RecordStates.queued(7).withPullRequest(pullRequest.number());
 
         MergeResult result = merger.merge(worktree, record);
 
@@ -438,6 +439,7 @@ class MergerTest {
         Path secondWorktree = temporaryDirectory.resolve("worktree-8");
         git.addWorktree(clone, secondWorktree, "factory/issue-8", "origin/main");
         commitFile(secondWorktree, "d.txt", "other feature\n", "Other feature");
+        run(secondWorktree, "push", "-q", github.toString(), "HEAD:refs/heads/factory/issue-8");
         PullRequest secondPullRequest = gitHub.createPullRequest("factory/issue-8", "main", "Title", "Body");
         IssueRecord secondRecord = reviewedRecord(8, secondWorktree, secondPullRequest);
         AtomicReference<MergeResult> secondResult = new AtomicReference<>();

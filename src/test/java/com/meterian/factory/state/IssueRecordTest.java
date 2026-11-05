@@ -14,11 +14,11 @@ class IssueRecordTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());
 
-    private final IssueRecord queued = IssueRecord.queued(3);
+    private final IssueRecord queued = RecordStates.queued(3);
 
     @Test
     void withoutRiskAndWithoutBuiltTreeClearOnlyTheirFields() {
-        IssueRecord full = queued.withRisk(RiskLevel.HIGH, true).withBuiltTree("built").withPullRequest(9);
+        IssueRecord full = queued.withRisk(RiskLevel.HIGH, true, List.of()).withBuiltTree("built").withPullRequest(9);
 
         IssueRecord cleared = full.withoutRisk().withoutBuiltTree();
 
@@ -31,7 +31,7 @@ class IssueRecordTest {
     @Test
     void withoutReviewsClearsTheReviewedTree() {
         IssueRecord cleared = queued
-                .withReview(ReviewKind.SECURITY, Verdict.REJECT)
+                .withReview("security", Verdict.REJECT)
                 .withReviewedTree("tree", "patch")
                 .withBuiltTree("built")
                 .withoutReviews();
@@ -50,16 +50,70 @@ class IssueRecordTest {
     }
 
     @Test
-    void withFixLoopAddsOne() {
-        assertThat(queued.withFixLoop().withFixLoop().fixLoops()).isEqualTo(2);
+    void queuedStartsInTheStartStateWithTheActionPrepare() {
+        IssueRecord started = IssueRecord.queued(3, "begin");
+
+        assertThat(started.state()).isEqualTo("begin");
+        assertThat(started.action()).contains(ActionType.PREPARE);
+        assertThat(started.column()).isEqualTo("queued");
+        assertThat(started.previousState()).contains("begin");
+        assertThat(started.entries()).isEmpty();
+        assertThat(started.pendingPrompt()).isEmpty();
+        assertThat(started.actionStarted()).isFalse();
     }
 
     @Test
-    void withoutWaitReasonClearsTheReason() {
-        IssueRecord waiting = queued.withWaitReason(WaitReason.QUESTION);
+    void countsTheEntriesOfEachStateAndClearsThem() {
+        IssueRecord counted = queued.withEntryCounted("implement").withEntryCounted("implement")
+                .withEntryCounted("review");
 
-        assertThat(waiting.waitReason()).contains(WaitReason.QUESTION);
-        assertThat(waiting.withoutWaitReason().waitReason()).isEqualTo(Optional.empty());
+        assertThat(counted.entriesOf("implement")).isEqualTo(2);
+        assertThat(counted.entriesOf("review")).isEqualTo(1);
+        assertThat(counted.entriesOf("build")).isZero();
+        assertThat(counted.withoutEntries().entries()).isEmpty();
+    }
+
+    @Test
+    void withMoveSetsTheStateTheActionAndTheColumnAndForgetsTheStart() {
+        IssueRecord moved = queued.withActionStarted().withMove("blocked", Optional.empty(), "blocked");
+
+        assertThat(moved.state()).isEqualTo("blocked");
+        assertThat(moved.action()).isEmpty();
+        assertThat(moved.column()).isEqualTo("blocked");
+        assertThat(moved.actionStarted()).isFalse();
+        assertThat(moved.previousState()).isEqualTo(queued.previousState());
+    }
+
+    @Test
+    void keepsThePreviousStateAndThePendingPrompt() {
+        IssueRecord changed = queued.withPreviousState("implement").withPendingPrompt(PendingPrompt.FIX);
+
+        assertThat(changed.previousState()).contains("implement");
+        assertThat(changed.pendingPrompt()).contains(PendingPrompt.FIX);
+    }
+
+    @Test
+    void writesAndReadsTheFieldsOfTheStateMachine() throws Exception {
+        IssueRecord record = RecordStates.move(queued, "implement").withEntryCounted("implement")
+                .withPendingPrompt(PendingPrompt.RESUME).withActionStarted();
+
+        String json = MAPPER.writeValueAsString(record);
+
+        assertThat(json).contains("\"action\":\"coding\"").contains("\"column\":\"in-progress\"");
+        assertThat(MAPPER.readValue(json, IssueRecord.class)).isEqualTo(record);
+    }
+
+    @Test
+    void readsAStateWithoutAnAction() throws Exception {
+        IssueRecord blocked = RecordStates.move(queued, "blocked");
+
+        assertThat(MAPPER.readValue(MAPPER.writeValueAsString(blocked), IssueRecord.class).action()).isEmpty();
+    }
+
+    @Test
+    void givesTheNewestNote() {
+        assertThat(queued.newestNote()).isEmpty();
+        assertThat(queued.withNote("a").withNote("b").newestNote()).contains("b");
     }
 
     @Test
@@ -98,7 +152,7 @@ class IssueRecordTest {
         IssueRecord hashed = queued.withIssueTextHash("0a1b2c");
 
         IssueRecord changed = RecordStates.move(hashed, "review").withoutReviews().withoutRisk().withoutBuiltTree()
-                .withSessionId(UUID.randomUUID()).withNote("n").withFixLoop().withStatus(IssueStatus.IN_REVIEW);
+                .withSessionId(UUID.randomUUID()).withNote("n").withEntryCounted("review").withActionStarted();
 
         assertThat(queued.issueTextHash()).isEmpty();
         assertThat(changed.issueTextHash()).contains("0a1b2c");
@@ -124,9 +178,7 @@ class IssueRecordTest {
         assertThat(reviewed.withoutReviews().reviewedHeadCommit()).isEmpty();
     }
 
-    private static final LiveSession SESSION =
-            new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.MERGE_NEEDS_APPROVAL), Optional.empty(),
-                    LivePlace.PHONE);
+    private static final LiveSession SESSION = new LiveSession("abc", Optional.empty(), LivePlace.PHONE);
 
     @Test
     void anOldRecordWithoutTheLiveFieldsReadsAsNotLive() throws Exception {
@@ -142,11 +194,10 @@ class IssueRecordTest {
     }
 
     @Test
-    void withLiveKeepsTheStateBeforeTheConversation() {
+    void withLiveKeepsTheHeadCommitOfTheStart() {
         IssueRecord live = queued.withLive(SESSION);
 
-        assertThat(live.live().orElseThrow().statusBefore()).isEqualTo(IssueStatus.IN_REVIEW);
-        assertThat(live.live().orElseThrow().waitBefore()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(live.live().orElseThrow().startHeadCommit()).isEqualTo("abc");
     }
 
     @Test
@@ -161,14 +212,6 @@ class IssueRecordTest {
     @Test
     void withoutLiveClearsTheLiveState() {
         assertThat(queued.withLive(SESSION).withoutLive().live()).isEmpty();
-    }
-
-    @Test
-    void aStepOutsideAgentClearsTheAfterConversationFlag() {
-        IssueRecord afterConversation = RecordStates.move(queued, "implement").withAfterConversation();
-
-        assertThat(RecordStates.move(afterConversation, "implement").afterConversation()).isTrue();
-        assertThat(RecordStates.move(afterConversation, "build").afterConversation()).isFalse();
     }
 
     @Test

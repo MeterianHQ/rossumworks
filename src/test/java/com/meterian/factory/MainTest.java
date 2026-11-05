@@ -15,14 +15,13 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.web.CardFingerprint;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
+import com.meterian.factory.workflow.RetrySettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -65,7 +64,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached the token");
                 },
-                (configuration, token, errorStream) -> {
+                (configuration, retries, token, errorStream) -> {
                     throw new AssertionError("The test reached the worker");
                 }, createRecordingGit(new ArrayList<>()));
     }
@@ -104,7 +103,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, token, errorStream) -> {
+                (loaded, retries, token, errorStream) -> {
                     startedWithClone.add(loaded.cloneDirectory());
                     assertThat(clone).isDirectory();
                     return 0;
@@ -126,7 +125,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, token, errorStream) -> 0, createRecordingGit(clones));
+                (loaded, retries, token, errorStream) -> 0, createRecordingGit(clones));
 
         assertThat(exitCode).isZero();
         assertThat(clones).isEmpty();
@@ -147,6 +146,69 @@ class MainTest {
                 """.formatted(claudeCommand, temporaryDirectory.resolve("work"),
                 temporaryDirectory.resolve("gatekeeper.git")));
         return file;
+    }
+
+    @Test
+    void stopsTheWorkerOnAnInvalidProperty() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        System.setProperty("factory.retries.review-session", "0");
+        try {
+            int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
+                    createEnvironmentWithAllCommands(), errors,
+                    () -> {
+                        throw new AssertionError("The test reached gh");
+                    },
+                    (loaded, retries, token, errorStream) -> {
+                        throw new AssertionError("The test reached the worker");
+                    }, createRecordingGit(new ArrayList<>()));
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(errorText()).contains("The system property factory.retries.review-session must be a whole"
+                    + " number of 1 or more, but it is 0.");
+        } finally {
+            System.clearProperty("factory.retries.review-session");
+        }
+    }
+
+    @Test
+    void givesTheWorkerTheRetrySettingsOfTheSystemProperties() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        List<RetrySettings> startedWith = new ArrayList<>();
+        System.setProperty("factory.retries.forward-check", "5");
+        try {
+            int exitCode = Main.run(new String[] {"run", "--config", configuration.toString()},
+                    createEnvironmentWithAllCommands(), errors,
+                    () -> {
+                        throw new AssertionError("The test reached gh");
+                    },
+                    (loaded, retries, token, errorStream) -> {
+                        startedWith.add(retries);
+                        return 0;
+                    }, createRecordingGit(new ArrayList<>()));
+
+            assertThat(exitCode).isZero();
+            assertThat(startedWith).containsExactly(new RetrySettings(2, 5));
+        } finally {
+            System.clearProperty("factory.retries.forward-check");
+        }
+    }
+
+    /** A defect in the worker must keep its stack trace, so Main does not convert it to one line. */
+    @Test
+    void doesNotConvertAnIllegalArgumentExceptionOfTheWorker() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Map<String, String> environment = createEnvironmentWithAllCommands();
+
+        assertThatThrownBy(() -> Main.run(new String[] {"run", "--config", configuration.toString()},
+                environment, errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, retries, token, errorStream) -> {
+                    throw new IllegalArgumentException("A defect of the worker");
+                }, createRecordingGit(new ArrayList<>())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("A defect of the worker");
+        assertThat(errorText()).doesNotContain("A defect of the worker");
     }
 
     @Test
@@ -425,8 +487,7 @@ class MainTest {
         FakeGitHubClient gitHub = new FakeGitHubClient();
         gitHub.addIssue(12, "Fix the login", "body");
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
-                RecordStates.move(IssueRecord.queued(12).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
-                        "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
+                RecordStates.move(RecordStates.queued(12).withAgentSessionStarted(), "waits-for-approval"));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
                 Main.createLabelWriter(gitHub), Main.createPhoneLinkSender(gitHub),
                 BUILT_IN, Optional::empty, () -> 1, () -> { },

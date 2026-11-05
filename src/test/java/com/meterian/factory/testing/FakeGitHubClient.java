@@ -7,11 +7,10 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.ColumnLabels;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -27,6 +26,7 @@ public final class FakeGitHubClient implements GitHubClient {
 
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
+    private final Set<String> createdLabels = new LinkedHashSet<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
@@ -79,17 +79,18 @@ public final class FakeGitHubClient implements GitHubClient {
         return id;
     }
 
-    public synchronized Optional<IssueStatus> statusOf(int issueNumber) {
-        Set<String> statusLabels = statusLabelsOf(issueNumber);
-        if (statusLabels.size() != 1) {
+    /** The column of the one column label of the issue. Empty when the issue has no column label or several. */
+    public synchronized Optional<String> columnOf(int issueNumber) {
+        Set<String> columnLabels = columnLabelsOf(issueNumber);
+        if (columnLabels.size() != 1) {
             return Optional.empty();
         }
-        return Arrays.stream(IssueStatus.values())
-                .filter(status -> status.labelName().equals(statusLabels.iterator().next())).findFirst();
+        String label = columnLabels.iterator().next();
+        return Optional.of(label.substring(ColumnLabels.labelName("").length()));
     }
 
-    public synchronized Set<String> statusLabelsOf(int issueNumber) {
-        return labels.get(issueNumber).stream().filter(IssueStatus::isStatusLabel)
+    public synchronized Set<String> columnLabelsOf(int issueNumber) {
+        return labels.get(issueNumber).stream().filter(ColumnLabels::isColumnLabel)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -272,6 +273,12 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void ensureLabel(String label, String color, String description) {
+        createdLabels.add(label);
+    }
+
+    /** The names of the labels that the factory created, in the order of the creation. */
+    public synchronized Set<String> createdLabels() {
+        return new LinkedHashSet<>(createdLabels);
     }
 
     @Override
@@ -292,10 +299,13 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     @Override
-    public synchronized void setStatus(Issue issue, IssueStatus status) {
-        labels.get(issue.number()).removeIf(label -> IssueStatus.isStatusLabel(label)
-                && !label.equals(status.labelName()));
-        addLabel(issue.number(), status.labelName());
+    public synchronized void setColumn(Issue issue, String column) {
+        String wantedLabel = ColumnLabels.labelName(column);
+        labels.get(issue.number()).removeIf(label -> ColumnLabels.isColumnLabel(label) && !label.equals(wantedLabel));
+        if (!createdLabels.contains(wantedLabel)) {
+            ensureLabel(wantedLabel, ColumnLabels.colorOf(column), ColumnLabels.describe(column));
+        }
+        addLabel(issue.number(), wantedLabel);
     }
 
     @Override
@@ -309,11 +319,41 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized PullRequest createPullRequest(String headBranch, String baseBranch, String title,
                                                       String body) {
+        verifyBranchIsOnGitHub(headBranch);
         int number = nextPullRequestNumber++;
         PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch, body);
         pullRequests.add(pullRequest);
         baseBranches.put(number, baseBranch);
         return pullRequest;
+    }
+
+    /** GitHub answers 422 for a pull request with a head branch that it does not have. */
+    private void verifyBranchIsOnGitHub(String branch) {
+        if (pullRequestRepository != null && readBranchHead(branch).isEmpty()) {
+            throw new GitHubException("GitHub answered 422 for POST /pulls");
+        }
+    }
+
+    private Optional<String> readBranchHead(String branch) {
+        try {
+            return Optional.of(TemporaryRepository.run(pullRequestRepository, "rev-parse", "--verify",
+                    "refs/heads/" + branch));
+        } catch (GitException missingBranch) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public synchronized Optional<String> findBranchHead(String branch) {
+        return readBranchHead(branch);
+    }
+
+    /** A pull request that GitHub merged before the test starts. */
+    public synchronized int addMergedPullRequest(String branch) {
+        int number = nextPullRequestNumber++;
+        pullRequests.add(new PullRequest(number, "https://github.test/pull/" + number, branch, ""));
+        mergedPullRequests.add(number);
+        return number;
     }
 
     @Override

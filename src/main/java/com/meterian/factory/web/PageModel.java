@@ -16,15 +16,21 @@ import java.util.stream.Collectors;
 /**
  * All the values that the page shows. The page reads them from memory and from local files only.
  *
- * @param fixLoopLimits     the fix-loop limit of each card, by issue number, from the definition of its record
+ * @param limits            the limits of the states of each card, by issue number, from the definition of its record
+ * @param reviewNames       the names of the reviews of each card, by issue number, from the definition of its record
+ * @param inBlockTarget     the issues whose state is the block target of the definition of their record
  * @param definitionWarning the reason why the definition of the default branch does not load, if it does not
+ * @param pickUpPaused      true when the owner paused the pick up of new issues
+ * @param columns           the columns of the page: queued, then the columns of the newest good definition
  */
 public record PageModel(
         BoardSnapshot board,
         Instant renderedAt,
         int issuesInWork,
         int parallelLimit,
-        Map<Integer, Integer> fixLoopLimits,
+        Map<Integer, Map<String, Integer>> limits,
+        Map<Integer, List<String>> reviewNames,
+        Set<Integer> inBlockTarget,
         IsolationMode isolationMode,
         Duration pollInterval,
         List<UsageWindow> usageWindows,
@@ -35,21 +41,35 @@ public record PageModel(
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
         boolean viewerOnThisMachine,
-        Optional<String> definitionWarning) {
+        Optional<String> definitionWarning,
+        boolean pickUpPaused,
+        List<String> columns) {
 
     public PageModel {
-        fixLoopLimits = Map.copyOf(fixLoopLimits);
+        limits = Map.copyOf(limits);
+        reviewNames = Map.copyOf(reviewNames);
+        inBlockTarget = Set.copyOf(inBlockTarget);
         usageWindows = List.copyOf(usageWindows);
         contexts = Map.copyOf(contexts);
         continueRequested = Set.copyOf(continueRequested);
         rememberedLabels = rememberedLabels.entrySet().stream()
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
         enterPlaces = Map.copyOf(enterPlaces);
+        columns = List.copyOf(columns);
     }
 
-    /** The fix-loop limit of the definition of the issue. */
-    public int fixLoopLimitOf(int issueNumber) {
-        return fixLoopLimits.getOrDefault(issueNumber, 0);
+    /** The limit of each state with a limit, in the order of the workflow of the issue. */
+    public Map<String, Integer> limitsOf(int issueNumber) {
+        return limits.getOrDefault(issueNumber, Map.of());
+    }
+
+    /** The names of the reviews, in the order of the workflow of the issue. */
+    public List<String> reviewNamesOf(int issueNumber) {
+        return reviewNames.getOrDefault(issueNumber, List.of());
+    }
+
+    public boolean isInBlockTarget(int issueNumber) {
+        return inBlockTarget.contains(issueNumber);
     }
 
     /** The labels that the page asked for on this issue. */

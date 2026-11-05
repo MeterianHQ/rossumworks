@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
@@ -16,10 +17,8 @@ import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
 import com.meterian.factory.testing.RecordStates;
@@ -93,10 +92,12 @@ class WebServerTest {
     private volatile Optional<RuntimeException> sendFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
+    private PickUpSwitch pickUp;
     private WebServer server;
 
     @BeforeEach
     void startServer() throws IOException {
+        pickUp = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
         PageActions actions = createPageActions();
@@ -146,32 +147,32 @@ class WebServerTest {
                 workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
                 new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, new UsageTracker(0.90, clock), new ContextTracker(),
+        return new PageModelSource(board, pickUp, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration,
                 DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
     }
 
-    private static IssueRecord mergeWaitsForApproval() {
-        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
-                "merge").withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+    private static IssueRecord afterTheImplementation() {
+        return RecordStates.move(RecordStates.queued(ISSUE_NUMBER).withAgentSessionStarted(), "implement");
     }
 
-    private static IssueRecord waitsForAnAnswer() {
-        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
-                "implement").withWaitReason(WaitReason.QUESTION);
+    private static IssueRecord mergeWaitsForApproval() {
+        return RecordStates.move(afterTheImplementation(), "waits-for-approval");
+    }
+
+    /** A blocked issue: Enter is possible, Approve is not. */
+    private static IssueRecord waitsInTheBlockTarget() {
+        return RecordStates.move(afterTheImplementation(), "blocked");
     }
 
     private static IssueRecord liveConversation() {
-        return RecordStates.move(IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU),
-                "implement").withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
-                        LivePlace.PHONE));
+        return RecordStates.move(afterTheImplementation(), "live")
+                .withLive(new LiveSession("abc", Optional.empty(), LivePlace.PHONE));
     }
 
     private static IssueRecord liveConversationWithLink() {
-        return liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of(LINK), LivePlace.PHONE));
+        return liveConversation().withLive(new LiveSession("abc", Optional.of(LINK), LivePlace.PHONE));
     }
 
     private static Issue issue() {
@@ -364,6 +365,47 @@ class WebServerTest {
     }
 
     @Test
+    void theOwnerPausesThePickUp() {
+        HttpResponse<String> answer = postForm("/pick-up/pause", logIn(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(answer.headers().firstValue("Location")).contains("/");
+        assertThat(pickUp.isPaused()).isTrue();
+    }
+
+    @Test
+    void theOwnerStartsThePickUpAgainAndTheWorkerPollsEarly() {
+        pickUp.pause();
+
+        HttpResponse<String> answer = postForm("/pick-up/resume", logIn(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(303);
+        assertThat(pickUp.isPaused()).isFalse();
+        assertThat(earlyPollRequests).hasValue(1);
+    }
+
+    @Test
+    void thePickUpNeedsALogin() {
+        HttpResponse<String> answer = postForm("/pick-up/pause", Optional.empty(), "");
+
+        assertThat(answer.statusCode()).isEqualTo(401);
+        assertThat(pickUp.isPaused()).isFalse();
+    }
+
+    @Test
+    void thePickUpRefusesAnotherOrigin() {
+        HttpResponse<String> answer = post("/pick-up/pause", logIn(), "https://other.example");
+
+        assertThat(answer.statusCode()).isEqualTo(403);
+        assertThat(pickUp.isPaused()).isFalse();
+    }
+
+    @Test
+    void thePickUpKnowsOnlyTwoActions() {
+        assertThat(postForm("/pick-up/other", logIn(), "").statusCode()).isEqualTo(404);
+    }
+
+    @Test
     void anApproveAsksTheWorkerForAnEarlyPoll() {
         recordCard(mergeWaitsForApproval());
 
@@ -383,7 +425,7 @@ class WebServerTest {
 
     @Test
     void anActionThatIsNotPossibleAsksForNoEarlyPoll() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         postAction("/issues/12/approve", logIn());
 
@@ -392,7 +434,7 @@ class WebServerTest {
 
     @Test
     void anActionThatIsNoLongerPossibleGives409() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
@@ -562,10 +604,10 @@ class WebServerTest {
     }
 
     @Test
-    void anApproveFromAPageBeforeANewWaitReasonGives409() {
+    void anApproveFromAPageBeforeANewApprovalStateGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(RecordStates.move(mergeWaitsForApproval(), "prepare").withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
+        recordCard(RecordStates.move(mergeWaitsForApproval(), "text-changed"));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 
@@ -575,10 +617,10 @@ class WebServerTest {
     }
 
     @Test
-    void anApproveFromAPageBeforeANewFixLoopGives409() {
+    void anApproveFromAPageBeforeANewEntryGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(mergeWaitsForApproval().withFixLoop());
+        recordCard(mergeWaitsForApproval().withEntryCounted("implement"));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 
@@ -645,7 +687,7 @@ class WebServerTest {
 
     @Test
     void aTerminalActionFromAnotherDeviceIsNotPossible() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         PageActions.ActionResult result = createPageActions()
                 .perform(ISSUE_NUMBER, PageAction.ENTER_TERMINAL, Optional.of(currentFingerprint()), false);
@@ -669,7 +711,7 @@ class WebServerTest {
 
     @Test
     void anEnterInTheBrowserRedirectsToTheWaitPage() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/enter-browser", logIn());
 
@@ -681,7 +723,7 @@ class WebServerTest {
 
     @Test
     void anEnterInTheTerminalRemembersThePlace() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/enter-terminal", logIn());
 
@@ -693,7 +735,7 @@ class WebServerTest {
 
     @Test
     void aRefusedEnterForgetsThePlace() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
         labelFailure = Optional.of(new GitHubException("no rights"));
 
         postAction("/issues/12/enter-terminal", logIn());
@@ -703,7 +745,7 @@ class WebServerTest {
 
     @Test
     void anEnterOnThePhoneAddsTheLabelOfEnter() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/enter-phone", logIn());
 
@@ -765,7 +807,7 @@ class WebServerTest {
 
     private PageActions createPageActions() {
         return new PageActions(createLabelWriter(), pageRequests, liveSessions, this::recordSentLink, board,
-                earlyPollRequests::incrementAndGet);
+                pickUp, earlyPollRequests::incrementAndGet, DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
     @Test
@@ -828,8 +870,7 @@ class WebServerTest {
 
     @Test
     void aLinkThatIsNotRemoteControlIsNeverGiven() {
-        recordCard(liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of("javascript:alert(1)"), LivePlace.PHONE)));
+        recordCard(liveConversation().withLive(new LiveSession("abc", Optional.of("javascript:alert(1)"), LivePlace.PHONE)));
 
         assertThat(get("/live/12/link", logIn()).statusCode()).isEqualTo(204);
     }

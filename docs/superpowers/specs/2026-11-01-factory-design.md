@@ -349,9 +349,17 @@ There are two ways to enter:
 - The agent has a question (section 7.2).
 - The owner adds the label `factory:enter`.
 
-The worker never stops a phase in the middle, because a stopped phase can
-leave changes that are not complete. If a phase runs, the worker waits
-until it ends. Then the worker:
+The owner must not wait for the end of a phase, so the worker stops the
+running agent or build at once. A stopped session is not a failed session.
+The record stays as it was before the step, and the step runs again after
+the conversation. Changes that are not complete stay in the worktree. In the
+phase IMPLEMENT the agent continues on them. In the other phases the worker
+commits them after the conversation, and then the build and all reviews run
+again.
+
+A first session that stopped before Claude Code saved its file cannot resume.
+The worker undoes the session start, writes the "too early" note, and the
+next run starts a new session. Then the worker:
 
 1. Removes the label `factory:enter`. This shows the owner that the worker
    took the request.
@@ -635,6 +643,7 @@ the same way.
 | Enter | `factory:enter` | Opens live mode (section 8.1). |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and sets "Blocked". |
+| Start again | `factory:start-again` | Discards the earlier work of a Blocked issue and runs the issue from the start. |
 
 My decisions on "Block":
 
@@ -643,8 +652,17 @@ My decisions on "Block":
   owner can use Block to stop a wrong change. The worktree keeps the files
   as they are. A blocked issue never
   merges, so a phase that is not complete does no harm.
-- To start a blocked issue again, the owner clicks "Enter", discusses with
-  the agent, and then clicks "Continue".
+- To continue a blocked issue with its work, the owner clicks "Enter",
+  discusses with the agent, and then clicks "Continue".
+- To discard the work of a blocked issue, the owner clicks "Start again"
+  and confirms. The worker writes a new record with a new session. The phase
+  PREPARE removes the worktree and resets the branch. A merged pull request
+  moves the issue to Done, so the change never runs again.
+
+The header has one more button for the pick up: "Pause" and "Start". A
+pause stops only the start of an issue that the worker did not start yet.
+An issue in work continues, and each button of a card still works. A marker
+file in the work directory keeps the pause after a restart of the worker.
 
 A button shows only when its action is possible, for example "Approve"
 only for the reason "merge needs approval". The worker checks the same

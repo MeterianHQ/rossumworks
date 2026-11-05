@@ -34,11 +34,24 @@ public final class PushedCommitCheck {
         return isHead(pullRequestNumber, pushedCommit);
     }
 
+    /** GitHub refuses a pull request for a branch that it does not have, so this check comes before the create. */
+    public boolean isBranchOnGitHub(String pushedCommit, String branch) {
+        if (isBranchHead(pushedCommit, branch)) {
+            return true;
+        }
+        forwardAgain(pushedCommit, branch);
+        return isBranchHead(pushedCommit, branch);
+    }
+
+    private boolean isBranchHead(String pushedCommit, String branch) {
+        return gitHub.findBranchHead(branch).filter(pushedCommit::equals).isPresent();
+    }
+
     private boolean isHead(int pullRequestNumber, String pushedCommit) {
         return pushedCommit.equals(gitHub.pullRequestHead(pullRequestNumber));
     }
 
-    /** A failed forward is not a failure of the step: the check after it decides. */
+    /** A failed forward is not a failure of the action: the check after it decides. */
     private void forwardAgain(String pushedCommit, String branch) {
         try {
             git.pushCommit(gatekeeperDirectory, GITHUB_REMOTE, pushedCommit, branch);

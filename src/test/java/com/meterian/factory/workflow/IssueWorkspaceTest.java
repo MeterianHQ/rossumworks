@@ -18,6 +18,7 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.testing.FakeGitHubClient;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -61,7 +62,7 @@ class IssueWorkspaceTest {
         Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), clone, "main",
                 new BuildSettings("true", Map.of()),
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
-        IssueRecord record = IssueRecord.queued(2).withPullRequest(500);
+        IssueRecord record = RecordStates.queued(2).withPullRequest(500);
         List<MergeResult> mergeResults = new CopyOnWriteArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(2);
 

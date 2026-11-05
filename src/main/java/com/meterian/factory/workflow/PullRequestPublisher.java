@@ -7,6 +7,7 @@ import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.merge.PushedCommitCheck;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /** Pushes the built commit through the gatekeeper, opens or finds the pull request, and checks GitHub. */
 final class PullRequestPublisher {
@@ -23,17 +24,22 @@ final class PullRequestPublisher {
         this.pushedCommitCheck = new PushedCommitCheck(git, gitHub, gatekeeperDirectory);
     }
 
-    /** The pull request, and if GitHub shows the pushed commit as its head. */
-    record PublishedBranch(PullRequest pullRequest, boolean isOnGitHub) {
+    /** The pull request, and if GitHub shows the pushed commit as its head. A lost forward has no new pull request. */
+    record PublishedBranch(Optional<PullRequest> pullRequest, boolean isOnGitHub) {
     }
 
     PublishedBranch publish(Issue issue, Path worktree, String headCommit) {
         String branch = WorkspaceLayout.branch(issue.number());
         git.pushCommit(worktree, IssueWorkspace.GATEKEEPER_REMOTE, headCommit, branch);
-        PullRequest pullRequest = gitHub.openPullRequest(branch)
+        Optional<PullRequest> open = gitHub.openPullRequest(branch);
+        if (open.isEmpty() && !pushedCommitCheck.isBranchOnGitHub(headCommit, branch)) {
+            return new PublishedBranch(Optional.empty(), false);
+        }
+        PullRequest pullRequest = open
                 .map(existing -> updateBody(existing, issue, worktree))
                 .orElseGet(() -> createPullRequest(issue, branch, worktree));
-        return new PublishedBranch(pullRequest, pushedCommitCheck.isOnGitHub(pullRequest.number(), headCommit, branch));
+        boolean isOnGitHub = pushedCommitCheck.isOnGitHub(pullRequest.number(), headCommit, branch);
+        return new PublishedBranch(Optional.of(pullRequest), isOnGitHub);
     }
 
     /** Writes the notes of the last review round into the body of the open pull request, when the body changes. */

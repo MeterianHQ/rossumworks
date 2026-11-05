@@ -38,6 +38,10 @@ final class PhaseRunner {
                 new PhaseRequest(issueNumber, UUID.randomUUID(), true, worktree, prompt, allowedTools));
     }
 
+    boolean hasSavedSession(UUID sessionId, Path worktree) {
+        return agentRunner.hasSavedSession(sessionId, worktree);
+    }
+
     boolean mayStartPhase() {
         return usage.mayStartPhase();
     }

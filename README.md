@@ -26,11 +26,15 @@ of the repository. A file with the old form (the keys `target`, `merge`, `accoun
 ## .factory
 
 The folder `.factory` of the repository holds the definition of the factory: the workflow, the prompts, the
-build, the limits, the merge target, and the allowed tools. The main file is `.factory/factory.yaml`.
+build, the merge target, and the allowed tools. The main file is `.factory/factory.yaml`.
 
-[docs/factory-definition.md](docs/factory-definition.md) explains the YAML of the definition: each key, the
-states, the transitions, the loops, the step types and their outcomes, the prompts, and the rules of the
-loader.
+The workflow is a state machine. An issue is always in one state. When the issue enters a state, the factory
+starts the action of that state. The action ends with an event, and the state names the next state for each
+event. A state without an action waits for you.
+
+[docs/factory-definition.md](docs/factory-definition.md) is the reference of the YAML: each key, the states,
+the action types and their events, the limits, the columns and the labels, the prompts, the behavior at run
+time, and the rules of the loader. It also shows the default workflow and other example workflows.
 
 Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
 Copy the folder [`src/main/resources/factory/`](src/main/resources/factory/) to `.factory`, and then change it.
@@ -40,11 +44,12 @@ How the worker reads `.factory`:
 - At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
   newest commit with git, never from the worktree of an issue.
 - A new issue gets the newest version that loads. Its record keeps the commit of that version.
-- Each issue runs with the workflow, the prompts, the build, the allowed tools, the limits, and the merge
-  target of its own version. A new commit of `.factory` has no effect on the issues in work.
+- Each issue runs with the workflow, the prompts, the build, the allowed tools, and the merge target of its
+  own version. A new commit of `.factory` has no effect on the issues in work.
 - A version that does not load does not replace the last good version. The page shows the reason at the top.
 - Without a version that loads, the worker takes no new issue.
-- A record without a commit, from before the definitions, runs with the built-in definition.
+- A record without a commit, from before the definitions, runs with the default workflow of the jar. The
+  worker reads its phase and its wait reason as a state of the default workflow.
 
 In the configuration, `build.environment` gives the variables of this machine, for example `JAVA_HOME`. A
 value of the machine replaces a value of `.factory` with the same name.
@@ -52,7 +57,9 @@ value of the machine replaces a value of `.factory` with the same name.
 ## Setup
 
 The factory needs no GitHub Project. The worker creates its labels in the target repository: `factory`,
-`factory:approve`, `factory:block`, `factory:enter`, and the six status labels `factory:status:<slug>`.
+`factory:approve`, `factory:block`, `factory:enter`, and `factory:start-again`. It creates the label of each column,
+`factory:is:<column>`, on its first use, for example `factory:is:in-review`. The label of a column is for display
+only: the record in the status comment keeps the state. The worker removes the old labels `factory:status:<name>`.
 
 1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
    refuses to start when it is set.
@@ -72,8 +79,22 @@ Note: if the token belongs to the owner, GitHub sends the owner no notification 
 worker. A separate GitHub account for the worker gives the notifications.
 
 The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
-before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
+before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted actions run again from
 their start at the next run.
+
+### Retries
+
+Two retries of a technical failure stay inside an action. Set them with a system property of Java:
+
+| Retry | System property | Default number of tries |
+|---|---|---|
+| A review session fails, for example `claude` stops. The reviews run again. | `factory.retries.review-session` | `2` |
+| After a push, GitHub does not show the commit yet. The next poll checks again. | `factory.retries.forward-check` | `3` |
+
+For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
+The value is the number of tries, and the first try counts. So the value `2` gives one try and one retry.
+After the last try, the issue goes to the `block` target of its workflow. A value that is not a whole number
+of 1 or more stops the worker at the start, with exit code 1. The message names the property.
 
 ## The language of the agents
 
@@ -90,19 +111,28 @@ In live mode the owner talks to the agent of an issue through Remote Control. Th
 ### Enter
 
 - The owner adds the label `factory:enter` to the issue.
-- The agent can also ask a question. The issue then waits for the owner in the same way.
+- The agent can also ask a question. The event `question` of the `coding` action then moves the issue to a
+  state with the action `conversation`, in the same way.
 
-The worker never stops a phase in the middle. It waits until the phase ends. Then it removes the label,
-sets the status "Waits for you", and starts the session in tmux. The session uses the same session UUID as
-the agent: `claude --resume <uuid> --remote-control "Fix #<n>"`. The worker answers the trust prompt on
-the tmux screen. It never edits `~/.claude.json`.
+The worker stops the running action at once, because only one process can use the session of the agent. The
+agent loses its current turn. Its edits stay in the worktree, and the action runs again after the conversation.
+Then the worker removes the label and moves the issue to the `enter` target of its workflow. The action
+`conversation` of this state starts the session in tmux. The session uses the
+same session UUID as the agent: `claude --resume <uuid> --remote-control "Fix #<n>"`. The worker answers the trust
+prompt on the tmux screen. It never edits `~/.claude.json`.
+
+An action with no agent and no build, for example the merge call to GitHub, ends first. An Enter in the first seconds of a new session
+opens no conversation: Claude Code has no session file yet, so the session cannot resume. The issue gets a note and
+the agent starts again in a new session. Use Enter again when the card shows the button.
+
+The worker sees a label that the page adds in about 2 seconds. It sees a label from the GitHub app at the next poll.
 
 The factory uses its own tmux server, never your default tmux server. So the token of the worker never goes
 into the environment of your tmux server. To see a session, run
 `tmux -L claude-ai-factory attach -t factory-issue-<n>`.
 
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
-`Live conversation: <link>`. While the live session is open, the worker starts no phase for the issue.
+`Live conversation: <link>`. While the live session is open, the worker starts no other action for the issue.
 
 ### The three places
 
@@ -154,11 +184,15 @@ closes the session, and continues.
 
 After `/factory:continue`:
 
-- If the files changed in live mode, the build and the four reviews run again.
+- The action `conversation` sends the event `changed` when the files changed in live mode. Else it sends
+  `continue`. In the default workflow, `changed` goes to `build`, so the build and the reviews run again, and
+  `continue` goes to `previous`.
 - `/factory:continue` is never a merge approval. Only the label `factory:approve` approves a merge.
-- A blocked issue starts again in the phase where it stopped.
-- In the state `implement`, the agent continues with the continue prompt.
-- The fix-loop count does not go back to 0.
+- `previous` is the last state with an action that does not wait for you. So the issue continues in the
+  action that the Enter stopped.
+- In a `coding` state, the agent continues with the prompt `continue`.
+- A return from the `enter` target does not set the counts of the limits to 0. A `continue` from the `block`
+  target and an Enter from the `block` target do that.
 
 ### Files and security
 
@@ -184,10 +218,11 @@ credential variable.
 - A stop of the worker keeps the live session. The next worker finds it again.
 - A block closes the live session.
 - A stop or a crash during an open can leave a session that no record knows. The worker closes it before
-  the next phase of the issue and writes a note in the status comment.
+  the next action of the issue and writes a note in the status comment.
 - A Remote Control session reconnects only in about 4 hours. It exits after about 10 minutes without
   network.
-- When the session ends without `/factory:continue`, the issue keeps the status "Waits for you". The worker
+- When the session ends without `/factory:continue`, the issue stays in the state with the action
+  `conversation`. The worker
   writes a note in the status comment. Add the label `factory:enter` to open a new session.
 
 ## Web page
@@ -228,30 +263,43 @@ warning line at the top of the board gives the reason. It also shows each usage 
 percent and its time.
 
 At its start, the worker runs one very short `claude -p` session to read the usage, so that the page shows it
-before the first phase. This session has no tools, no MCP servers, and no saved session, and it uses about
+before the first action. This session has no tools, no MCP servers, and no saved session, and it uses about
 4,000 tokens. The worker keeps the values only when the session uses the subscription and ends with success.
-After each phase, the page shows the newest values. `claude` 2.1.316 gives only the weekly window.
+After each action, the page shows the newest values. `claude` 2.1.316 gives only the weekly window.
 
-The board has one column for each status, in the order of the progress in time: Queued, In progress,
-In review, Waits for you, Blocked, Done. A card shows the issue, the phase, the four review results, the fix loops
-against the limit of the definition of the issue, the risk, the context of the agent, and the newest note. A card that waits for you shows the reason and the Remote Control link.
-The column "Done" keeps the 20 newest cards.
+The board has the column Queued, and then the columns of the workflow, in the order of their first use in the
+YAML. For the default workflow, the columns are Queued, In progress, In review, Waits for you, Blocked, and
+Done. The page shows the columns of the newest version of `.factory` that loads. A card whose column is not in
+that version goes to an extra column at the end.
+
+A card shows the issue, its state, the result of each review of its workflow, the entries against each limit,
+the risk with its reasons, the context of the agent, and the newest note. A card in a state with the action
+`approval` or `conversation` waits for you. It shows the reason and the Remote Control link.
+The column of the `finish` state keeps the 20 newest cards.
 The page updates itself when the state changes.
 The page uses a dark theme. On a narrow screen, the columns go one under the other, and "Waits for you" is at
 the top.
 
 ### Actions
 
-A button shows only when its action is possible. The worker checks the rule again when you click.
+A button shows only when its effect is possible. The worker checks the rule again when you click.
 A label that the worker ignored does not hide the button; the button removes the label and adds it again.
 A button of an old page gets "This action is not possible now." when the card changed. Load the page again.
 
 | Button | Label | Effect |
 |---|---|---|
 | Terminal, Browser, Phone | `factory:enter` | Opens live mode in the chosen place. |
-| Approve | `factory:approve` | Approves a merge that waits for the owner. |
-| Block | `factory:block` | Takes the issue out of the factory and stops the running `claude` process. |
-| Continue | (none) | Ends live mode, as `/factory:continue` in the conversation. |
+| Approve | `factory:approve` | Shows in a state with the action `approval`. Approves the merge, or accepts a new issue text. |
+| Block | `factory:block` | Stops the running action and moves the issue to the `block` target. It does not show in a state without an action. |
+| Start again | `factory:start-again` | Discards the earlier work of an issue in the `block` target and runs the issue from the `start` state. |
+| Continue | (none) | Ends live mode, as `/factory:continue` in the conversation. In a state without an action, for example `blocked`, it sends the event `continue`. |
+
+There are two ways to continue a blocked issue. Continue keeps the work. In the default workflow, `blocked` maps
+`continue` to `previous`, so the issue continues in the action where it stopped. Enter and then
+`/factory:continue` also keep the work. Start again discards the work: the worker writes a new record, removes the worktree,
+resets the branch, and starts a new session. The page asks for a confirm first. An open pull request stays open and
+gets the new commit. A pull request that GitHub merged moves the issue to Done, so the change never runs again.
+Start again shows only on an issue in the `block` target without a live conversation.
 
 The three Enter buttons are one joined row of three parts. They have no icons, because a card is 240 px wide.
 Each part has a tooltip. A phone shows no tooltip, so the names are clear alone. Approve and Block go on the
@@ -270,25 +318,43 @@ the owner closed the first one. Terminal in the group makes no GitHub request. P
 with the mention. Browser is a link to the Remote Control link. It opens a new tab.
 
 After a click, the button shows a turning wheel and you cannot click it again. When you ask the browser for
-less motion, the button shows "…". After the action, the card shows a blue line, for example "Approval sent.
+less motion, the button shows "…". After the click, the card shows a blue line, for example "Approval sent.
 The worker takes it in a few seconds." This line replaces the reason of the wait. It goes away when the
-record of the issue shows the effect of the request.
+record of the issue shows the effect of the request. For example, the line of Block stays until the card moves to
+the column of the `block` target.
 
-After each action, the page asks the worker for an early poll. The worker polls 2 s later and does not wait
+The same line shows for `/factory:continue` in the conversation. The worker watches the live folder, so it tells
+the page and starts a poll in about 2 seconds. The line also shows for a label from the GitHub app, when the worker
+accepts the label at a poll.
+
+After each click, the page asks the worker for an early poll. The worker polls 2 s later and does not wait
 for the end of the poll interval. So Enter opens the conversation, and Approve, Block, and Continue take
 effect, in a few seconds. The 2 s give GitHub time to show the new label in the list of issues. If GitHub
 does not show the label yet, the worker acts at the next usual poll.
 
-The page makes no GitHub request of its own. It shows the state from the last poll of the worker. An action
-usually makes only one request: it adds one label. When the label is already on the issue, the action makes
+The page makes no GitHub request of its own. It shows the state from the last poll of the worker. A button
+usually makes only one request: it adds one label. When the label is already on the issue, the button makes
 two requests: it removes the label and adds it again.
+
+### Pick up
+
+The header has a tile "Pick up" with one button. **Pause** stops the pick up, and **Start** turns it on again. The
+worker then starts the waiting issues in about 2 seconds.
+
+While the pick up is paused:
+
+- A new `factory` label still puts the issue in Queued, but the agent does not start. You can prepare a set of issues.
+- An issue that the worker started continues through its states. Enter, Approve, Block, and Continue still work.
+- Start again also waits, because it makes the issue new. Its card stays in Queued until you click **Start**.
+
+A pause stays after a restart of the worker. The marker file is `<work-directory>/pick-up-paused`.
 
 ### Known limits
 
 - The page uses plain HTTP. On the LAN, another device can read the password and the cookie.
 - A restart of the worker asks for the password again. It also loses the cards in "Done".
 - The lock after 5 wrong passwords is for the whole worker, not for one device.
-- An action acts at the early poll, 2 s after the click. If GitHub does not show the label yet, it acts at
+- A button acts at the early poll, 2 s after the click. If GitHub does not show the label yet, it acts at
   the next usual poll, so after one poll interval at most.
 - A browser opens about 6 connections to one address. Many tabs of the page in one browser can stop the
   updates, the loads of the page, and the actions.

@@ -1,11 +1,13 @@
 package com.meterian.factory;
 
 import com.meterian.factory.agent.ClaudeAgentRunner;
+import com.meterian.factory.agent.ContinueMarkerWatcher;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
@@ -35,6 +37,7 @@ import com.meterian.factory.web.login.PasswordLogin;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.RetrySettings;
 import com.meterian.factory.workflow.LiveComment;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -68,6 +71,8 @@ import java.util.function.Supplier;
 /** The command line: run --config <file>, or hash-password. */
 public final class Main {
 
+    private static final String PICK_UP_MARKER_NAME = "pick-up-paused";
+
     static final int EXIT_SUCCESS = 0;
     static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
@@ -97,12 +102,14 @@ public final class Main {
     }
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
-    record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage) {
+    record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
+                       PickUpSwitch pickUp) {
 
         static SharedState create(FactoryConfiguration configuration) {
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
                     new PageRequests(Clock.systemUTC()),
-                    new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()));
+                    new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
+                    new PickUpSwitch(configuration.workDirectory().resolve(PICK_UP_MARKER_NAME)));
         }
     }
 
@@ -159,7 +166,7 @@ public final class Main {
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
     @FunctionalInterface
     interface WorkerStarter {
-        int start(FactoryConfiguration configuration, String token, PrintStream errors)
+        int start(FactoryConfiguration configuration, RetrySettings retries, String token, PrintStream errors)
                 throws InterruptedException, StartupException;
     }
 
@@ -173,12 +180,13 @@ public final class Main {
         try {
             Path configurationFile = readConfigurationPath(arguments);
             verifyNoApiKey(environment);
+            RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
             Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.repository().sshUrl());
             String token = readToken(environment, ghToken);
             cloneRepositoryIfMissing(configuration, git);
-            return workerStarter.start(configuration, token, errors);
+            return workerStarter.start(configuration, retries, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -186,6 +194,15 @@ public final class Main {
             Thread.currentThread().interrupt();
             errors.println("The factory was interrupted.");
             return EXIT_FAILURE;
+        }
+    }
+
+    /** Only a wrong system property is a startup failure. Another IllegalArgumentException is a defect. */
+    static RetrySettings readRetrySettings() throws StartupException {
+        try {
+            return RetrySettings.fromSystemProperties();
+        } catch (IllegalArgumentException exception) {
+            throw new StartupException(exception.getMessage());
         }
     }
 
@@ -319,13 +336,15 @@ public final class Main {
                 .build();
     }
 
-    private static int runWorker(FactoryConfiguration configuration, String token, PrintStream errors)
+    private static int runWorker(FactoryConfiguration configuration, RetrySettings retries, String token,
+                                 PrintStream errors)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
-        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC());
+        Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
@@ -333,17 +352,21 @@ public final class Main {
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
-                workerLogin, liveSessions, shared, definitions);
+                workerLogin, liveSessions, shared, definitions, retries);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, workerLogin,
-                executor, liveSessions, Clock.systemUTC(), shared.board());
-        Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
+        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, shared.pageRequests(),
+                workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.pickUp());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 createPhoneLinkSender(gitHub), definitions, definitions::warning,
                 () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
+        ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
+            shared.board().recordRequestChange();
+            worker.requestEarlyPoll();
+        });
+        startContinueMarkerWatcher(continueMarkerWatcher, errors);
         new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
                 UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
@@ -351,6 +374,7 @@ public final class Main {
             worker.runUntilStopped();
             worker.shutDown(LOOP_END_TIMEOUT);
         } finally {
+            continueMarkerWatcher.close();
             webServer.ifPresent(WebServer::stop);
         }
         if (!worker.foundAnApiKey()) {
@@ -400,7 +424,7 @@ public final class Main {
      * Without a web section, the worker serves no page. The page gets only a label writer and a phone link
      * sender, never the GitHub client.
      *
-     * @param definitions       the definition version of each record, for the fix-loop limit of its card
+     * @param definitions       the definition version of each record, for the limits and the block target of its card
      * @param definitionWarning the reason why the definition of the default branch does not load
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
@@ -411,13 +435,13 @@ public final class Main {
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
-                new PageModelSource(shared.board(), shared.usage(), shared.contexts(),
+                new PageModelSource(shared.board(), shared.pickUp(), shared.usage(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
                         definitionWarning, issuesInWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, phoneLinkSender, shared.board(),
-                        earlyPollRequest)));
+                        shared.pickUp(), earlyPollRequest, definitions)));
     }
 
     /** A web server that cannot start stops the worker before its first poll. */
@@ -474,6 +498,15 @@ public final class Main {
         return configured.isBlank() ? userHome.resolve(".claude") : Path.of(configured.strip());
     }
 
+    /** Without the watch the worker still works: it sees /factory:continue at the next poll. */
+    private static void startContinueMarkerWatcher(ContinueMarkerWatcher watcher, PrintStream errors) {
+        try {
+            watcher.start();
+        } catch (IOException exception) {
+            errors.println("The worker sees /factory:continue only at the next poll: " + exception.getMessage());
+        }
+    }
+
     /** The install runs before the first poll: a live folder that is not private stops the start. */
     private static LiveFiles installLiveFiles(FactoryConfiguration configuration) throws StartupException {
         LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
@@ -505,10 +538,10 @@ public final class Main {
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared,
-                                                DefinitionVersions definitions) {
+                                                DefinitionVersions definitions, RetrySettings retries) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
                 buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
-                shared.board(), shared.contexts(), shared.pageRequests());
+                shared.board(), shared.contexts(), shared.pageRequests(), retries);
     }
 }

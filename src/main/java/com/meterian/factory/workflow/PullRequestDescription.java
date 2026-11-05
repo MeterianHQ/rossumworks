@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -74,10 +73,10 @@ final class PullRequestDescription {
     }
 
     private static String renderNoteLine(ReviewNote reviewNote) {
-        String kind = reviewNote.kind().name().toLowerCase(Locale.ROOT);
+        String reviewName = reviewNote.reviewName();
         String text = reviewNote.note().title() + ": " + reviewNote.note().detail();
         String oneLine = LINE_BREAKS.matcher(text.strip()).replaceAll(" ");
-        return "- " + kind + ": " + neutralizeClosingKeywords(cutNoteToMaximum(oneLine));
+        return "- " + reviewName + ": " + neutralizeClosingKeywords(cutNoteToMaximum(oneLine));
     }
 
     private static String cutNoteToMaximum(String line) {

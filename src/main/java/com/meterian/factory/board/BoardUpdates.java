@@ -16,9 +16,16 @@ public interface BoardUpdates {
         @Override
         public void recordIssue(Issue issue, IssueRecord record) {
         }
+
+        @Override
+        public void recordRequestChange() {
+        }
     };
 
     void recordPoll(List<Issue> labeledIssues);
 
     void recordIssue(Issue issue, IssueRecord record);
+
+    /** A request outside the board changed, so the page must show its waiting state now. */
+    void recordRequestChange();
 }

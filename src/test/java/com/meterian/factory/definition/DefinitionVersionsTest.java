@@ -13,6 +13,7 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.testing.RecordStates;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -56,8 +57,13 @@ class DefinitionVersionsTest {
         return new DefinitionVersions(git, clone, "main", builtIn);
     }
 
-    private static String mainFileWithFixLoops(int limit) {
-        return builtInMainFile().replace("fix-loops: 2", "fix-loops: " + limit);
+    private static String mainFileWithImplementLimit(int entries) {
+        return builtInMainFile().replace("limit: { entries: 3, then: blocked }",
+                "limit: { entries: " + entries + ", then: blocked }");
+    }
+
+    private static int implementLimitOf(FactoryDefinition definition) {
+        return definition.workflow().state("implement").limit().orElseThrow().entries();
     }
 
     private static String shortCommit(String commit) {
@@ -109,7 +115,7 @@ class DefinitionVersionsTest {
         commitDefinition(author, BROKEN_MAIN_FILE);
         versions.refresh();
 
-        String repaired = commitDefinition(author, mainFileWithFixLoops(3));
+        String repaired = commitDefinition(author, mainFileWithImplementLimit(3));
         versions.refresh();
 
         assertThat(versions.current()).hasValueSatisfying(
@@ -131,8 +137,8 @@ class DefinitionVersionsTest {
 
     @Test
     void takesTheNewestGoodVersionAfterARestartWithABrokenHead() {
-        String older = commitDefinition(author, mainFileWithFixLoops(3));
-        String good = commitDefinition(author, mainFileWithFixLoops(4));
+        String older = commitDefinition(author, mainFileWithImplementLimit(3));
+        String good = commitDefinition(author, mainFileWithImplementLimit(4));
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         assertThat(older).isNotEqualTo(good);
         DefinitionVersions afterRestart = createVersions();
@@ -141,7 +147,7 @@ class DefinitionVersionsTest {
 
         assertThat(afterRestart.current()).hasValueSatisfying(
                 version -> assertThat(version.commit()).isEqualTo(good));
-        assertThat(afterRestart.current().orElseThrow().definition().limits().get("fix-loops")).isEqualTo(4);
+        assertThat(implementLimitOf(afterRestart.current().orElseThrow().definition())).isEqualTo(4);
         assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The .factory of " + shortCommit(broken) + " does not load: ")
                 .endsWith(". The factory keeps the version " + shortCommit(good) + "."));
@@ -167,26 +173,26 @@ class DefinitionVersionsTest {
         String first = commitDefinition(author, builtInMainFile());
         DefinitionVersions versions = createVersions();
         versions.refresh();
-        IssueRecord record = IssueRecord.queued(7).withDefinitionCommit(first);
+        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(first);
 
-        commitDefinition(author, mainFileWithFixLoops(5));
+        commitDefinition(author, mainFileWithImplementLimit(5));
         versions.refresh();
 
-        assertThat(versions.definitionOf(record).limits().get("fix-loops")).isEqualTo(2);
-        assertThat(versions.current().orElseThrow().definition().limits().get("fix-loops")).isEqualTo(5);
+        assertThat(implementLimitOf(versions.definitionOf(record))).isEqualTo(3);
+        assertThat(implementLimitOf(versions.current().orElseThrow().definition())).isEqualTo(5);
     }
 
     @Test
     void loadsTheVersionOfARecordAfterARestart() {
         String first = commitDefinition(author, builtInMainFile());
         createVersions().refresh();
-        commitDefinition(author, mainFileWithFixLoops(5));
-        IssueRecord record = IssueRecord.queued(7).withDefinitionCommit(first);
+        commitDefinition(author, mainFileWithImplementLimit(5));
+        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(first);
 
         DefinitionVersions afterRestart = createVersions();
         afterRestart.refresh();
 
-        assertThat(afterRestart.definitionOf(record).limits().get("fix-loops")).isEqualTo(2);
+        assertThat(implementLimitOf(afterRestart.definitionOf(record))).isEqualTo(3);
     }
 
     @Test
@@ -194,7 +200,7 @@ class DefinitionVersionsTest {
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         DefinitionVersions versions = createVersions();
         versions.refresh();
-        IssueRecord record = IssueRecord.queued(7).withDefinitionCommit(broken);
+        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(broken);
 
         assertThatThrownBy(() -> versions.definitionOf(record)).isInstanceOf(IllegalStateException.class);
     }
@@ -203,7 +209,7 @@ class DefinitionVersionsTest {
     void usesTheBuiltInVersionForARecordWithoutACommit() {
         DefinitionVersions versions = createVersions();
 
-        assertThat(versions.definitionOf(IssueRecord.queued(7))).isSameAs(builtIn);
+        assertThat(versions.definitionOf(RecordStates.queued(7))).isSameAs(builtIn);
     }
 
     @Test

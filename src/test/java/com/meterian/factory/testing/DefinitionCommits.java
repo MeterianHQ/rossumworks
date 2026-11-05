@@ -47,9 +47,9 @@ public final class DefinitionCommits {
 
     /** The definition with the build command of a test and no build variables. */
     public static FactoryDefinition withBuild(FactoryDefinition definition, String buildCommand) {
-        return new FactoryDefinition(definition.workflow(), definition.limits(),
-                new BuildDefinition(buildCommand, Map.of()), definition.allowedTools(), definition.mergeTargetBranch(),
-                definition.repositories(), definition.prompts());
+        return new FactoryDefinition(definition.workflow(), new BuildDefinition(buildCommand, Map.of()),
+                definition.allowedTools(), definition.mergeTargetBranch(), definition.repositories(),
+                definition.prompts());
     }
 
     /** Loads a definition from the main file and the built-in prompts. */
@@ -63,9 +63,10 @@ public final class DefinitionCommits {
         }
     }
 
-    /** The built-in definition with another value of the limit fix-loops. */
-    public static FactoryDefinition builtInWithFixLoops(int limit) {
-        return loadMainFile(builtInMainFile().replace("fix-loops: 2", "fix-loops: " + limit));
+    /** The built-in definition with another limit of the entries into the state implement. */
+    public static FactoryDefinition builtInWithImplementLimit(int entries) {
+        return loadMainFile(builtInMainFile().replace("limit: { entries: 3, then: blocked }",
+                "limit: { entries: " + entries + ", then: blocked }"));
     }
 
     /**

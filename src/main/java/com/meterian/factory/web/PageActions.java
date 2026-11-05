@@ -4,6 +4,9 @@ import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
+import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.PageRequests;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
@@ -36,18 +39,26 @@ public final class PageActions {
     private final LiveSessions liveSessions;
     private final PhoneLinkSender phoneLinkSender;
     private final BoardState board;
+    private final PickUpSwitch pickUp;
     private final Runnable earlyPollRequest;
+    private final IssueDefinitionFacts facts;
     private final ReentrantLock actionLock = new ReentrantLock();
 
-    /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
+    /**
+     * @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll}
+     * @param definitions      the definition version of each record, for the block target of Start again
+     */
     public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions,
-            PhoneLinkSender phoneLinkSender, BoardState board, Runnable earlyPollRequest) {
+            PhoneLinkSender phoneLinkSender, BoardState board, PickUpSwitch pickUp, Runnable earlyPollRequest,
+            DefinitionLookup definitions) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
         this.phoneLinkSender = phoneLinkSender;
         this.board = board;
+        this.pickUp = pickUp;
         this.earlyPollRequest = earlyPollRequest;
+        this.facts = new IssueDefinitionFacts(definitions);
     }
 
     /**
@@ -74,6 +85,19 @@ public final class PageActions {
         }
     }
 
+    /** The page shows the new state at once. A pause needs no poll: the next poll only starts nothing new. */
+    public void pausePickUp() {
+        pickUp.pause();
+        board.recordRequestChange();
+    }
+
+    /** The worker starts the waiting issues in about 2 seconds. */
+    public void resumePickUp() {
+        pickUp.resume();
+        board.recordRequestChange();
+        earlyPollRequest.run();
+    }
+
     private Optional<IssueCard> findCard(int issueNumber) {
         return board.snapshot().cards().stream().filter(card -> card.issueNumber() == issueNumber).findFirst();
     }
@@ -85,7 +109,8 @@ public final class PageActions {
     private boolean isPossible(IssueCard card, PageAction action, boolean viewerOnThisMachine) {
         int issueNumber = card.issueNumber();
         return action.isPossible(card, liveSessions.isContinueRequested(issueNumber),
-                PageAction.findRememberedLabels(issueNumber, pageRequests), viewerOnThisMachine);
+                PageAction.findRememberedLabels(issueNumber, pageRequests), viewerOnThisMachine,
+                facts.isInBlockTarget(card.record()));
     }
 
     private ActionResult runAction(IssueCard card, PageAction action) {
@@ -93,7 +118,7 @@ public final class PageActions {
             case OPEN_TERMINAL -> openTerminal(card.issueNumber());
             case SEND_TO_PHONE -> sendLinkToPhone(card);
             case CONTINUE -> requestEarlyPollAfter(() -> liveSessions.requestContinue(card.issueNumber()));
-            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE, APPROVE, BLOCK ->
+            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE, APPROVE, BLOCK, START_AGAIN ->
                     requestEarlyPollAfter(() -> sendLabelRequest(card, action));
         };
     }

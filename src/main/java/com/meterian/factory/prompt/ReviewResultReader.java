@@ -1,7 +1,6 @@
 package com.meterian.factory.prompt;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.workflow.ScratchFolder;
 import java.nio.file.Path;
@@ -17,8 +16,13 @@ public final class ReviewResultReader {
     private ReviewResultReader() {
     }
 
-    public static ReviewResult read(Path worktree, ReviewKind kind) {
-        Path file = worktree.resolve(ScratchFolder.NAME).resolve(kind.fileName());
+    /** The name of the result file of a review, for example review-security.json. */
+    public static String fileNameOf(String reviewName) {
+        return "review-" + reviewName + ".json";
+    }
+
+    public static ReviewResult read(Path worktree, String reviewName) {
+        Path file = worktree.resolve(ScratchFolder.NAME).resolve(fileNameOf(reviewName));
         return ResultFileReader.readObject(file)
                 .flatMap(ReviewResultReader::parseReviewResult)
                 .orElseGet(ReviewResultReader::createRejectResult);

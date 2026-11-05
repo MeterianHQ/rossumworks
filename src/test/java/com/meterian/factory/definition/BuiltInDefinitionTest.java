@@ -3,9 +3,8 @@ package com.meterian.factory.definition;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.testing.TestTools;
-import com.meterian.factory.state.WaitReason;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class BuiltInDefinitionTest {
@@ -13,33 +12,36 @@ class BuiltInDefinitionTest {
     private final FactoryDefinition definition = BuiltInDefinition.load();
 
     @Test
-    void loadsTheBuiltInDefinition() {
+    void loadsTheDefaultWorkflowOfTheSpecification() {
         assertThat(definition.workflow().start()).isEqualTo("prepare");
-        assertThat(definition.workflow().states().keySet())
-                .containsExactly("prepare", "implement", "build", "review", "risk", "merge", "done");
+        assertThat(definition.workflow().states().keySet()).containsExactly("prepare", "implement", "build", "review",
+                "risk", "merge", "waits-for-approval", "factory-change-approval", "text-changed", "live", "blocked",
+                "done");
     }
 
     @Test
     void expressesTodaysSequence() {
-        assertThat(transitionsOf("prepare")).containsExactly(Map.entry("done", goTo("implement")));
-        assertThat(transitionsOf("implement")).containsExactly(
+        assertThat(nextStatesOf("prepare")).containsExactly(Map.entry("done", goTo("implement")));
+        assertThat(nextStatesOf("implement")).containsExactly(
                 Map.entry("changed", goTo("build")),
-                Map.entry("question", new Transition.Wait(WaitReason.QUESTION)),
-                Map.entry("no-change", new Transition.Block(WaitReason.FAILURE)),
-                Map.entry("failed", new Transition.Block(WaitReason.FAILURE)),
-                Map.entry("conflict-left", new Transition.EnterLoop("fix-loop")));
-        assertThat(transitionsOf("build")).containsExactly(
-                Map.entry("passed", goTo("review")), Map.entry("failed", new Transition.EnterLoop("fix-loop")));
-        assertThat(transitionsOf("review")).containsExactly(
-                Map.entry("approved", goTo("risk")), Map.entry("rejected", new Transition.EnterLoop("fix-loop")));
-        assertThat(transitionsOf("risk")).containsExactly(Map.entry("assessed", goTo("merge")));
-        assertThat(transitionsOf("merge")).containsExactly(
-                Map.entry("merged", new Transition.GoTo("done", true)),
-                Map.entry("needs-approval", new Transition.Wait(WaitReason.MERGE_NEEDS_APPROVAL)),
-                Map.entry("needs-new-reviews", new Transition.GoTo("build", true)),
-                Map.entry("conflict", new Transition.EnterLoop("fix-loop")),
-                Map.entry("factory-changed", new Transition.Wait(WaitReason.FACTORY_CHANGE_NEEDS_APPROVAL)));
-        assertThat(transitionsOf("done")).isEmpty();
+                Map.entry("no-change", goTo("blocked")),
+                Map.entry("question", goTo("live")),
+                Map.entry("conflict-left", goTo("implement")),
+                Map.entry("failed", goTo("blocked")));
+        assertThat(nextStatesOf("build")).containsExactly(
+                Map.entry("passed", goTo("review")), Map.entry("failed", goTo("implement")));
+        assertThat(nextStatesOf("review")).containsExactly(
+                Map.entry("approved", goTo("risk")), Map.entry("rejected", goTo("implement")));
+        assertThat(nextStatesOf("merge")).containsExactly(
+                Map.entry("merged", goTo("done")),
+                Map.entry("needs-approval", goTo("waits-for-approval")),
+                Map.entry("needs-new-reviews", goTo("build")),
+                Map.entry("conflict", goTo("implement")),
+                Map.entry("factory-changed", goTo("factory-change-approval")));
+        assertThat(nextStatesOf("live")).containsExactly(
+                Map.entry("continue", new Target.ToPrevious()), Map.entry("changed", goTo("build")));
+        assertThat(nextStatesOf("blocked")).containsExactly(Map.entry("continue", new Target.ToPrevious()));
+        assertThat(nextStatesOf("done")).isEmpty();
     }
 
     @Test
@@ -48,16 +50,19 @@ class BuiltInDefinitionTest {
     }
 
     @Test
-    void hasTheFixLoopLimitOfToday() {
-        assertThat(definition.limits()).containsEntry("fix-loops", 2);
-        assertThat(definition.workflow().loop("fix-loop").orElseThrow().limit()).isEqualTo(2);
+    void limitsTheImplementationToTheFirstEntryAndTwoFixes() {
+        assertThat(definition.workflow().state("implement").limit())
+                .contains(new LimitDefinition(3, goTo("blocked")));
+        assertThat(definition.workflow().state("review").limit())
+                .contains(new LimitDefinition(10, goTo("blocked")));
+        assertThat(definition.workflow().state("build").limit()).isEqualTo(Optional.empty());
     }
 
-    private List<Map.Entry<String, Transition>> transitionsOf(String stateName) {
-        return List.copyOf(definition.workflow().state(stateName).transitions().entrySet());
+    private Iterable<Map.Entry<String, Target>> nextStatesOf(String stateName) {
+        return definition.workflow().state(stateName).on().entrySet();
     }
 
-    private static Transition goTo(String state) {
-        return new Transition.GoTo(state, false);
+    private static Target goTo(String state) {
+        return new Target.ToState(state);
     }
 }

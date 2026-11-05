@@ -1,6 +1,5 @@
 package com.meterian.factory.github;
 
-import com.meterian.factory.state.IssueStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -27,26 +26,22 @@ public interface GitHubClient {
         ensureLabel(label, color, "");
     }
 
-    /** Creates the six status labels when they do not exist. */
-    default void ensureStatusLabels() {
-        for (IssueStatus status : IssueStatus.values()) {
-            ensureLabel(status.labelName(), status.labelColor(), status.labelDescription());
-        }
-    }
-
     void addLabel(int issueNumber, String label);
 
     /** Does nothing when the label is not on the issue. */
     void removeLabel(int issueNumber, String label);
 
-    /** Makes the status label of the status the only status label on the issue. */
-    void setStatus(Issue issue, IssueStatus status);
+    /** Makes the label of the column the only column label on the issue. */
+    void setColumn(Issue issue, String column);
 
     Optional<PullRequest> openPullRequest(String headBranch);
 
     PullRequest createPullRequest(String headBranch, String baseBranch, String title, String body);
 
     void editPullRequestBody(int pullRequestNumber, String body);
+
+    /** Returns the commit hash of the head of the branch on GitHub. Empty when GitHub does not have the branch. */
+    Optional<String> findBranchHead(String branch);
 
     /** Tells if GitHub merged the pull request. */
     boolean isMerged(int pullRequestNumber);

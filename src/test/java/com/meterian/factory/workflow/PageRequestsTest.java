@@ -25,6 +25,36 @@ class PageRequestsTest {
     }
 
     @Test
+    void aLabelFromTheGitHubAppShowsThePhone() {
+        pageRequests.rememberPhoneUnlessAPlaceIsRemembered(ISSUE);
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.PHONE);
+    }
+
+    @Test
+    void aLabelFromTheGitHubAppKeepsThePlaceOfThePage() {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+
+        pageRequests.rememberPhoneUnlessAPlaceIsRemembered(ISSUE);
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.TERMINAL);
+    }
+
+    @Test
+    void rememberingAnAcceptedRequestTellsIfItIsNew() {
+        assertThat(pageRequests.rememberAcceptedRequest(ISSUE, "factory:block")).isTrue();
+        assertThat(pageRequests.rememberAcceptedRequest(ISSUE, "factory:block")).isFalse();
+        assertThat(pageRequests.isRemembered(ISSUE, "factory:block")).isTrue();
+    }
+
+    @Test
+    void anAcceptedEnterWithoutAPageRequestOpensOnThePhone() {
+        pageRequests.rememberAcceptedRequest(ISSUE, "factory:enter");
+
+        assertThat(pageRequests.findEnterPlace(ISSUE)).contains(LivePlace.PHONE);
+    }
+
+    @Test
     void anExpiredEnterPlaceIsPhone() {
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.BROWSER);
         clock.advance(Duration.ofHours(24).plusSeconds(1));

@@ -8,7 +8,7 @@ import com.meterian.factory.definition.ClasspathDefinitionFiles;
 import com.meterian.factory.definition.DefinitionFiles;
 import com.meterian.factory.definition.DefinitionLoader;
 import com.meterian.factory.github.Issue;
-import com.meterian.factory.state.ReviewKind;
+import com.meterian.factory.testing.RecordStates;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,19 +23,21 @@ class PromptLibraryTest {
     void reviewPromptContainsTheTreeHash() {
         PromptLibrary library = builtInLibrary("main");
 
-        assertThat(library.review(ReviewKind.SECURITY, ISSUE, "abc123def")).contains("abc123def");
+        assertThat(library.review("security", ISSUE, "abc123def")).contains("abc123def");
     }
 
     @Test
     void reviewPromptNamesTheBase() {
         PromptLibrary library = builtInLibrary("develop");
 
-        assertThat(library.review(ReviewKind.CORRECTNESS, ISSUE, "abc123")).contains("git diff origin/develop...HEAD");
+        assertThat(library.review("correctness", ISSUE, "abc123")).contains("git diff origin/develop...HEAD");
     }
 
     @Test
-    void anUnreplacedPlaceholderIsAnError() throws Exception {
-        PromptLibrary library = libraryWithPrompt("prompts/risk.md", "{{unknown}}");
+    void anUnreplacedPlaceholderIsAnError() {
+        PromptTexts texts = PromptTexts.from(BuiltInDefinition.load());
+        PromptLibrary library = new PromptLibrary(new PromptTexts(texts.implement(), texts.fix(),
+                texts.continueAfterConversation(), texts.resume(), texts.reviews(), "{{unknown}}"), "main");
 
         assertThatThrownBy(() -> library.risk(ISSUE)).isInstanceOf(IllegalStateException.class);
     }
@@ -60,8 +62,8 @@ class PromptLibraryTest {
         PromptLibrary library = builtInLibrary("main");
         List<String> prompts = new java.util.ArrayList<>(List.of(
                 library.implement(ISSUE), library.fix(List.of(new Finding("T", "D"))), library.risk(ISSUE)));
-        for (ReviewKind kind : ReviewKind.values()) {
-            prompts.add(library.review(kind, ISSUE, "abc"));
+        for (String reviewName : RecordStates.REVIEW_NAMES) {
+            prompts.add(library.review(reviewName, ISSUE, "abc"));
         }
 
         assertThat(prompts).hasSize(7).allSatisfy(prompt -> assertThat(prompt.toLowerCase()).contains("do not push"));
@@ -83,15 +85,15 @@ class PromptLibraryTest {
         PromptLibrary library = builtInLibrary("main");
         Issue issue = new Issue(7, "T", "use {{tree}} here", Set.of());
 
-        assertThat(library.review(ReviewKind.QUALITY, issue, "abc123")).contains("use {{tree}} here");
+        assertThat(library.review("quality", issue, "abc123")).contains("use {{tree}} here");
     }
 
     @Test
     void reviewPromptsTellTheAgentToRejectWhenUndecided() {
         PromptLibrary library = builtInLibrary("main");
 
-        for (ReviewKind kind : ReviewKind.values()) {
-            assertThat(library.review(kind, ISSUE, "abc")).contains("When you cannot decide, write reject.");
+        for (String reviewName : RecordStates.REVIEW_NAMES) {
+            assertThat(library.review(reviewName, ISSUE, "abc")).contains("When you cannot decide, write reject.");
         }
     }
 
@@ -99,8 +101,8 @@ class PromptLibraryTest {
     void reviewPromptsSeparateTheFindingsFromTheNotes() {
         PromptLibrary library = builtInLibrary("main");
 
-        for (ReviewKind kind : ReviewKind.values()) {
-            assertThat(library.review(kind, ISSUE, "abc")).contains(
+        for (String reviewName : RecordStates.REVIEW_NAMES) {
+            assertThat(library.review(reviewName, ISSUE, "abc")).contains(
                     "\"notes\": [{\"title\": \"...\", \"detail\": \"...\"}]",
                     "A finding is a problem that must be fixed before the merge. Put information, minor points, and"
                             + " ideas that do not block the merge in \"notes\", not in \"findings\". Write reject when"
@@ -125,7 +127,7 @@ class PromptLibraryTest {
     void qualityReviewPromptRejectsAChangeThatTheIssueDoesNotNeed() {
         PromptLibrary library = builtInLibrary("main");
 
-        assertThat(library.review(ReviewKind.QUALITY, ISSUE, "abc123"))
+        assertThat(library.review("quality", ISSUE, "abc123"))
                 .contains("Reject a change of text or code that the issue does not need");
     }
 
@@ -148,12 +150,12 @@ class PromptLibraryTest {
     void reviewRefusesAKindWithoutAPrompt() {
         PromptTexts texts = PromptTexts.from(BuiltInDefinition.load());
         PromptTexts withoutQuality = new PromptTexts(texts.implement(), texts.fix(),
-                texts.continueAfterConversation(), Map.of(ReviewKind.SECURITY, "text"), texts.risk());
+                texts.continueAfterConversation(), texts.resume(), Map.of("security", "text"), texts.risk());
         PromptLibrary library = new PromptLibrary(withoutQuality, "main");
 
-        assertThatThrownBy(() -> library.review(ReviewKind.QUALITY, ISSUE, "abc"))
+        assertThatThrownBy(() -> library.review("quality", ISSUE, "abc"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no prompt for the review QUALITY");
+                .hasMessageContaining("no prompt for the review quality");
     }
 
     private static PromptLibrary builtInLibrary(String mergeTargetBranch) {

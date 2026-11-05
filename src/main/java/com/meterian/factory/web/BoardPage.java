@@ -3,11 +3,12 @@ package com.meterian.factory.web;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.IssueCard;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.definition.ColumnNames;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -18,9 +19,6 @@ import java.util.Locale;
  */
 public final class BoardPage {
 
-    /** The columns follow the progress in time. On a phone, page.css puts "Waits for you" at the top. */
-    private static final List<IssueStatus> COLUMNS = List.of(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS,
-            IssueStatus.IN_REVIEW, IssueStatus.WAITS_FOR_YOU, IssueStatus.BLOCKED, IssueStatus.DONE);
     private static final int OLD_CHECK_POLL_INTERVALS = 3;
 
     private final DateTimeFormatter timeFormat;
@@ -46,8 +44,8 @@ public final class BoardPage {
         StringBuilder html = new StringBuilder();
         appendHeader(html, model);
         html.append("<main class=\"columns\">");
-        for (IssueStatus status : COLUMNS) {
-            appendColumn(html, status, model);
+        for (String column : findColumnsToShow(model)) {
+            appendColumn(html, column, model);
         }
         html.append("</main>");
         return html.toString();
@@ -64,6 +62,10 @@ public final class BoardPage {
         if (isLastCheckOld(model)) {
             html.append("<p class=\"warning\">The last GitHub check is old.</p>");
         }
+        if (model.pickUpPaused()) {
+            html.append("<p class=\"notice\">Pick up is paused. New issues wait in Queued. "
+                    + "The issues in work continue.</p>");
+        }
         model.usageResumesAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
                 .append(Html.escape("New phases start again at " + formatTime(resumesAt) + "."))
                 .append("</p>"));
@@ -76,6 +78,7 @@ public final class BoardPage {
         appendTile(html, "Last GitHub check", board.lastCheckAt().map(this::formatTime).orElse("none yet"));
         appendTile(html, "Issues in work", model.issuesInWork() + " of " + model.parallelLimit());
         appendTile(html, "Isolation", describeIsolation(model));
+        appendPickUpTile(html, model.pickUpPaused());
         model.usageWindows().forEach(window -> appendUsageTile(html, window));
         html.append("</div>");
     }
@@ -83,6 +86,13 @@ public final class BoardPage {
     private void appendTile(StringBuilder html, String label, String value) {
         html.append("<div class=\"tile\"><span class=\"tile-label\">").append(Html.escape(label))
                 .append("</span><span class=\"tile-value\">").append(Html.escape(value)).append("</span></div>");
+    }
+
+    private void appendPickUpTile(StringBuilder html, boolean paused) {
+        html.append("<div class=\"tile pick-up\"><span class=\"tile-label\">Pick up</span>")
+                .append("<span class=\"tile-value\">").append(paused ? "Paused" : "On").append("</span>")
+                .append("<form method=\"post\" action=\"/pick-up/").append(paused ? "resume" : "pause")
+                .append("\"><button>").append(paused ? "Start" : "Pause").append("</button></form></div>");
     }
 
     /** The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. */
@@ -115,10 +125,22 @@ public final class BoardPage {
         return model.isolationMode().name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
-    private void appendColumn(StringBuilder html, IssueStatus status, PageModel model) {
-        List<IssueCard> cards = findCardsOfColumn(status, model.board());
-        html.append("<section class=\"column status-").append(toClassName(status)).append("\"><h2>")
-                .append("<span class=\"column-name\">").append(Html.escape(status.displayName())).append("</span>")
+    /** The columns of the definition, then an extra column for each other column of a card, by issue number. */
+    private List<String> findColumnsToShow(PageModel model) {
+        List<String> columns = new ArrayList<>(model.columns());
+        model.board().cards().stream()
+                .sorted(Comparator.comparingInt(IssueCard::issueNumber))
+                .map(card -> card.record().column())
+                .filter(column -> !columns.contains(column))
+                .forEach(columns::add);
+        return columns;
+    }
+
+    private void appendColumn(StringBuilder html, String column, PageModel model) {
+        List<IssueCard> cards = findCardsOfColumn(column, model.board());
+        html.append("<section class=\"column status-").append(Html.escape(column)).append("\"><h2>")
+                .append("<span class=\"column-name\">").append(Html.escape(ColumnNames.displayName(column)))
+                .append("</span>")
                 .append("<span class=\"count\">").append(cards.size()).append("</span></h2>")
                 .append("<div class=\"cards\">");
         if (cards.isEmpty()) {
@@ -130,17 +152,15 @@ public final class BoardPage {
         html.append("</div></section>");
     }
 
-    private static String toClassName(IssueStatus status) {
-        return status.name().toLowerCase(Locale.ROOT).replace('_', '-');
-    }
-
-    /** The cards go by issue number. The Done cards go by the date of the merge, the newest first. */
-    private List<IssueCard> findCardsOfColumn(IssueStatus status, BoardSnapshot board) {
-        Comparator<IssueCard> order = status == IssueStatus.DONE
-                ? Comparator.comparing((IssueCard card) -> card.doneAt().orElse(Instant.MIN)).reversed()
-                : Comparator.comparingInt(IssueCard::issueNumber);
+    /** A card with a done date goes first, the newest first. The other cards go by issue number. */
+    private List<IssueCard> findCardsOfColumn(String column, BoardSnapshot board) {
+        Comparator<IssueCard> newestDoneFirst = Comparator.comparing(
+                (IssueCard card) -> card.doneAt().orElse(Instant.MIN)).reversed();
+        Comparator<IssueCard> order = Comparator.comparing((IssueCard card) -> card.doneAt().isEmpty())
+                .thenComparing(newestDoneFirst)
+                .thenComparingInt(IssueCard::issueNumber);
         return board.cards().stream()
-                .filter(card -> card.record().status() == status)
+                .filter(card -> card.record().column().equals(column))
                 .sorted(order)
                 .toList();
     }

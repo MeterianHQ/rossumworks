@@ -9,6 +9,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.BoardState;
+import com.meterian.factory.board.PickUpSwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -27,7 +28,6 @@ import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeGitHubServer;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueWorkflow;
@@ -159,17 +159,19 @@ class GitHubRequestBudgetTest {
                 IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
+        PageRequests pageRequests = new PageRequests(Clock.systemUTC());
         commitDefinition(clone, mainFileFor(BUILD_COMMAND));
         DefinitionVersions versions = new DefinitionVersions(git, clone, "main",
                 builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
                 buildRunner, Duration.ZERO, new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), new PageRequests(Clock.systemUTC()));
+                board, new ContextTracker(), pageRequests,
+                com.meterian.factory.workflow.RetrySettings.defaults());
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
-        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, WORKER_LOGIN, executor,
-                liveSessions, clock, board);
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, pageRequests, WORKER_LOGIN,
+                executor, liveSessions, clock, board, new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused")));
     }
 
     private Optional<IssueRecord> readRecord() {
@@ -287,7 +289,7 @@ class GitHubRequestBudgetTest {
 
     /** The commit of the first run is the change of the phase, so a resumed run without a change does not block. */
     @Test
-    void aStepThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
+    void anActionThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFileAnd(() -> server.refuseWithTheRateLimit(RESET))
                 .thenChangeNothing().thenWaitForStop().thatFails();
@@ -296,8 +298,8 @@ class GitHubRequestBudgetTest {
         waitUntil(() -> worker.issuesInWork().isEmpty());
 
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
-        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
-        assertThat(readRecord().orElseThrow().fixLoops()).isZero();
+        assertThat(readRecord().orElseThrow().column()).isNotEqualTo("blocked");
+        assertThat(readRecord().orElseThrow().entriesOf("implement")).isEqualTo(1);
         int requestsInTheWait = server.receivedRequestCount();
         worker.pollOnce();
         assertThat(server.receivedRequestCount()).isEqualTo(requestsInTheWait);
@@ -308,7 +310,7 @@ class GitHubRequestBudgetTest {
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
         assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
-        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(readRecord().orElseThrow().column()).isNotEqualTo("blocked");
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
         assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));
     }
@@ -322,7 +324,7 @@ class GitHubRequestBudgetTest {
         workerLog.clear();
         worker.pollOnce();
         assertThat(pollLines()).as("the requests of the issue thread count in the next poll line")
-                .singleElement().asString().contains("POST /repos/{o}/{r}/pulls=1");
+                .singleElement().asString().contains("GET /repos/{o}/{r}/pulls=1");
         workerLog.clear();
 
         server.resetRequestCounts();
@@ -345,7 +347,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
 
         assertThat(pollLines()).hasSize(1).first().asString()
-                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=10, .*");
+                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=6, .*");
     }
 
     private List<String> pollLines() {

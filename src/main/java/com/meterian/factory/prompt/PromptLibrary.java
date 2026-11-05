@@ -1,9 +1,7 @@
 package com.meterian.factory.prompt;
 
 import com.meterian.factory.github.Issue;
-import com.meterian.factory.state.ReviewKind;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,12 +32,24 @@ public final class PromptLibrary {
         return render("fix", texts.fix(), Map.of("findings", FindingsFence.fence(findings)));
     }
 
-    public String review(ReviewKind kind, Issue issue, String treeHash) {
-        String template = texts.reviews().get(kind);
+    /** The prompt of the agent for an entry into the coding state with an event without the findings of a fix. */
+    public String resume(List<Finding> findings) {
+        String template = texts.resume().orElseThrow(
+                () -> new IllegalStateException("The definition has no prompt resume"));
+        return render("resume", template, Map.of("findings", FindingsFence.fence(findings)));
+    }
+
+    /** The names of the reviews of the definition, in its order. */
+    public List<String> reviewNames() {
+        return List.copyOf(texts.reviews().keySet());
+    }
+
+    public String review(String reviewName, Issue issue, String treeHash) {
+        String template = texts.reviews().get(reviewName);
         if (template == null) {
-            throw new IllegalStateException("The definition has no prompt for the review " + kind);
+            throw new IllegalStateException("The definition has no prompt for the review " + reviewName);
         }
-        return render("review " + kind.name().toLowerCase(Locale.ROOT), template,
+        return render("review " + reviewName, template,
                 Map.of("issue", IssueFence.fence(issue), "tree", treeHash, "base", base));
     }
 

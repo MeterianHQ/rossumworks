@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meterian.factory.configuration.RepositoryName;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.ColumnLabels;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -46,7 +46,7 @@ public final class HttpGitHubClient implements GitHubClient {
     private final GitHubRequestCounter requestCounter;
     private final GitHubRateLimit rateLimit;
     private final ConditionalRequestCache conditionalCache = new ConditionalRequestCache(CACHED_LIST_LIMIT);
-    private final StatusLabelMemory statusLabels = new StatusLabelMemory();
+    private final ColumnLabelMemory columnLabels = new ColumnLabelMemory();
 
     public HttpGitHubClient(URI apiBase, String token, RepositoryName repository, HttpClient httpClient) {
         this(apiBase, token, repository, httpClient, Clock.systemUTC());
@@ -161,17 +161,21 @@ public final class HttpGitHubClient implements GitHubClient {
 
     /** The caller knows the labels of the issue, so the client does not read the issue again. */
     @Override
-    public void setStatus(Issue issue, IssueStatus status) {
-        String wantedLabel = status.labelName();
-        for (String label : statusLabels.findPossibleStatusLabels(issue)) {
+    public void setColumn(Issue issue, String column) {
+        String wantedLabel = ColumnLabels.labelName(column);
+        if (!columnLabels.isCreated(wantedLabel)) {
+            ensureLabel(wantedLabel, ColumnLabels.colorOf(column), ColumnLabels.describe(column));
+            columnLabels.rememberCreated(wantedLabel);
+        }
+        for (String label : columnLabels.findPossibleColumnLabels(issue)) {
             if (!label.equals(wantedLabel)) {
                 removeLabel(issue.number(), label);
             }
         }
-        if (!statusLabels.isSurelyOnTheIssue(issue, wantedLabel)) {
+        if (!columnLabels.isSurelyOnTheIssue(issue, wantedLabel)) {
             addLabel(issue.number(), wantedLabel);
         }
-        statusLabels.remember(issue.number(), wantedLabel);
+        columnLabels.remember(issue.number(), wantedLabel);
     }
 
     @Override
@@ -191,6 +195,17 @@ public final class HttpGitHubClient implements GitHubClient {
     @Override
     public void editPullRequestBody(int pullRequestNumber, String body) {
         send("PATCH", repositoryPath + "/pulls/" + pullRequestNumber, Map.of("body", body));
+    }
+
+    @Override
+    public Optional<String> findBranchHead(String branch) {
+        String path = repositoryPath + "/branches/" + encode(branch);
+        HttpResponse<String> response = sendRaw("GET", path, null);
+        if (response.statusCode() == 404) {
+            return Optional.empty();
+        }
+        requireSuccess("GET", path, response);
+        return Optional.of(parse(response.body()).path("commit").path("sha").asText()).filter(sha -> !sha.isBlank());
     }
 
     @Override

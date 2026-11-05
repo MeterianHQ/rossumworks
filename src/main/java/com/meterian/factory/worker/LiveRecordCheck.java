@@ -4,8 +4,9 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.workflow.StatusPublisher;
+import java.util.Optional;
 
 /** Reads the live session of a live record at a poll: the continue request and a session that ended. */
 final class LiveRecordCheck {
@@ -21,13 +22,13 @@ final class LiveRecordCheck {
         this.statusPublisher = statusPublisher;
     }
 
-    boolean isContinueRequested(IssueRecord record) {
+    private boolean isContinueRequested(IssueRecord record) {
         return liveSessions.isContinueRequested(record.issueNumber());
     }
 
     /**
-     * The record without the link tells the owner to enter again. The issue still waits in the live conversation,
-     * and the record keeps the state from before the conversation.
+     * The record without the link tells the owner to enter again. The issue still waits in the conversation
+     * state.
      */
     IssueRecord forgetEndedSession(Issue issue, IssueRecord record) {
         if (!hasEndedSession(record)) {
@@ -39,7 +40,7 @@ final class LiveRecordCheck {
     /** Only a record that waits in the conversation counts: a block closes the session on purpose. */
     private boolean hasEndedSession(IssueRecord record) {
         boolean hasLink = record.live().flatMap(LiveSession::link).isPresent();
-        boolean waitsInTheConversation = record.waitReason().filter(WaitReason.LIVE_CONVERSATION::equals).isPresent();
+        boolean waitsInTheConversation = record.action().equals(Optional.of(ActionType.CONVERSATION));
         return hasLink && waitsInTheConversation && !isContinueRequested(record)
                 && !liveSessions.isOpen(record.issueNumber());
     }

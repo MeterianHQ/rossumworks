@@ -22,10 +22,13 @@ final class EnterRequests {
         return issue.labels().contains(ENTER_LABEL);
     }
 
-    /** The label goes away only after the record is on GitHub: a failure keeps it for the next poll. */
+    /**
+     * Moves the issue to the enter target and opens the conversation in the same call. The label goes away only
+     * after the record is on GitHub: a failure keeps it for the next poll.
+     */
     IssueRecord enter(IssueRecord record) {
         int issueNumber = record.issueNumber();
-        IssueRecord entered = workflow.enterLiveMode(record);
+        IssueRecord entered = workflow.enter(record);
         gitHub.removeLabel(issueNumber, ENTER_LABEL);
         return entered;
     }

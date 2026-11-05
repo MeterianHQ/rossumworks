@@ -1,14 +1,17 @@
 package com.meterian.factory.state;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.meterian.factory.definition.ColumnNames;
 import com.meterian.factory.github.IssueComment;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public final class StatusComment {
 
@@ -21,11 +24,16 @@ public final class StatusComment {
     private StatusComment() {
     }
 
-    public static String render(IssueRecord record, int fixLoopLimit) {
+    /**
+     * @param limits      the limit of each state with a limit, by state name, in the order of the workflow
+     * @param reviewNames the names of the reviews of the definition, in its order
+     */
+    public static String render(IssueRecord record, Map<String, Integer> limits, List<String> reviewNames) {
         StringBuilder body = new StringBuilder();
         body.append(renderHeadline(record)).append('\n');
-        body.append(renderReviews(record)).append('\n');
-        body.append(renderCounters(record, fixLoopLimit)).append('\n');
+        body.append(renderReviews(record, reviewNames)).append('\n');
+        body.append(renderCounters(record, limits)).append('\n');
+        describeRisk(record).forEach(line -> body.append(line).append('\n'));
         renderLiveLink(record).ifPresent(line -> body.append(line).append('\n'));
         record.notes().forEach(note -> body.append(sanitizeLine(note)).append('\n'));
         body.append('\n').append(RECORD_START).append('\n');
@@ -65,28 +73,51 @@ public final class StatusComment {
     }
 
     private static String renderHeadline(IssueRecord record) {
-        String headline = HEADLINE_START + " " + record.status().displayName() + " — phase " + sanitizeLine(record.state());
-        return record.waitReason()
-                .map(reason -> headline + "\n" + reason.sentence())
-                .orElse(headline);
+        return HEADLINE_START + " " + sanitizeLine(ColumnNames.displayName(record.column())) + " — state "
+                + sanitizeLine(record.state());
     }
 
-    private static String renderReviews(IssueRecord record) {
-        String reviews = Stream.of(ReviewKind.values())
-                .map(kind -> kind.name().toLowerCase() + " " + describeVerdict(record, kind))
+    private static String renderReviews(IssueRecord record, List<String> reviewNames) {
+        if (reviewNames.isEmpty()) {
+            return "Reviews: " + NOT_SET;
+        }
+        String reviews = reviewNames.stream()
+                .map(reviewName -> sanitizeLine(reviewName) + " " + describeVerdict(record, reviewName))
                 .collect(Collectors.joining(", "));
         return "Reviews: " + reviews;
     }
 
-    private static String describeVerdict(IssueRecord record, ReviewKind kind) {
-        Verdict verdict = record.reviews().get(kind);
+    private static String describeVerdict(IssueRecord record, String reviewName) {
+        Verdict verdict = record.reviews().get(reviewName);
         return verdict == null ? NOT_SET : verdict.name().toLowerCase();
     }
 
-    private static String renderCounters(IssueRecord record, int fixLoopLimit) {
+    private static String renderCounters(IssueRecord record, Map<String, Integer> limits) {
         String risk = record.risk().map(level -> level.name().toLowerCase()).orElse(NOT_SET);
         String pullRequest = record.pullRequestNumber().map(number -> "#" + number).orElse(NOT_SET);
-        return "Fix loops: " + record.fixLoops() + " of " + fixLoopLimit + " · Risk: " + risk + " · Pull request: " + pullRequest;
+        return "Entries: " + describeEntries(record, limits) + " · Risk: " + risk + " · Pull request: " + pullRequest;
+    }
+
+    /** The line "risk: high, not small" and one line "- reason" for each reason. Empty before the risk result. */
+    public static List<String> describeRisk(IssueRecord record) {
+        return record.risk().map(level -> {
+            String size = record.small() ? "small" : "not small";
+            List<String> lines = new ArrayList<>();
+            lines.add("risk: " + level.name().toLowerCase() + ", " + size);
+            record.riskReasons().forEach(reason -> lines.add("- " + sanitizeLine(reason)));
+            return List.copyOf(lines);
+        }).orElse(List.of());
+    }
+
+    /** Each state with a limit, for example "implement 1 of 3". */
+    public static String describeEntries(IssueRecord record, Map<String, Integer> limits) {
+        if (limits.isEmpty()) {
+            return NOT_SET;
+        }
+        return limits.entrySet().stream()
+                .map(limit -> sanitizeLine(limit.getKey()) + " " + record.entriesOf(limit.getKey()) + " of "
+                        + limit.getValue())
+                .collect(Collectors.joining(", "));
     }
 
     private static Optional<String> renderLiveLink(IssueRecord record) {
@@ -113,9 +144,18 @@ public final class StatusComment {
         }
         String json = trimmed.substring(start + marker.length(), trimmed.length() - RECORD_END.length());
         try {
-            return Optional.of(MAPPER.readValue(json, IssueRecord.class));
+            JsonNode tree = MAPPER.readTree(json);
+            if (isRecordOfMain(tree)) {
+                return MainRecordReader.read(tree);
+            }
+            return Optional.of(MAPPER.treeToValue(tree, IssueRecord.class));
         } catch (IOException | RuntimeException exception) {
             return Optional.empty();
         }
+    }
+
+    /** Main writes the property phase and no property column. */
+    private static boolean isRecordOfMain(JsonNode tree) {
+        return tree.has("phase") && !tree.has("column");
     }
 }

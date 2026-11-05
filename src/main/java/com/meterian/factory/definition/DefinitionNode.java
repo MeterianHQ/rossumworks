@@ -149,13 +149,17 @@ final class DefinitionNode {
     }
 
     void requireOnlyKeys(Set<String> allowedKeys) throws DefinitionException {
+        Optional<String> unknownKey = findUnknownKey(allowedKeys);
+        if (unknownKey.isPresent()) {
+            throw createFailure("unknown key " + buildKeyPath(unknownKey.get()));
+        }
+    }
+
+    /** The first key of the section, in the order of the YAML, that is not in the allowed keys. */
+    Optional<String> findUnknownKey(Set<String> allowedKeys) {
         List<String> names = new ArrayList<>();
         node.fieldNames().forEachRemaining(names::add);
-        for (String name : names) {
-            if (!allowedKeys.contains(name)) {
-                throw createFailure("unknown key " + buildKeyPath(name));
-            }
-        }
+        return names.stream().filter(name -> !allowedKeys.contains(name)).findFirst();
     }
 
     String keyPath() {

@@ -8,12 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Reads the definition folder .factory: the file factory.yaml and the prompt files that it names. */
+/** Reads the definition folder .factory: the file factory.yaml with its state machine, and the prompt files. */
 public final class DefinitionLoader {
 
     private static final int SUPPORTED_VERSION = 1;
     private static final Set<String> ROOT_KEYS = Set.of(
-            "version", "workflow", "limits", "build", "claude", "merge", "repositories");
+            "version", "workflow", "build", "claude", "merge", "repositories");
 
     private DefinitionLoader() {
     }
@@ -22,14 +22,14 @@ public final class DefinitionLoader {
         DefinitionNode root = new DefinitionNode(parseMainFile(files), "");
         root.requireOnlyKeys(ROOT_KEYS);
         verifyVersion(root);
-        Map<String, Integer> limits = root.findIntegerMap("limits");
         Map<String, String> promptTexts = new LinkedHashMap<>();
-        WorkflowDefinition workflow = new WorkflowReader(files, promptTexts, limits)
+        WorkflowDefinition workflow = new WorkflowReader(new ActionReader(files, promptTexts))
                 .read(root.requireObject("workflow"));
-        DefinitionValidator.validate(workflow);
+        DefinitionRules.verify(workflow);
+        WorkflowGraph.verify(workflow);
+        PromptPlaceholders.verify(workflow, promptTexts);
         return new FactoryDefinition(
                 workflow,
-                limits,
                 readBuild(root.requireObject("build")),
                 readAllowedTools(root),
                 readMergeTargetBranch(root.requireObject("merge")),

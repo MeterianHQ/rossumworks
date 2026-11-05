@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
-import com.meterian.factory.state.IssueStatus;
 import org.junit.jupiter.api.Test;
 
 class FakeGitHubClientTest {
@@ -32,53 +31,65 @@ class FakeGitHubClientTest {
     }
 
     @Test
-    void setsTheStatusAsALabel() {
+    void setsTheColumnAsALabel() {
         github.addIssue(4, "T", "B");
-        github.addLabel(4, "factory:status:queued");
+        github.addLabel(4, "factory:is:queued");
         github.addLabel(4, "bug");
 
-        github.setStatus(github.issue(4), IssueStatus.IN_REVIEW);
+        github.setColumn(github.issue(4), "in-review");
 
-        assertThat(github.labelsOf(4)).containsExactlyInAnyOrder("factory:status:in-review", "bug");
-        assertThat(github.statusOf(4)).contains(IssueStatus.IN_REVIEW);
+        assertThat(github.labelsOf(4)).containsExactlyInAnyOrder("factory:is:in-review", "bug");
+        assertThat(github.columnOf(4)).contains("in-review");
     }
 
     @Test
-    void keepsOnlyOneStatusLabel() {
+    void removesTheOldStatusLabelAndCreatesTheLabelOfANewColumnOnce() {
         github.addIssue(4, "T", "B");
         github.addLabel(4, "factory:status:queued");
-        github.addLabel(4, "factory:status:blocked");
 
-        github.setStatus(github.issue(4), IssueStatus.DONE);
+        github.setColumn(github.issue(4), "needs-me");
+        github.setColumn(github.issue(4), "needs-me");
 
-        assertThat(github.statusLabelsOf(4)).containsExactly("factory:status:done");
+        assertThat(github.labelsOf(4)).containsExactly("factory:is:needs-me");
+        assertThat(github.createdLabels()).containsExactly("factory:is:needs-me");
     }
 
     @Test
-    void addsNothingWhenTheStatusIsAlreadySet() {
+    void keepsOnlyOneColumnLabel() {
         github.addIssue(4, "T", "B");
-        github.addLabel(4, "factory:status:done");
+        github.addLabel(4, "factory:is:queued");
+        github.addLabel(4, "factory:is:blocked");
 
-        github.setStatus(github.issue(4), IssueStatus.DONE);
+        github.setColumn(github.issue(4), "done");
 
-        assertThat(github.statusLabelsOf(4)).containsExactly("factory:status:done");
+        assertThat(github.columnLabelsOf(4)).containsExactly("factory:is:done");
     }
 
     @Test
-    void givesNoStatusWhenThereIsNoStatusLabel() {
+    void addsNothingWhenTheColumnIsAlreadySet() {
         github.addIssue(4, "T", "B");
+        github.addLabel(4, "factory:is:done");
 
-        assertThat(github.statusOf(4)).isEmpty();
+        github.setColumn(github.issue(4), "done");
+
+        assertThat(github.columnLabelsOf(4)).containsExactly("factory:is:done");
     }
 
     @Test
-    void givesNoStatusWhenThereAreTwoStatusLabels() {
+    void givesNoColumnWhenThereIsNoColumnLabel() {
         github.addIssue(4, "T", "B");
-        github.addLabel(4, "factory:status:queued");
-        github.addLabel(4, "factory:status:done");
 
-        assertThat(github.statusOf(4)).isEmpty();
-        assertThat(github.statusLabelsOf(4)).containsExactlyInAnyOrder("factory:status:queued", "factory:status:done");
+        assertThat(github.columnOf(4)).isEmpty();
+    }
+
+    @Test
+    void givesNoColumnWhenThereAreTwoColumnLabels() {
+        github.addIssue(4, "T", "B");
+        github.addLabel(4, "factory:is:queued");
+        github.addLabel(4, "factory:is:done");
+
+        assertThat(github.columnOf(4)).isEmpty();
+        assertThat(github.columnLabelsOf(4)).containsExactlyInAnyOrder("factory:is:queued", "factory:is:done");
     }
 
     @Test

@@ -10,7 +10,7 @@ final class RecordFacts {
     }
 
     /**
-     * Keeps the start of the agent session (the next run must resume it) and the pull request that the step
+     * Keeps the start of the agent session (the next run must resume it) and the pull request that the action
      * opened.
      */
     static IssueRecord keep(IssueRecord kept, Optional<IssueRecord> laterRecord) {

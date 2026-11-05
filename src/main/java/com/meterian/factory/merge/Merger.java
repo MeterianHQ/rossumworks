@@ -226,7 +226,7 @@ public final class Merger {
         }
     }
 
-    /** A GitHubException is transient and leaves: the next poll runs the merge step again. */
+    /** A GitHubException is transient and leaves: the next poll runs the merge-gate action again. */
     private <T> T perform(String stepName, Supplier<T> step) {
         try {
             return step.get();
