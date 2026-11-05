@@ -61,4 +61,14 @@ class CreateOptionsTest {
 
         assertTrue(exception.getMessage().contains("--repository"));
     }
+
+    @Test
+    void refusesABlankBuildCommand() {
+        for (String blank : List.of("", "  ")) {
+            SetupException exception = assertThrows(SetupException.class,
+                    () -> CreateOptions.parse(List.of("--build-command", blank)));
+
+            assertTrue(exception.getMessage().contains("--build-command"));
+        }
+    }
 }

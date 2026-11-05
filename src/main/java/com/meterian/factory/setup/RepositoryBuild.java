@@ -11,8 +11,13 @@ public record RepositoryBuild(String command, List<String> allowedTools, boolean
             List.of("Bash(./gradlew *)"), true);
     public static final RepositoryBuild NPM = new RepositoryBuild("npm test", List.of("Bash(npm *)"), false);
 
+    /** A build with the command of the owner. Claude can run the first word of the command. */
     public static RepositoryBuild custom(String command, boolean isJava) {
-        String firstWord = command.strip().split(" ", 2)[0];
-        return new RepositoryBuild(command, List.of("Bash(" + firstWord + " *)"), isJava);
+        if (command.isBlank()) {
+            throw new IllegalArgumentException("The build command is blank.");
+        }
+        String strippedCommand = command.strip();
+        String firstWord = strippedCommand.split("\\s+", 2)[0];
+        return new RepositoryBuild(strippedCommand, List.of("Bash(" + firstWord + " *)"), isJava);
     }
 }

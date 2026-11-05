@@ -105,6 +105,7 @@ public final class CreateCommand {
         RepositoryBuild build = questions.askBuild(options, BuildFinder.find(facts.hasFile()),
                 BuildFinder.isJavaRepository(facts.hasFile()));
         Map<String, String> files = DefaultFactoryFolder.files(build, facts.defaultBranch());
+        GeneratedFactoryFolder.verifyLoads(files);
         if (!questions.confirm(options, SetupSummary.describe(settings, build, files, facts.defaultBranch()))) {
             showNothingWritten();
             return Main.EXIT_SUCCESS;

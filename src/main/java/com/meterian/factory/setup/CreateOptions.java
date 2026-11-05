@@ -38,7 +38,7 @@ public record CreateOptions(
                 case "--work-directory" -> workDirectory = Optional.of(Path.of(readValue(arguments, ++index, parameter)));
                 case "--web" -> web = Optional.of(readValue(arguments, ++index, parameter));
                 case "--terminal-command" -> terminalCommand = Optional.of(splitCommand(readValue(arguments, ++index, parameter)));
-                case "--build-command" -> buildCommand = Optional.of(readValue(arguments, ++index, parameter));
+                case "--build-command" -> buildCommand = Optional.of(readBuildCommand(arguments, ++index, parameter));
                 default -> throw new SetupException("Unknown parameter " + parameter + ".\n" + USAGE);
             }
         }
@@ -53,6 +53,15 @@ public record CreateOptions(
             throw new SetupException("The parameter " + parameter + " needs a value.\n" + USAGE);
         }
         return arguments.get(index);
+    }
+
+    private static String readBuildCommand(List<String> arguments, int index, String parameter)
+            throws SetupException {
+        String command = readValue(arguments, index, parameter);
+        if (command.isBlank()) {
+            throw new SetupException("The parameter " + parameter + " needs a command that is not blank.\n" + USAGE);
+        }
+        return command;
     }
 
     private static RepositoryName parseRepository(String value) throws SetupException {
