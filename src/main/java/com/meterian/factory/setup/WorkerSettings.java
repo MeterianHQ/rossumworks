@@ -14,8 +14,12 @@ public record WorkerSettings(
         Optional<List<String>> terminalCommand,
         Optional<String> javaHome) {
 
-    public Path configurationFile() {
+    public static Path configurationFileIn(Path workDirectory) {
         return workDirectory.resolve("worker.yaml");
+    }
+
+    public Path configurationFile() {
+        return configurationFileIn(workDirectory);
     }
 
     public Path gatekeeperDirectory() {

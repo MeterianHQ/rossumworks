@@ -7,7 +7,8 @@ Run `./mvnw verify`. The build needs a JDK 21 or later.
 
 ## Configuration
 
-Copy `factory.example.yaml` and change the values. The factory reads this file at start. The file holds only
+The command `create` writes the configuration file `<work folder>/worker.yaml` (see "Setup").
+`factory.example.yaml` shows all the keys. The factory reads this file at start. The file holds only
 the facts of this machine:
 
 - `repository`: the repository on GitHub, as `owner/name`.
@@ -36,8 +37,9 @@ event. A state without an action waits for you.
 the action types and their events, the limits, the columns and the labels, the prompts, the behavior at run
 time, and the rules of the loader. It also shows the default workflow and other example workflows.
 
-Until the command `claude-ai-factory create` exists, the owner commits a `.factory` to the repository by hand.
-Copy the folder [`src/main/resources/factory/`](src/main/resources/factory/) to `.factory`, and then change it.
+The command `create` writes a default `.factory` and opens the PR `factory/setup` (see "Setup"). The default
+`.factory` is a copy of [`src/main/resources/factory/`](src/main/resources/factory/), with the build command
+and the merge target of the repository. You can change the files later.
 
 How the worker reads `.factory`:
 
@@ -63,12 +65,44 @@ only: the record in the status comment keeps the state. The worker removes the o
 
 1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
    refuses to start when it is set.
-2. Copy `factory.example.yaml` to a new file and change the values.
-3. Set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account. If it is not set, the factory
-   runs `gh auth token`, so you can also log in with `gh auth login`.
-4. Make sure that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`.
-5. Build the jar with `./mvnw verify`.
-6. Run the worker: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
+2. Log in with `gh auth login`. Or set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account.
+3. Build the jar with `./mvnw verify`.
+4. In a clone of the target repository, run `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar create`.
+   Answer the questions. Enter takes the default answer.
+5. Merge the PR `factory/setup`.
+6. Run the `run` command that `create` shows, for example
+   `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <work folder>/worker.yaml`.
+
+`create` checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`. It clones the
+repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. The default answer is
+"no". After a yes, it writes `<work folder>/worker.yaml`. When the default branch has no `.factory`, it then
+pushes the branch `factory/setup` through the gatekeeper. It opens a PR and assigns it to the login of the
+token.
+`create` never pushes to the default branch, and it never overwrites a file.
+
+When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no PR. When
+a PR from `factory/setup` is open, `create` shows its link and writes no file. Merge the PR, and run `create`
+again. When `worker.yaml` exists, `create` stops. Until the merge of the PR, the worker takes no issue, and the
+page shows the reason.
+
+A parameter gives the answer and removes the question:
+
+| Parameter | Value | Default |
+|---|---|---|
+| `--repository owner/name` | The starting repository on GitHub. | The GitHub repository of `git remote get-url origin` in the current folder. |
+| `--work-directory <path>` | The work folder. | `~/.claude-ai-factory/<owner>-<name>` |
+| `--web <address:port>` | The address of the web page. `create` then asks for the password two times, and writes only its hash. | `127.0.0.1:8090` |
+| `--no-web` | No web page. | |
+| `--terminal-command "<command>"` | The terminal command of the live mode. | `gnome-terminal --` when it is installed, else none. |
+| `--build-command "<command>"` | The build command of `.factory`. | `./mvnw verify` with `mvnw`, `./gradlew build` with `gradlew`, `npm test` with `package.json`, else a question. |
+| `--yes` | The confirmation. | No. |
+
+`create` adds `build.environment.JAVA_HOME` to `worker.yaml` when `JAVA_HOME` is set and the repository has
+`mvnw`, `gradlew`, or `pom.xml`.
+
+Without a terminal, `create` asks no question. It uses the parameters and the defaults. It then needs
+`--no-web`, or the password in the variable `FACTORY_WEB_PASSWORD`. It also needs `--yes` to open the PR, and
+`--build-command` when it cannot find the build.
 
 Add the label `factory` to an issue to give it to the factory. The worker obeys the labels `factory`,
 `factory:block`, `factory:enter`, and `factory:approve` from any account. GitHub permissions control the labels:
@@ -231,6 +265,8 @@ The worker can serve a web page with the board of the factory. Without a `web` s
 configuration, the worker serves no page.
 
 ### Setup
+
+The command `create` writes the section `web` for you. To set the password by hand, do these steps:
 
 1. Make the hash of a password: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar hash-password`.
    The command asks for the password two times. The password must have 12 characters or more.

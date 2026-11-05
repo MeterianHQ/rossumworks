@@ -195,4 +195,13 @@ public final class SetupQuestions {
         console.show(summary);
         return console.confirm("Write the files and open the pull request?");
     }
+
+    /** The confirmation when the repository already has a .factory. Without a console, no --yes is necessary. */
+    public boolean confirmWorkerFile(CreateOptions options, String summary) throws SetupException {
+        if (options.yes() || !console.isInteractive()) {
+            return true;
+        }
+        console.show(summary);
+        return console.confirm("Write the file worker.yaml?");
+    }
 }

@@ -224,6 +224,20 @@ class SetupQuestionsTest {
     }
 
     @Test
+    void theConfirmationOfTheWorkerFileDefaultIsNo() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.answering("");
+
+        assertFalse(questions(console, Map.of(), false).confirmWorkerFile(options(), "The summary"));
+        assertEquals(List.of("Write the file worker.yaml?"), console.questions);
+        assertEquals(List.of("The summary"), console.lines);
+    }
+
+    @Test
+    void withoutAConsoleTheWorkerFileNeedsNoYes() throws SetupException {
+        assertTrue(questions(FakeSetupConsole.withoutTerminal(), Map.of(), false).confirmWorkerFile(options(), "S"));
+    }
+
+    @Test
     @Timeout(5)
     void theEndOfInputStopsTheRepositoryQuestion() {
         FakeSetupConsole console = FakeSetupConsole.endingInput(List.of(), List.of());

@@ -14,6 +14,7 @@ import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.setup.CreateOptions;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -49,7 +50,10 @@ class MainTest {
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
     private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
-            + "       java -jar claude-ai-factory.jar hash-password";
+            + "       java -jar claude-ai-factory.jar hash-password\n"
+            + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
+            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
+            + "[--yes]";
 
     @TempDir
     Path temporaryDirectory;
@@ -281,7 +285,7 @@ class MainTest {
         assertThat(tool.toFile().setExecutable(true)).isTrue();
         Files.writeString(binDirectory.resolve("not-executable"), "text");
 
-        List<String> missing = Main.findMissingCommands(
+        List<String> missing = StartChecks.findMissingCommands(
                 List.of("tool", "not-executable", "absent", tool.toString(), "/no/such/tool"), binDirectory.toString());
 
         assertThat(missing).containsExactly("not-executable", "absent", "/no/such/tool");
@@ -289,7 +293,7 @@ class MainTest {
 
     @Test
     void readsTheTokenFromTheEnvironmentFirst() throws Main.StartupException {
-        String token = Main.readToken(Map.of("FACTORY_GITHUB_TOKEN", "environment-token"),
+        String token = StartChecks.readToken(Map.of("FACTORY_GITHUB_TOKEN", "environment-token"),
                 () -> Optional.of("gh-token"));
 
         assertThat(token).isEqualTo("environment-token");
@@ -297,21 +301,21 @@ class MainTest {
 
     @Test
     void readsTheTokenFromGhWhenTheEnvironmentHasNone() throws Main.StartupException {
-        assertThat(Main.readToken(Map.of(), () -> Optional.of("gh-token"))).isEqualTo("gh-token");
-        assertThat(Main.readToken(Map.of("FACTORY_GITHUB_TOKEN", " "), () -> Optional.of("gh-token")))
+        assertThat(StartChecks.readToken(Map.of(), () -> Optional.of("gh-token"))).isEqualTo("gh-token");
+        assertThat(StartChecks.readToken(Map.of("FACTORY_GITHUB_TOKEN", " "), () -> Optional.of("gh-token")))
                 .isEqualTo("gh-token");
     }
 
     @Test
     void refusesToStartWithoutAToken() {
-        assertThatThrownBy(() -> Main.readToken(Map.of(), Optional::empty))
+        assertThatThrownBy(() -> StartChecks.readToken(Map.of(), Optional::empty))
                 .isInstanceOf(Main.StartupException.class)
                 .hasMessage("Set FACTORY_GITHUB_TOKEN, or log in with gh auth login.");
     }
 
     @Test
     void readsTheTokenFromTheOutputOfACommand() throws Main.StartupException {
-        Optional<String> token = Main.readTokenFromCommand(List.of("sh", "-c", "echo command-token"),
+        Optional<String> token = StartChecks.readTokenFromCommand(List.of("sh", "-c", "echo command-token"),
                 Duration.ofSeconds(30));
 
         assertThat(token).contains("command-token");
@@ -319,15 +323,15 @@ class MainTest {
 
     @Test
     void givesNoTokenWhenTheCommandFails() throws Main.StartupException {
-        assertThat(Main.readTokenFromCommand(List.of("sh", "-c", "echo partial; exit 1"), Duration.ofSeconds(30)))
+        assertThat(StartChecks.readTokenFromCommand(List.of("sh", "-c", "echo partial; exit 1"), Duration.ofSeconds(30)))
                 .isEmpty();
-        assertThat(Main.readTokenFromCommand(List.of("no-such-gh-for-the-factory"), Duration.ofSeconds(30)))
+        assertThat(StartChecks.readTokenFromCommand(List.of("no-such-gh-for-the-factory"), Duration.ofSeconds(30)))
                 .isEmpty();
     }
 
     @Test
     void stopsATokenCommandThatDoesNotAnswer() {
-        assertThatThrownBy(() -> Main.readTokenFromCommand(List.of("sleep", "20"), Duration.ofMillis(300)))
+        assertThatThrownBy(() -> StartChecks.readTokenFromCommand(List.of("sleep", "20"), Duration.ofMillis(300)))
                 .isInstanceOf(Main.StartupException.class)
                 .hasMessage("The command sleep 20 did not answer in 0.3 seconds. Set FACTORY_GITHUB_TOKEN.");
     }
@@ -395,6 +399,17 @@ class MainTest {
         assertThat(Main.isHashPasswordCommand(new String[] {"hash-password"})).isTrue();
         assertThat(Main.isHashPasswordCommand(new String[] {"hash-password", "x"})).isFalse();
         assertThat(Main.isHashPasswordCommand(new String[] {"run", "--config", "f"})).isFalse();
+    }
+
+    @Test
+    void createIsACommand() {
+        assertThat(Main.isCreateCommand(new String[] {"create", "--unknown"})).isTrue();
+        assertThat(Main.isCreateCommand(new String[] {"run", "--config", "f"})).isFalse();
+
+        int exitCode = Main.create(List.of("--unknown"), output, errors);
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("Unknown parameter --unknown.", CreateOptions.USAGE);
     }
 
     private static final String PASSWORD = "correct horse battery";
