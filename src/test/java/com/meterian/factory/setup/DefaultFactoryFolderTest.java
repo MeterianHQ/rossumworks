@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +55,25 @@ class DefaultFactoryFolderTest {
             assertThat(definition.allowedTools()).doesNotContain("Bash(./mvnw *)", "Bash(mvn *)");
         }
         assertThat(definition.mergeTargetBranch()).isEqualTo("develop");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"echo a: b", "make test # fast", "say \"hi\" \\ now"})
+    void keepsACustomCommandWithSpecialCharacters(String command) throws Exception {
+        writeFiles(DefaultFactoryFolder.files(RepositoryBuild.custom(command, false), "main"));
+
+        FactoryDefinition definition = DefinitionLoader.load(filesOfFolder(repositoryFolder.resolve(".factory")));
+
+        assertThat(definition.build().command()).isEqualTo(command);
+    }
+
+    @Test
+    void keepsATargetBranchWithSpecialCharacters() throws Exception {
+        writeFiles(DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "release/1.0"));
+
+        FactoryDefinition definition = DefinitionLoader.load(filesOfFolder(repositoryFolder.resolve(".factory")));
+
+        assertThat(definition.mergeTargetBranch()).isEqualTo("release/1.0");
     }
 
     private void writeFiles(Map<String, String> files) throws IOException {
