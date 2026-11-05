@@ -148,6 +148,40 @@ class CreateCommandTest {
     }
 
     @Test
+    void aFailedPushLeavesNoWorkerFile() throws IOException {
+        pushToMain("package.json", "{}\n");
+        refuseEveryPushToGitHub();
+
+        int exitCode = runCreate(answering("", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("GitHub does not have the branch factory/setup.");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(gitHub.pullRequests()).isEmpty();
+        errorBytes.reset();
+
+        int secondExitCode = runCreate(answering("", "", "", "", "y"));
+
+        assertThat(secondExitCode).isEqualTo(1);
+        assertThat(errorText()).contains("GitHub does not have the branch factory/setup.")
+                .doesNotContain("exists. The command never overwrites it.");
+        assertThat(workerFile()).doesNotExist();
+    }
+
+    @Test
+    void aFailedPullRequestLeavesNoWorkerFile() {
+        pushToMain("package.json", "{}\n");
+        gitHub.failTheNextPullRequestCreation();
+
+        int exitCode = runCreate(answering("", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("GitHub answered 502 for POST /pulls");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(gitHub.pullRequests()).isEmpty();
+    }
+
+    @Test
     void anExistingWorkerFileStopsTheCommand() throws IOException {
         Files.createDirectories(workDirectory());
         Files.writeString(workerFile(), "old\n");
@@ -262,6 +296,11 @@ class CreateCommandTest {
 
     private static FakeSetupConsole answering(String... answers) {
         return new FakeSetupConsole(true, List.of(answers), List.of(PASSWORD, PASSWORD));
+    }
+
+    private void refuseEveryPushToGitHub() throws IOException {
+        Path hook = Files.writeString(github.resolve("hooks/pre-receive"), "#!/bin/sh\necho push-refused >&2\nexit 1\n");
+        assertThat(hook.toFile().setExecutable(true)).isTrue();
     }
 
     private Path createPrograms(List<String> names) throws IOException {

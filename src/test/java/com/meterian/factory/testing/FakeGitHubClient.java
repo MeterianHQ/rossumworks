@@ -45,6 +45,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
     private boolean failsTheNextCommentCreate;
+    private boolean failsTheNextPullRequestCreation;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
@@ -122,6 +123,11 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The next createComment throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextCommentCreate() {
         failsTheNextCommentCreate = true;
+    }
+
+    /** The next createPullRequest throws a GitHubException, as a lost connection does. */
+    public synchronized void failTheNextPullRequestCreation() {
+        failsTheNextPullRequestCreation = true;
     }
 
     /** The next editComment throws a GitHubException, as a lost connection does. */
@@ -329,6 +335,10 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized PullRequest createPullRequest(String headBranch, String baseBranch, String title,
                                                       String body) {
+        if (failsTheNextPullRequestCreation) {
+            failsTheNextPullRequestCreation = false;
+            throw new GitHubException("GitHub answered 502 for POST /pulls");
+        }
         verifyBranchIsOnGitHub(headBranch);
         int number = nextPullRequestNumber++;
         PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch, body);

@@ -111,7 +111,7 @@ public final class CreateCommand {
         }
         String owner = gitHub.authenticatedLogin();
         writeWorkerFile(settings);
-        PullRequest pullRequest = setup.publish(clone, settings.gatekeeperDirectory(), facts, files, owner);
+        PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files, owner);
         showResult(settings, files, Optional.of(pullRequest));
         return Main.EXIT_SUCCESS;
     }
@@ -163,6 +163,29 @@ public final class CreateCommand {
         } catch (IOException exception) {
             throw new SetupException("Cannot write the file " + settings.configurationFile() + ": "
                     + exception.getMessage());
+        }
+    }
+
+    /** A failed publish deletes the worker.yaml of this run, so that the next create does not stop on it. */
+    private static PullRequest publishOrDeleteWorkerFile(RepositorySetup setup, Path clone, WorkerSettings settings,
+                                                         RepositoryFacts facts, Map<String, String> files,
+                                                         String owner) throws SetupException {
+        try {
+            return setup.publish(clone, settings.gatekeeperDirectory(), facts, files, owner);
+        } catch (SetupException | GitException | GitHubException failure) {
+            String deleteProblem = deleteWorkerFile(settings.configurationFile()).map(problem -> "\n" + problem)
+                    .orElse("");
+            throw new SetupException(failure.getMessage() + deleteProblem);
+        }
+    }
+
+    private static Optional<String> deleteWorkerFile(Path configurationFile) {
+        try {
+            Files.deleteIfExists(configurationFile);
+            return Optional.empty();
+        } catch (IOException exception) {
+            return Optional.of("Cannot delete the file " + configurationFile + ": " + exception.getMessage()
+                    + ". Delete the file before the next create.");
         }
     }
 
