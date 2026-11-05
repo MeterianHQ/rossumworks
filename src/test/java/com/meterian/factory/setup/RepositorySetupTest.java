@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.git.Git;
+import com.meterian.factory.git.GitException;
+import com.meterian.factory.git.RebaseOutcome;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -15,6 +17,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -197,7 +201,7 @@ class RepositorySetupTest {
     /** A git whose removal of a worktree and prune fail after the start. */
     private static final class FailingCleanupGit implements Git {
         private final Git delegate;
-        private final java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
+        private final AtomicBoolean started = new AtomicBoolean();
 
         FailingCleanupGit(Git delegate) {
             this.delegate = delegate;
@@ -205,45 +209,160 @@ class RepositorySetupTest {
 
         @Override
         public void removeWorktree(Path clone, Path worktree) {
-            throw new com.meterian.factory.git.GitException("cleanup failed: remove");
+            throw new GitException("cleanup failed: remove");
         }
 
         @Override
         public void pruneWorktrees(Path clone) {
             if (started.getAndSet(true)) {
-                throw new com.meterian.factory.git.GitException("cleanup failed: prune");
+                throw new GitException("cleanup failed: prune");
             }
             delegate.pruneWorktrees(clone);
         }
 
-        @Override public void fetch(Path r, String a, String b) { delegate.fetch(r, a, b); }
-        @Override public void addWorktree(Path c, Path w, String b, String s) { delegate.addWorktree(c, w, b, s); }
-        @Override public String treeHash(Path w) { return delegate.treeHash(w); }
-        @Override public String patchId(Path w, String b) { return delegate.patchId(w, b); }
-        @Override public String treeHashOf(Path w, String c) { return delegate.treeHashOf(w, c); }
-        @Override public String commitOf(Path r, String f) { return delegate.commitOf(r, f); }
-        @Override public java.util.List<String> commitsOfPath(Path r, String f, String p, int l) { return delegate.commitsOfPath(r, f, p, l); }
-        @Override public String resolveCommit(Path r, String f) { return delegate.resolveCommit(r, f); }
-        @Override public java.util.Optional<String> showFile(Path r, String c, String p) { return delegate.showFile(r, c, p); }
-        @Override public boolean hasPath(Path r, String c, String p) { return delegate.hasPath(r, c, p); }
-        @Override public String defaultBranch(Path c) { return delegate.defaultBranch(c); }
-        @Override public String headCommit(Path w) { return delegate.headCommit(w); }
-        @Override public boolean changesPath(Path w, String b, String p) { return delegate.changesPath(w, b, p); }
-        @Override public boolean hasUncommittedChanges(Path w) { return delegate.hasUncommittedChanges(w); }
-        @Override public void commitAll(Path w, String m) { delegate.commitAll(w, m); }
-        @Override public com.meterian.factory.git.RebaseOutcome rebase(Path w, String u) { return delegate.rebase(w, u); }
-        @Override public java.util.List<String> mergeWithoutCommit(Path w, String u) { return delegate.mergeWithoutCommit(w, u); }
-        @Override public boolean hasOpenMerge(Path w) { return delegate.hasOpenMerge(w); }
-        @Override public java.util.List<String> conflictedPaths(Path w) { return delegate.conflictedPaths(w); }
-        @Override public java.util.List<String> parentsOf(Path w, String c) { return delegate.parentsOf(w, c); }
-        @Override public boolean isAncestor(Path w, String a, String c) { return delegate.isAncestor(w, a, c); }
-        @Override public void resetSoft(Path w, String c) { delegate.resetSoft(w, c); }
-        @Override public void resetHard(Path w, String c) { delegate.resetHard(w, c); }
-        @Override public void push(Path w, String r, String b) { delegate.push(w, r, b); }
-        @Override public String pushAndReadOutput(Path w, String r, String b) { return delegate.pushAndReadOutput(w, r, b); }
-        @Override public void pushCommit(Path w, String r, String c, String b) { delegate.pushCommit(w, r, c, b); }
-        @Override public void excludeFactoryFolder(Path w) { delegate.excludeFactoryFolder(w); }
-        @Override public void cloneRepository(String u, Path d) { delegate.cloneRepository(u, d); }
-        @Override public void setRemote(Path r, String n, String u) { delegate.setRemote(r, n, u); }
+        @Override
+        public void fetch(Path repository, String remote, String branch) {
+            delegate.fetch(repository, remote, branch);
+        }
+
+        @Override
+        public void addWorktree(Path clone, Path worktree, String branch, String startPoint) {
+            delegate.addWorktree(clone, worktree, branch, startPoint);
+        }
+
+        @Override
+        public String treeHash(Path worktree) {
+            return delegate.treeHash(worktree);
+        }
+
+        @Override
+        public String patchId(Path worktree, String base) {
+            return delegate.patchId(worktree, base);
+        }
+
+        @Override
+        public String treeHashOf(Path worktree, String commit) {
+            return delegate.treeHashOf(worktree, commit);
+        }
+
+        @Override
+        public String commitOf(Path repository, String reference) {
+            return delegate.commitOf(repository, reference);
+        }
+
+        @Override
+        public List<String> commitsOfPath(Path repository, String reference, String path, int limit) {
+            return delegate.commitsOfPath(repository, reference, path, limit);
+        }
+
+        @Override
+        public String resolveCommit(Path repository, String reference) {
+            return delegate.resolveCommit(repository, reference);
+        }
+
+        @Override
+        public Optional<String> showFile(Path repository, String commit, String path) {
+            return delegate.showFile(repository, commit, path);
+        }
+
+        @Override
+        public boolean hasPath(Path repository, String commit, String path) {
+            return delegate.hasPath(repository, commit, path);
+        }
+
+        @Override
+        public String defaultBranch(Path clone) {
+            return delegate.defaultBranch(clone);
+        }
+
+        @Override
+        public String headCommit(Path worktree) {
+            return delegate.headCommit(worktree);
+        }
+
+        @Override
+        public boolean changesPath(Path worktree, String baseReference, String path) {
+            return delegate.changesPath(worktree, baseReference, path);
+        }
+
+        @Override
+        public boolean hasUncommittedChanges(Path worktree) {
+            return delegate.hasUncommittedChanges(worktree);
+        }
+
+        @Override
+        public void commitAll(Path worktree, String message) {
+            delegate.commitAll(worktree, message);
+        }
+
+        @Override
+        public RebaseOutcome rebase(Path worktree, String upstream) {
+            return delegate.rebase(worktree, upstream);
+        }
+
+        @Override
+        public List<String> mergeWithoutCommit(Path worktree, String upstream) {
+            return delegate.mergeWithoutCommit(worktree, upstream);
+        }
+
+        @Override
+        public boolean hasOpenMerge(Path worktree) {
+            return delegate.hasOpenMerge(worktree);
+        }
+
+        @Override
+        public List<String> conflictedPaths(Path worktree) {
+            return delegate.conflictedPaths(worktree);
+        }
+
+        @Override
+        public List<String> parentsOf(Path worktree, String commit) {
+            return delegate.parentsOf(worktree, commit);
+        }
+
+        @Override
+        public boolean isAncestor(Path worktree, String ancestor, String commit) {
+            return delegate.isAncestor(worktree, ancestor, commit);
+        }
+
+        @Override
+        public void resetSoft(Path worktree, String commit) {
+            delegate.resetSoft(worktree, commit);
+        }
+
+        @Override
+        public void resetHard(Path worktree, String commit) {
+            delegate.resetHard(worktree, commit);
+        }
+
+        @Override
+        public void push(Path worktree, String remote, String branch) {
+            delegate.push(worktree, remote, branch);
+        }
+
+        @Override
+        public String pushAndReadOutput(Path worktree, String remote, String branch) {
+            return delegate.pushAndReadOutput(worktree, remote, branch);
+        }
+
+        @Override
+        public void pushCommit(Path worktree, String remote, String commit, String branch) {
+            delegate.pushCommit(worktree, remote, commit, branch);
+        }
+
+        @Override
+        public void excludeFactoryFolder(Path worktree) {
+            delegate.excludeFactoryFolder(worktree);
+        }
+
+        @Override
+        public void cloneRepository(String url, Path directory) {
+            delegate.cloneRepository(url, directory);
+        }
+
+        @Override
+        public void setRemote(Path repository, String name, String url) {
+            delegate.setRemote(repository, name, url);
+        }
     }
 }
