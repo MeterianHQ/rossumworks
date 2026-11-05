@@ -14,10 +14,13 @@ public final class SystemSetupConsole implements SetupConsole {
     }
 
     @Override
-    public String ask(String question, String defaultAnswer) {
+    public String ask(String question, String defaultAnswer) throws SetupException {
         String suffix = defaultAnswer.isEmpty() ? "" : " [" + defaultAnswer + "]";
         String answer = console.readLine("%s%s: ", question, suffix);
-        return answer == null || answer.isBlank() ? defaultAnswer : answer.strip();
+        if (answer == null) {
+            throw new SetupException(INPUT_ENDED);
+        }
+        return answer.isBlank() ? defaultAnswer : answer.strip();
     }
 
     @Override
@@ -26,9 +29,12 @@ public final class SystemSetupConsole implements SetupConsole {
     }
 
     @Override
-    public boolean confirm(String question) {
+    public boolean confirm(String question) throws SetupException {
         String answer = console.readLine("%s [y/N]: ", question);
-        return answer != null && (answer.strip().equalsIgnoreCase("y") || answer.strip().equalsIgnoreCase("yes"));
+        if (answer == null) {
+            throw new SetupException(INPUT_ENDED);
+        }
+        return answer.strip().equalsIgnoreCase("y") || answer.strip().equalsIgnoreCase("yes");
     }
 
     @Override

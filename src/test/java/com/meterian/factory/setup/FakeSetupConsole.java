@@ -10,11 +10,18 @@ final class FakeSetupConsole implements SetupConsole {
     final List<String> questions = new ArrayList<>();
     final List<String> lines = new ArrayList<>();
     private final boolean interactive;
+    private final boolean endsWhenAnswersRunOut;
     private final List<String> answers;
     private final List<String> passwords;
 
     FakeSetupConsole(boolean interactive, List<String> answers, List<String> passwords) {
+        this(interactive, answers, passwords, false);
+    }
+
+    private FakeSetupConsole(boolean interactive, List<String> answers, List<String> passwords,
+                             boolean endsWhenAnswersRunOut) {
         this.interactive = interactive;
+        this.endsWhenAnswersRunOut = endsWhenAnswersRunOut;
         this.answers = new ArrayList<>(answers);
         this.passwords = new ArrayList<>(passwords);
     }
@@ -27,6 +34,11 @@ final class FakeSetupConsole implements SetupConsole {
         return new FakeSetupConsole(true, List.of(), List.of(passwords));
     }
 
+    /** The input ends when the answers and the passwords run out, as after Ctrl-D. */
+    static FakeSetupConsole endingInput(List<String> answers, List<String> passwords) {
+        return new FakeSetupConsole(true, answers, passwords, true);
+    }
+
     static FakeSetupConsole withoutTerminal() {
         return new FakeSetupConsole(false, List.of(), List.of());
     }
@@ -37,9 +49,9 @@ final class FakeSetupConsole implements SetupConsole {
     }
 
     @Override
-    public String ask(String question, String defaultAnswer) {
+    public String ask(String question, String defaultAnswer) throws SetupException {
         questions.add(question);
-        String answer = answers.isEmpty() ? "" : answers.remove(0);
+        String answer = nextAnswer();
         return answer.isEmpty() ? defaultAnswer : answer;
     }
 
@@ -50,10 +62,17 @@ final class FakeSetupConsole implements SetupConsole {
     }
 
     @Override
-    public boolean confirm(String question) {
+    public boolean confirm(String question) throws SetupException {
         questions.add(question);
-        String answer = answers.isEmpty() ? "" : answers.remove(0);
+        String answer = nextAnswer();
         return answer.equalsIgnoreCase("y");
+    }
+
+    private String nextAnswer() throws SetupException {
+        if (answers.isEmpty() && endsWhenAnswersRunOut) {
+            throw new SetupException(SetupConsole.INPUT_ENDED);
+        }
+        return answers.isEmpty() ? "" : answers.remove(0);
     }
 
     @Override

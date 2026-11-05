@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 class SetupQuestionsTest {
 
@@ -220,5 +221,40 @@ class SetupQuestionsTest {
         SetupException exception = assertThrows(SetupException.class, () -> questions.confirm(options(), "S"));
 
         assertTrue(exception.getMessage().contains("--yes"));
+    }
+
+    @Test
+    @Timeout(5)
+    void theEndOfInputStopsTheRepositoryQuestion() {
+        FakeSetupConsole console = FakeSetupConsole.endingInput(List.of(), List.of());
+        SetupQuestions questions = questions(console, Map.of(), false);
+
+        SetupException exception = assertThrows(SetupException.class,
+                () -> questions.askRepository(options(), Optional.empty()));
+
+        assertEquals("The input ended.", exception.getMessage());
+    }
+
+    @Test
+    @Timeout(5)
+    void theEndOfInputStopsTheBuildQuestion() {
+        FakeSetupConsole console = FakeSetupConsole.endingInput(List.of(), List.of());
+        SetupQuestions questions = questions(console, Map.of(), false);
+
+        SetupException exception = assertThrows(SetupException.class,
+                () -> questions.askBuild(options(), Optional.empty(), false));
+
+        assertEquals("The input ended.", exception.getMessage());
+    }
+
+    @Test
+    @Timeout(5)
+    void theEndOfInputStopsThePasswordRetry() {
+        FakeSetupConsole console = FakeSetupConsole.endingInput(List.of("127.0.0.1:8090"), List.of("short"));
+        SetupQuestions questions = questions(console, Map.of(), false);
+
+        SetupException exception = assertThrows(SetupException.class, () -> questions.askWeb(options()));
+
+        assertEquals("The input ended.", exception.getMessage());
     }
 }

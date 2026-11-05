@@ -54,7 +54,7 @@ public final class SetupQuestions {
         }
     }
 
-    public Path askWorkDirectory(CreateOptions options, RepositoryName repository) {
+    public Path askWorkDirectory(CreateOptions options, RepositoryName repository) throws SetupException {
         if (options.workDirectory().isPresent()) {
             return options.workDirectory().get();
         }
@@ -82,7 +82,7 @@ public final class SetupQuestions {
         return Optional.of(new WebPage(address.substring(0, separator), port, readPasswordHash()));
     }
 
-    private String chooseWebAddress(CreateOptions options) {
+    private String chooseWebAddress(CreateOptions options) throws SetupException {
         if (options.web().isPresent()) {
             return options.web().get();
         }
@@ -130,8 +130,9 @@ public final class SetupQuestions {
     private String askPasswordHash() throws SetupException {
         while (true) {
             char[] typed = console.readPassword("Password for the web page: ")
-                    .orElseThrow(() -> new SetupException("Run create in a terminal, or give --no-web."));
-            char[] repeated = console.readPassword("Repeat the password: ").orElse(new char[0]);
+                    .orElseThrow(() -> new SetupException(SetupConsole.INPUT_ENDED));
+            char[] repeated = console.readPassword("Repeat the password: ")
+                    .orElseThrow(() -> new SetupException(SetupConsole.INPUT_ENDED));
             try {
                 Optional<String> problem = PasswordRules.verify(typed, repeated);
                 if (problem.isEmpty()) {
@@ -145,7 +146,7 @@ public final class SetupQuestions {
         }
     }
 
-    public Optional<List<String>> askTerminalCommand(CreateOptions options) {
+    public Optional<List<String>> askTerminalCommand(CreateOptions options) throws SetupException {
         if (options.terminalCommand().isPresent()) {
             return options.terminalCommand();
         }
@@ -174,7 +175,7 @@ public final class SetupQuestions {
         return RepositoryBuild.custom(askBuildCommandWithoutDefault(), isJava);
     }
 
-    private String askBuildCommandWithoutDefault() {
+    private String askBuildCommandWithoutDefault() throws SetupException {
         while (true) {
             String answer = console.ask("The build command of the repository", "");
             if (!answer.isBlank()) {
