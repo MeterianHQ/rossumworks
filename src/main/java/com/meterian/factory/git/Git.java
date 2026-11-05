@@ -83,6 +83,9 @@ public interface Git {
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);
 
+    /** Force-pushes HEAD like push, and returns the output of git, with the "remote:" lines of the hooks. */
+    String pushAndReadOutput(Path worktree, String remote, String branch);
+
     /** Force-pushes the commit to the branch of the remote. */
     void pushCommit(Path worktree, String remote, String commit, String branch);
 

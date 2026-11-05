@@ -56,17 +56,12 @@ public final class RepositorySetup {
     /** Commits the files on the branch factory/setup, pushes it through the gatekeeper, and opens the PR. */
     public PullRequest publish(Path clone, Path gatekeeper, RepositoryFacts facts, Map<String, String> files,
                                String owner) throws SetupException {
-        try {
-            String commit = pushSetupBranch(clone, gatekeeper, facts, files);
-            verifyGitHubHasTheBranch(commit);
-            PullRequest pullRequest = gitHub.createPullRequest(SETUP_BRANCH, facts.defaultBranch(),
-                    "Set up the factory", describe(files));
-            gitHub.assignIssue(pullRequest.number(), owner);
-            return pullRequest;
-        } catch (GitException exception) {
-            throw new SetupException("GitHub does not have the branch " + SETUP_BRANCH
-                    + ". The gatekeeper did not forward it: " + exception.getMessage());
-        }
+        PushResult pushed = pushSetupBranch(clone, gatekeeper, facts, files);
+        verifyGitHubHasTheBranch(pushed);
+        PullRequest pullRequest = gitHub.createPullRequest(SETUP_BRANCH, facts.defaultBranch(),
+                "Set up the factory", describe(files));
+        gitHub.assignIssue(pullRequest.number(), owner);
+        return pullRequest;
     }
 
     private RepositoryFacts readFacts(Path clone) throws SetupException {
@@ -98,21 +93,33 @@ public final class RepositorySetup {
         }
     }
 
-    private String pushSetupBranch(Path clone, Path gatekeeper, RepositoryFacts facts, Map<String, String> files)
-            throws SetupException {
-        Gatekeeper.ensure(gatekeeper, githubUrl);
-        git.setRemote(clone, GATEKEEPER_REMOTE, gatekeeper.toString());
+    private PushResult pushSetupBranch(Path clone, Path gatekeeper, RepositoryFacts facts,
+                                       Map<String, String> files) throws SetupException {
         Path worktree = clone.toAbsolutePath().getParent().resolve(WORKTREE_NAME);
-        removeLeftoverWorktree(clone, worktree);
-        git.addWorktree(clone, worktree, SETUP_BRANCH, facts.baseCommit());
+        try {
+            Gatekeeper.ensure(gatekeeper, githubUrl);
+            git.setRemote(clone, GATEKEEPER_REMOTE, gatekeeper.toString());
+            removeLeftoverWorktree(clone, worktree);
+            git.addWorktree(clone, worktree, SETUP_BRANCH, facts.baseCommit());
+            return commitAndPush(clone, worktree, files);
+        } catch (GitException exception) {
+            throw new SetupException("Cannot push the branch " + SETUP_BRANCH + ": " + exception.getMessage());
+        }
+    }
+
+    private PushResult commitAndPush(Path clone, Path worktree, Map<String, String> files) throws SetupException {
+        PushResult result;
         try {
             writeFiles(worktree, files);
             git.commitAll(worktree, COMMIT_MESSAGE);
-            git.push(worktree, GATEKEEPER_REMOTE, SETUP_BRANCH);
-            return git.headCommit(worktree);
-        } finally {
-            removeWorktree(clone, worktree);
+            String output = git.pushAndReadOutput(worktree, GATEKEEPER_REMOTE, SETUP_BRANCH);
+            result = new PushResult(git.headCommit(worktree), output);
+        } catch (GitException | SetupException failure) {
+            removeWorktree(clone, worktree, failure);
+            throw failure;
         }
+        removeWorktree(clone, worktree, null);
+        return result;
     }
 
     private void removeLeftoverWorktree(Path clone, Path worktree) {
@@ -122,12 +129,19 @@ public final class RepositorySetup {
         git.pruneWorktrees(clone);
     }
 
-    private void removeWorktree(Path clone, Path worktree) {
+    /** A failure of the cleanup never hides the failure of the push. A leftover folder goes at the next start. */
+    private void removeWorktree(Path clone, Path worktree, Exception primaryFailure) {
         try {
-            git.removeWorktree(clone, worktree);
-        } catch (GitException exception) {
-            deleteFolder(worktree);
-            git.pruneWorktrees(clone);
+            try {
+                git.removeWorktree(clone, worktree);
+            } catch (GitException exception) {
+                deleteFolder(worktree);
+                git.pruneWorktrees(clone);
+            }
+        } catch (GitException cleanupFailure) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(cleanupFailure);
+            }
         }
     }
 
@@ -151,11 +165,16 @@ public final class RepositorySetup {
         }
     }
 
-    private void verifyGitHubHasTheBranch(String commit) {
+    private void verifyGitHubHasTheBranch(PushResult pushed) throws SetupException {
         Optional<String> head = gitHub.findBranchHead(SETUP_BRANCH);
-        if (head.isEmpty() || !head.get().equals(commit)) {
-            throw new GitException("GitHub has " + head.orElse("no commit") + " on the branch, not " + commit);
+        if (head.isEmpty() || !head.get().equals(pushed.commit())) {
+            String reason = pushed.output().isEmpty() ? "git gave no message" : pushed.output();
+            throw new SetupException("GitHub does not have the branch " + SETUP_BRANCH
+                    + ". The gatekeeper did not forward it: " + reason);
         }
+    }
+
+    private record PushResult(String commit, String output) {
     }
 
     private static String describe(Map<String, String> files) {
