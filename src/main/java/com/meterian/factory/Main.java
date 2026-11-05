@@ -34,6 +34,7 @@ import com.meterian.factory.web.PhoneLinkSender;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.web.login.PasswordLogin;
+import com.meterian.factory.web.login.PasswordRules;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
@@ -79,7 +80,6 @@ public final class Main {
 
     private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
             + "       java -jar claude-ai-factory.jar hash-password";
-    private static final int MINIMUM_PASSWORD_LENGTH = 12;
     private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
     private static final String TOKEN_VARIABLE = "FACTORY_GITHUB_TOKEN";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
@@ -147,12 +147,9 @@ public final class Main {
         }
         char[] repeated = passwords.read("Repeat the password: ").orElse(new char[0]);
         try {
-            if (!Arrays.equals(password, repeated)) {
-                errors.println("The two passwords are not the same.");
-                return EXIT_FAILURE;
-            }
-            if (password.length < MINIMUM_PASSWORD_LENGTH) {
-                errors.println("The password must have " + MINIMUM_PASSWORD_LENGTH + " characters or more.");
+            Optional<String> problem = PasswordRules.verify(password, repeated);
+            if (problem.isPresent()) {
+                errors.println(problem.get());
                 return EXIT_FAILURE;
             }
             output.println("password-hash: " + PasswordHash.create(password).format());
