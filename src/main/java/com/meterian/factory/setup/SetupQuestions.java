@@ -20,6 +20,7 @@ public final class SetupQuestions {
     static final String TERMINAL_PROGRAM = "gnome-terminal";
     static final String DEFAULT_TERMINAL_COMMAND = "gnome-terminal --";
     private static final int MAXIMUM_PORT = 65535;
+    private static final String HOME_SIGN = "~";
 
     private final SetupConsole console;
     private final Map<String, String> environment;
@@ -56,14 +57,25 @@ public final class SetupQuestions {
 
     public Path askWorkDirectory(CreateOptions options, RepositoryName repository) throws SetupException {
         if (options.workDirectory().isPresent()) {
-            return options.workDirectory().get();
+            return expandHomeFolder(options.workDirectory().get().toString());
         }
         String defaultAnswer = home.resolve(".claude-ai-factory")
                 .resolve(repository.owner() + "-" + repository.name()).toString();
         if (!console.isInteractive()) {
             return Path.of(defaultAnswer);
         }
-        return Path.of(console.ask("The work folder", defaultAnswer));
+        return expandHomeFolder(console.ask("The work folder", defaultAnswer));
+    }
+
+    /** Replaces a leading ~ or ~/ with the home folder, as a shell does. */
+    private Path expandHomeFolder(String folder) {
+        if (folder.equals(HOME_SIGN)) {
+            return home;
+        }
+        if (folder.startsWith(HOME_SIGN + "/")) {
+            return home.resolve(folder.substring(HOME_SIGN.length() + 1));
+        }
+        return Path.of(folder);
     }
 
     public Optional<WebPage> askWeb(CreateOptions options) throws SetupException {

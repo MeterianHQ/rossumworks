@@ -61,6 +61,23 @@ class SetupQuestionsTest {
     }
 
     @Test
+    void expandsTheHomeFolderInTheWorkFolderAnswer() throws SetupException {
+        SetupQuestions questions = questions(FakeSetupConsole.answering("~/x", "~", "~other/x"), Map.of(), false);
+
+        assertEquals(Path.of("/home/owner/x"), questions.askWorkDirectory(options(), REPOSITORY));
+        assertEquals(Path.of("/home/owner"), questions.askWorkDirectory(options(), REPOSITORY));
+        assertEquals(Path.of("~other/x"), questions.askWorkDirectory(options(), REPOSITORY));
+    }
+
+    @Test
+    void expandsTheHomeFolderInTheWorkFolderParameter() throws SetupException {
+        SetupQuestions questions = questions(FakeSetupConsole.answering(), Map.of(), false);
+
+        assertEquals(Path.of("/home/owner/factory/work"),
+                questions.askWorkDirectory(options("--work-directory", "~/factory/work"), REPOSITORY));
+    }
+
+    @Test
     void noneGivesNoWebPage() throws SetupException {
         FakeSetupConsole console = FakeSetupConsole.answering("none");
 
