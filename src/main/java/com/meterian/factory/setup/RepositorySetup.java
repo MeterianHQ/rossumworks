@@ -4,6 +4,7 @@ import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
+import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.PullRequest;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,14 +55,22 @@ public final class RepositorySetup {
     }
 
     /** Commits the files on the branch factory/setup, pushes it through the gatekeeper, and opens the PR. */
-    public PullRequest publish(Path clone, Path gatekeeper, RepositoryFacts facts, Map<String, String> files,
-                               String owner) throws SetupException {
+    public PullRequest publish(Path clone, Path gatekeeper, RepositoryFacts facts, Map<String, String> files)
+            throws SetupException {
         PushResult pushed = pushSetupBranch(clone, gatekeeper, facts, files);
         verifyGitHubHasTheBranch(pushed);
-        PullRequest pullRequest = gitHub.createPullRequest(SETUP_BRANCH, facts.defaultBranch(),
-                "Set up the factory", describe(files));
-        gitHub.assignIssue(pullRequest.number(), owner);
-        return pullRequest;
+        return gitHub.createPullRequest(SETUP_BRANCH, facts.defaultBranch(), "Set up the factory", describe(files));
+    }
+
+    /** Assigns the PR to the owner. A failure gives the problem, because the PR is open and stays useful. */
+    public Optional<String> assignPullRequest(PullRequest pullRequest, String owner) {
+        try {
+            gitHub.assignIssue(pullRequest.number(), owner);
+            return Optional.empty();
+        } catch (GitHubException exception) {
+            return Optional.of("Cannot assign the PR to " + owner + ": " + exception.getMessage()
+                    + ". Assign it by hand.");
+        }
     }
 
     private RepositoryFacts readFacts(Path clone) throws SetupException {

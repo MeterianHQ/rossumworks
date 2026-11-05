@@ -112,8 +112,9 @@ public final class CreateCommand {
         }
         String owner = gitHub.authenticatedLogin();
         writeWorkerFile(settings);
-        PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files, owner);
-        showResult(settings, files, Optional.of(pullRequest));
+        PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files);
+        Optional<String> assignmentProblem = setup.assignPullRequest(pullRequest, owner);
+        showResult(settings, files, Optional.of(pullRequest), assignmentProblem);
         return Main.EXIT_SUCCESS;
     }
 
@@ -125,7 +126,7 @@ public final class CreateCommand {
             return Main.EXIT_SUCCESS;
         }
         writeWorkerFile(settings);
-        showResult(settings, Map.of(), Optional.empty());
+        showResult(settings, Map.of(), Optional.empty(), Optional.empty());
         return Main.EXIT_SUCCESS;
     }
 
@@ -169,10 +170,10 @@ public final class CreateCommand {
 
     /** A failed publish deletes the worker.yaml of this run, so that the next create does not stop on it. */
     private static PullRequest publishOrDeleteWorkerFile(RepositorySetup setup, Path clone, WorkerSettings settings,
-                                                         RepositoryFacts facts, Map<String, String> files,
-                                                         String owner) throws SetupException {
+                                                         RepositoryFacts facts, Map<String, String> files)
+            throws SetupException {
         try {
-            return setup.publish(clone, settings.gatekeeperDirectory(), facts, files, owner);
+            return setup.publish(clone, settings.gatekeeperDirectory(), facts, files);
         } catch (SetupException | GitException | GitHubException failure) {
             String deleteProblem = deleteWorkerFile(settings.configurationFile()).map(problem -> "\n" + problem)
                     .orElse("");
@@ -199,12 +200,14 @@ public final class CreateCommand {
         output.println("The command wrote no file and pushed nothing.");
     }
 
-    private void showResult(WorkerSettings settings, Map<String, String> files, Optional<PullRequest> pullRequest) {
+    private void showResult(WorkerSettings settings, Map<String, String> files, Optional<PullRequest> pullRequest,
+                            Optional<String> assignmentProblem) {
         output.println("The command wrote these files:");
         output.println("  " + settings.configurationFile());
         files.keySet().forEach(path -> output.println("  " + path + " (on the branch factory/setup)"));
         pullRequest.ifPresent(opened -> {
             output.println("The pull request: " + opened.url());
+            assignmentProblem.ifPresent(output::println);
             output.println("The worker takes issues after the merge of the pull request.");
         });
         output.println("Start the worker with this command:");

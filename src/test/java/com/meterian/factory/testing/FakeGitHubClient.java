@@ -46,6 +46,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private boolean failsTheNextCommentEdit;
     private boolean failsTheNextCommentCreate;
     private boolean failsTheNextPullRequestCreation;
+    private boolean failsTheNextAssignment;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
@@ -128,6 +129,11 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The next createPullRequest throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextPullRequestCreation() {
         failsTheNextPullRequestCreation = true;
+    }
+
+    /** The next assignIssue throws a GitHubException, as a refused assignment does. */
+    public synchronized void failTheNextAssignment() {
+        failsTheNextAssignment = true;
     }
 
     /** The next editComment throws a GitHubException, as a lost connection does. */
@@ -290,6 +296,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void assignIssue(int issueNumber, String login) {
+        if (failsTheNextAssignment) {
+            failsTheNextAssignment = false;
+            throw new GitHubException("GitHub answered 422 for POST /issues/" + issueNumber + "/assignees");
+        }
         assignees.computeIfAbsent(issueNumber, number -> new ArrayList<>()).add(login);
     }
 

@@ -182,6 +182,24 @@ class CreateCommandTest {
     }
 
     @Test
+    void aFailedAssignmentKeepsTheWorkerFileAndShowsThePullRequest() throws Exception {
+        pushToMain("package.json", "{}\n");
+        gitHub.failTheNextAssignment();
+
+        int exitCode = runCreate(answering("", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        ConfigurationLoader.load(workerFile());
+        assertThat(gitHub.pullRequests()).hasSize(1);
+        PullRequest pullRequest = gitHub.pullRequests().get(0);
+        assertThat(gitHub.assigneesOf(pullRequest.number())).isEmpty();
+        assertThat(outputText()).contains("The pull request: " + pullRequest.url(),
+                "Cannot assign the PR to bbossola: GitHub answered 422 for POST /issues/"
+                        + pullRequest.number() + "/assignees. Assign it by hand.",
+                "run --config " + workerFile());
+    }
+
+    @Test
     void anExistingWorkerFileStopsTheCommand() throws IOException {
         Files.createDirectories(workDirectory());
         Files.writeString(workerFile(), "old\n");

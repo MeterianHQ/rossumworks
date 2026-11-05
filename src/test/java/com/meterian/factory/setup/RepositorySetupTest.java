@@ -90,7 +90,8 @@ class RepositorySetupTest {
         String mainBefore = run(github, "rev-parse", "main");
         Map<String, String> files = Map.of(".factory/factory.yaml", "a: b\n", ".factory/prompts/p.md", "text\n");
 
-        PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, files, "bbossola");
+        PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, files);
+        assertThat(setup.assignPullRequest(pullRequest, "bbossola")).isEmpty();
 
         assertThat(run(github, "show", "factory/setup:.factory/factory.yaml")).isEqualTo("a: b");
         assertThat(run(github, "show", "factory/setup:.factory/prompts/p.md")).isEqualTo("text");
@@ -109,7 +110,7 @@ class RepositorySetupTest {
         RepositoryFacts facts = setup.read(clone);
         git.addWorktree(clone, work.resolve("setup-worktree"), "factory/setup", facts.baseCommit());
 
-        PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n"), "o");
+        PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n"));
 
         assertThat(pullRequest.headBranch()).isEqualTo("factory/setup");
     }
@@ -139,7 +140,7 @@ class RepositorySetupTest {
                 temporaryDirectory.resolve("missing.git").toString());
 
         assertThatThrownBy(() -> brokenForward.publish(clone, gatekeeper, facts,
-                Map.of(".factory/factory.yaml", "a\n"), "bbossola"))
+                Map.of(".factory/factory.yaml", "a\n")))
                 .isInstanceOf(SetupException.class)
                 .hasMessageContaining("GitHub does not have the branch factory/setup. The gatekeeper did not "
                         + "forward it: ")
@@ -147,6 +148,16 @@ class RepositorySetupTest {
 
         assertThat(gitHub.pullRequests()).isEqualTo(List.of());
         assertThat(Files.exists(work.resolve("setup-worktree"))).isFalse();
+    }
+
+    @Test
+    void aFailedAssignmentGivesTheProblem() throws Exception {
+        RepositoryFacts facts = setup.read(clone);
+        PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n"));
+        gitHub.failTheNextAssignment();
+
+        assertThat(setup.assignPullRequest(pullRequest, "bbossola")).contains("Cannot assign the PR to bbossola: "
+                + "GitHub answered 422 for POST /issues/" + pullRequest.number() + "/assignees. Assign it by hand.");
     }
 
     private void pushToMain(String fileName, String content) {
@@ -161,7 +172,7 @@ class RepositorySetupTest {
         Files.writeString(clone.resolve(".git/hooks/pre-commit"), "#!/bin/sh\necho commit-refused >&2\nexit 1\n");
         clone.resolve(".git/hooks/pre-commit").toFile().setExecutable(true);
 
-        assertThatThrownBy(() -> setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n"), "o"))
+        assertThatThrownBy(() -> setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n")))
                 .isInstanceOf(SetupException.class)
                 .hasMessageStartingWith("Cannot push the branch factory/setup: ")
                 .hasMessageContaining("commit")
@@ -177,7 +188,7 @@ class RepositorySetupTest {
         clone.resolve(".git/hooks/pre-commit").toFile().setExecutable(true);
 
         assertThatThrownBy(() -> brokenSetup.publish(clone, gatekeeper, facts,
-                Map.of(".factory/factory.yaml", "a\n"), "o"))
+                Map.of(".factory/factory.yaml", "a\n")))
                 .isInstanceOf(SetupException.class)
                 .hasMessageStartingWith("Cannot push the branch factory/setup: ")
                 .hasMessageNotContaining("cleanup failed");
