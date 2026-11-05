@@ -428,6 +428,16 @@ class ProcessGitTest {
     }
 
     @Test
+    void hasPathFindsAFileAndAFolder() {
+        commitFile(clone, ".factory/prompts/a.md", "text\n", "Add a prompt");
+        String head = git.headCommit(clone);
+
+        assertThat(git.hasPath(clone, head, ".factory")).isTrue();
+        assertThat(git.hasPath(clone, head, ".factory/prompts/a.md")).isTrue();
+        assertThat(git.hasPath(clone, head, "mvnw")).isFalse();
+    }
+
+    @Test
     void showFileIsEmptyForAFileThatTheCommitDoesNotHave() {
         assertThat(git.showFile(clone, git.headCommit(clone), "missing.txt")).isEmpty();
     }

@@ -26,6 +26,7 @@ public final class FakeGitHubClient implements GitHubClient {
 
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
+    private final Map<Integer, List<String>> assignees = new TreeMap<>();
     private final Set<String> createdLabels = new LinkedHashSet<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
@@ -279,6 +280,15 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The names of the labels that the factory created, in the order of the creation. */
     public synchronized Set<String> createdLabels() {
         return new LinkedHashSet<>(createdLabels);
+    }
+
+    @Override
+    public synchronized void assignIssue(int issueNumber, String login) {
+        assignees.computeIfAbsent(issueNumber, number -> new ArrayList<>()).add(login);
+    }
+
+    public synchronized List<String> assigneesOf(int issueNumber) {
+        return List.copyOf(assignees.getOrDefault(issueNumber, List.of()));
     }
 
     @Override

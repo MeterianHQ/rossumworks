@@ -31,6 +31,15 @@ class FakeGitHubClientTest {
     }
 
     @Test
+    void assignIssueKeepsTheLogin() {
+        github.addIssue(5, "T", "B");
+
+        github.assignIssue(5, "owner");
+
+        assertThat(github.assigneesOf(5)).containsExactly("owner");
+    }
+
+    @Test
     void setsTheColumnAsALabel() {
         github.addIssue(4, "T", "B");
         github.addLabel(4, "factory:is:queued");

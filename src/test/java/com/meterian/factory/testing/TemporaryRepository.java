@@ -41,7 +41,9 @@ public final class TemporaryRepository {
 
     public static void commitFile(Path repository, String fileName, String content, String message) {
         try {
-            Files.writeString(repository.resolve(fileName), content);
+            Path file = repository.resolve(fileName);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, content);
         } catch (IOException exception) {
             throw new IllegalStateException(exception);
         }

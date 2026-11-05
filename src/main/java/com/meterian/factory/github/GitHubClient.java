@@ -26,6 +26,9 @@ public interface GitHubClient {
         ensureLabel(label, color, "");
     }
 
+    /** Adds the login to the assignees. A pull request is an issue for this call. */
+    void assignIssue(int issueNumber, String login);
+
     void addLabel(int issueNumber, String label);
 
     /** Does nothing when the label is not on the issue. */

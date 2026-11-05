@@ -39,6 +39,9 @@ public interface Git {
      */
     Optional<String> showFile(Path repository, String commit, String path);
 
+    /** True when the commit has the file or the folder: git cat-file -e commit:path. */
+    boolean hasPath(Path repository, String commit, String path);
+
     /** Returns the default branch of the remote origin, without the prefix origin/. */
     String defaultBranch(Path clone);
 

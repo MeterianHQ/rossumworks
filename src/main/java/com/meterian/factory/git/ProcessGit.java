@@ -133,6 +133,12 @@ public final class ProcessGit implements Git {
         return Optional.of(new String(runForBytes(repository, "cat-file", "blob", object), StandardCharsets.UTF_8));
     }
 
+    @Override
+    public boolean hasPath(Path repository, String commit, String path) {
+        String object = resolveCommit(repository, commit) + ":" + path;
+        return execute(repository, "cat-file", "-e", object).exitCode() == 0;
+    }
+
     /** A clone without origin/HEAD asks the remote once, and keeps the answer in the clone. */
     @Override
     public String defaultBranch(Path clone) {
