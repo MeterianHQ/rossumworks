@@ -1,6 +1,6 @@
 package com.meterian.factory.definition;
 
-public final class DefinitionException extends Exception {
+public class DefinitionException extends Exception {
 
     public DefinitionException(String message) {
         super(message);

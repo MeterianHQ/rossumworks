@@ -38,8 +38,7 @@ public final class DefinitionLoader {
     }
 
     private static JsonNode parseMainFile(DefinitionFiles files) throws DefinitionException {
-        String text = files.read(DefinitionNode.MAIN_FILE).orElseThrow(
-                () -> new DefinitionException(".factory/" + DefinitionNode.MAIN_FILE + " does not exist"));
+        String text = files.read(DefinitionNode.MAIN_FILE).orElseThrow(MissingMainFileException::new);
         try {
             JsonNode tree = new YAMLMapper().readTree(text);
             if (tree == null || !tree.isObject()) {

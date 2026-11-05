@@ -28,7 +28,7 @@ public final class DefinitionVersions implements DefinitionLookup {
     private final FactoryDefinition builtIn;
     private final Map<String, FactoryDefinition> definitionsByCommit = new ConcurrentHashMap<>();
     /** A commit that does not load gives the same failure at each read, so the failure is kept. */
-    private final Map<String, String> failuresByCommit = new ConcurrentHashMap<>();
+    private final Map<String, IllegalStateException> failuresByCommit = new ConcurrentHashMap<>();
     private volatile Optional<DefinitionVersion> current = Optional.empty();
     private volatile Optional<String> warning = Optional.empty();
     /** The newest commit that refresh read. Refresh reads each commit and logs its failure only once. */
@@ -62,7 +62,7 @@ public final class DefinitionVersions implements DefinitionLookup {
             if (current.isEmpty()) {
                 current = findNewestGoodVersionBefore(commit);
             }
-            warning = Optional.of(describeFailure(commit, exception.getMessage()));
+            warning = Optional.of(describeFailure(commit, exception));
             LOGGER.log(System.Logger.Level.WARNING, warning.get());
         }
         newestCommit = commit;
@@ -139,9 +139,9 @@ public final class DefinitionVersions implements DefinitionLookup {
         if (known != null) {
             return known;
         }
-        String knownFailure = failuresByCommit.get(commit);
+        IllegalStateException knownFailure = failuresByCommit.get(commit);
         if (knownFailure != null) {
-            throw new IllegalStateException(knownFailure);
+            throw knownFailure;
         }
         return loadCommit(commit);
     }
@@ -157,8 +157,11 @@ public final class DefinitionVersions implements DefinitionLookup {
             if (exception.getCause() instanceof GitException) {
                 throw new UnreadableCommitException(reason, exception);
             }
-            failuresByCommit.put(commit, reason);
-            throw new IllegalStateException(reason, exception);
+            IllegalStateException failure = exception instanceof MissingMainFileException
+                    ? new MissingFactoryException(reason, exception)
+                    : new IllegalStateException(reason, exception);
+            failuresByCommit.put(commit, failure);
+            throw failure;
         }
     }
 
@@ -170,12 +173,24 @@ public final class DefinitionVersions implements DefinitionLookup {
         }
     }
 
-    private String describeFailure(String commit, String reason) {
+    /** The commit has no main file. The repository has no setup of the factory yet. */
+    private static final class MissingFactoryException extends IllegalStateException {
+
+        MissingFactoryException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private String describeFailure(String commit, IllegalStateException failure) {
+        String reason = failure.getMessage();
         return current
                 .map(version -> "The .factory of " + shorten(commit) + " does not load: " + reason
                         + ". The factory keeps the version " + shorten(version.commit()) + ".")
-                .orElseGet(() -> "The default branch has no .factory that loads: " + reason
-                        + ". The factory takes no new issue.");
+                .orElseGet(() -> failure instanceof MissingFactoryException
+                        ? "The default branch has no .factory. Merge the PR factory/setup, "
+                                + "or run claude-ai-factory create. The factory takes no new issue."
+                        : "The default branch has no .factory that loads: " + reason
+                                + ". The factory takes no new issue.");
     }
 
     /** The first characters of a commit, as git shows them. */
