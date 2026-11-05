@@ -77,13 +77,18 @@ only: the record in the status comment keeps the state. The worker removes the o
 repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. The default answer is
 "no". After a yes, it writes `<work folder>/worker.yaml`. When the default branch has no `.factory`, it then
 pushes the branch `factory/setup` through the gatekeeper. It opens a PR and assigns it to the login of the
-token.
+token. When the assignment fails, `create` shows the problem, keeps `worker.yaml`, and ends with success.
+Then assign the PR by hand.
 `create` never pushes to the default branch, and it never overwrites a file.
 
-When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no PR. When
-a PR from `factory/setup` is open, `create` shows its link and writes no file. Merge the PR, and run `create`
-again. When `worker.yaml` exists, `create` stops. Until the merge of the PR, the worker takes no issue, and the
-page shows the reason.
+The default `.factory` holds `factory.yaml` and the prompt files that it uses. `create` does not copy
+`prompts/resume.md` of the jar, because the default workflow does not use it.
+
+When `worker.yaml` exists in the work folder, `create` stops with the message "The file ... exists" and the
+exit code 1. A second run after a successful run also stops there, because the first run wrote `worker.yaml`.
+When `worker.yaml` does not exist and a PR from `factory/setup` is open, `create` shows the PR link and writes
+no file. When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no
+PR. Until the merge of the PR, the worker takes no issue, and the page shows the reason.
 
 A parameter gives the answer and removes the question:
 
