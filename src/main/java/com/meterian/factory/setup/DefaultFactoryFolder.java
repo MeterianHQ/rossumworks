@@ -34,17 +34,13 @@ public final class DefaultFactoryFolder {
     }
 
     private static String adaptMainFile(String text, RepositoryBuild build, String targetBranch) {
-        String withCommand = replaceExactly(text, BUILD_COMMAND_LINE, "  command: " + quoteText(build.command()) + "\n");
-        String withBranch = replaceExactly(withCommand, TARGET_BRANCH_LINE, "  target-branch: " + quoteText(targetBranch) + "\n");
+        String withCommand = replaceExactly(text, BUILD_COMMAND_LINE, "  command: " + YamlText.quote(build.command()) + "\n");
+        String withBranch = replaceExactly(withCommand, TARGET_BRANCH_LINE, "  target-branch: " + YamlText.quote(targetBranch) + "\n");
         return replaceExactly(withBranch, MAVEN_TOOLS, quoteAll(build.allowedTools()));
     }
 
-    private static String quoteText(String text) {
-        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-    }
-
     private static String quoteAll(List<String> tools) {
-        return tools.stream().map(DefaultFactoryFolder::quoteText).collect(Collectors.joining(", "));
+        return tools.stream().map(YamlText::quote).collect(Collectors.joining(", "));
     }
 
     private static String replaceExactly(String text, String expected, String replacement) {
