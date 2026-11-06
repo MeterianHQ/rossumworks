@@ -135,7 +135,8 @@ My calls:
 - The owner of the PR is the login of the GitHub token.
 - When a PR from `factory/setup` is already open, the command shows its link. It does not push again.
 - When the branch `factory/setup` exists on GitHub without an open PR, the command stops with a message that
-  names the branch.
+  names the branch. The message says that the command wrote no `worker.yaml`, and it gives the `gh api`
+  command that deletes the branch on GitHub (owner decision of 2026-11-06).
 - The gatekeeper forwards the branch to GitHub over the remote of the clone. After the push, the command
   checks that GitHub has the branch. If GitHub does not have it, the command stops with exit code 1 and the
   message of git, and it opens no PR.

@@ -7,6 +7,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.git.RebaseOutcome;
@@ -131,10 +132,13 @@ class RepositorySetupTest {
     void refusesAnExistingSetupBranch() {
         run(github, "branch", "factory/setup", "main");
 
-        assertThatThrownBy(setup::verifyNoSetupBranch)
+        assertThatThrownBy(() -> setup.verifyNoSetupBranch(new RepositoryName("acme", "widget")))
                 .isInstanceOf(SetupException.class)
                 .hasMessage("The branch factory/setup exists on GitHub without an open PR. "
-                        + "Delete the branch, or open the PR.");
+                        + "The command wrote no worker.yaml. "
+                        + "Delete the branch on GitHub with this command: "
+                        + "gh api -X DELETE repos/acme/widget/git/refs/heads/factory/setup. "
+                        + "Then run create again.");
     }
 
     @Test

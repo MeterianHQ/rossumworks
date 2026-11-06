@@ -101,7 +101,7 @@ public final class CreateCommand {
             showOpenPullRequest(openSetup.get());
             return Main.EXIT_SUCCESS;
         }
-        setup.verifyNoSetupBranch();
+        setup.verifyNoSetupBranch(repository);
         RepositoryBuild build = questions.askBuild(options, BuildFinder.find(facts.hasFile()),
                 BuildFinder.isJavaRepository(facts.hasFile()));
         Map<String, String> files = DefaultFactoryFolder.files(build, facts.defaultBranch());

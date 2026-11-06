@@ -1,5 +1,6 @@
 package com.meterian.factory.setup;
 
+import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -47,10 +48,13 @@ public final class RepositorySetup {
         return gitHub.openPullRequest(SETUP_BRANCH);
     }
 
-    public void verifyNoSetupBranch() throws SetupException {
+    public void verifyNoSetupBranch(RepositoryName repository) throws SetupException {
         if (gitHub.findBranchHead(SETUP_BRANCH).isPresent()) {
             throw new SetupException("The branch " + SETUP_BRANCH + " exists on GitHub without an open PR. "
-                    + "Delete the branch, or open the PR.");
+                    + "The command wrote no worker.yaml. "
+                    + "Delete the branch on GitHub with this command: "
+                    + "gh api -X DELETE repos/" + repository.fullName() + "/git/refs/heads/" + SETUP_BRANCH + ". "
+                    + "Then run create again.");
         }
     }
 

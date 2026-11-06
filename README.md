@@ -87,7 +87,10 @@ The default `.factory` holds `factory.yaml` and the prompt files that it uses. `
 When `worker.yaml` exists in the work folder, `create` stops with the message "The file ... exists" and the
 exit code 1. A second run after a successful run also stops there, because the first run wrote `worker.yaml`.
 When `worker.yaml` does not exist and a PR from `factory/setup` is open, `create` shows the PR link and writes
-no file. When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no
+no file. When the branch `factory/setup` exists on GitHub without an open PR, `create` stops and writes no
+file. This can occur when the push succeeds and the creation of the PR fails. The gatekeeper refuses a
+delete, so the message gives a `gh api` command that deletes the branch on GitHub. Then run `create` again.
+When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no
 PR. Until the merge of the PR, the worker takes no issue, and the page shows the reason.
 
 A parameter gives the answer and removes the question:
