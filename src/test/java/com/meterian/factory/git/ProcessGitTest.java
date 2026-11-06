@@ -324,6 +324,27 @@ class ProcessGitTest {
     }
 
     @Test
+    void pushAndReadOutputGivesTheLinesOfTheRemoteHook() throws IOException {
+        Path remote = createBare(temporaryDirectory.resolve("hooked.git"));
+        Path hook = remote.resolve("hooks/post-receive");
+        Files.writeString(hook, "#!/bin/sh\necho forward-failed-here >&2\n");
+        hook.toFile().setExecutable(true);
+        git.setRemote(clone, "hooked", remote.toString());
+
+        String output = git.pushAndReadOutput(clone, "hooked", "factory/issue-7");
+
+        assertThat(output).contains("remote: forward-failed-here");
+        assertThat(run(remote, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(git.headCommit(clone));
+    }
+
+    @Test
+    void pushAndReadOutputRefusesABranchOutsideFactory() {
+        assertThatThrownBy(() -> git.pushAndReadOutput(clone, "origin", "main"))
+                .isInstanceOf(GitException.class)
+                .hasMessageContaining("factory/");
+    }
+
+    @Test
     void pushCommitRefusesABranchOutsideFactory() {
         assertThatThrownBy(() -> git.pushCommit(clone, "origin", git.headCommit(clone), "main"))
                 .isInstanceOf(GitException.class)
@@ -425,6 +446,16 @@ class ProcessGitTest {
         commitFile(clone, "a.txt", "second\n", "Second commit");
 
         assertThat(git.showFile(clone, first, "a.txt")).contains("first\n");
+    }
+
+    @Test
+    void hasPathFindsAFileAndAFolder() {
+        commitFile(clone, ".factory/prompts/a.md", "text\n", "Add a prompt");
+        String head = git.headCommit(clone);
+
+        assertThat(git.hasPath(clone, head, ".factory")).isTrue();
+        assertThat(git.hasPath(clone, head, ".factory/prompts/a.md")).isTrue();
+        assertThat(git.hasPath(clone, head, "mvnw")).isFalse();
     }
 
     @Test

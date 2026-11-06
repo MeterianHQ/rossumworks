@@ -1,3 +1,4 @@
+# create writes this file for you: java -jar claude-ai-factory.jar create
 repository: MeterianHQ/heidi-fix
 work-directory: /home/bbossola/.claude-ai-factory/work
 gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git

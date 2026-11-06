@@ -125,6 +125,7 @@ class DefinitionVersionsTest {
 
     @Test
     void takesNoVersionWithoutAGoodDefinition() {
+        commitDefinition(author, BROKEN_MAIN_FILE);
         DefinitionVersions versions = createVersions();
 
         versions.refresh();
@@ -133,6 +134,17 @@ class DefinitionVersionsTest {
         assertThat(versions.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The default branch has no .factory that loads: ")
                 .endsWith(". The factory takes no new issue."));
+    }
+
+    @Test
+    void aDefaultBranchWithoutFactoryAsksForTheSetup() {
+        DefinitionVersions versions = createVersions();
+
+        versions.refresh();
+
+        assertThat(versions.current()).isEmpty();
+        assertThat(versions.warning()).contains("The default branch has no .factory. "
+                + "Merge the PR factory/setup, or run claude-ai-factory create. The factory takes no new issue.");
     }
 
     @Test

@@ -146,6 +146,11 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public void assignIssue(int issueNumber, String login) {
+        send("POST", repositoryPath + "/issues/" + issueNumber + "/assignees", Map.of("assignees", List.of(login)));
+    }
+
+    @Override
     public void addLabel(int issueNumber, String label) {
         send("POST", repositoryPath + "/issues/" + issueNumber + "/labels", Map.of("labels", List.of(label)));
     }

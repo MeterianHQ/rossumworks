@@ -39,6 +39,9 @@ public interface Git {
      */
     Optional<String> showFile(Path repository, String commit, String path);
 
+    /** True when the commit has the file or the folder: git cat-file -e commit:path. */
+    boolean hasPath(Path repository, String commit, String path);
+
     /** Returns the default branch of the remote origin, without the prefix origin/. */
     String defaultBranch(Path clone);
 
@@ -79,6 +82,9 @@ public interface Git {
 
     /** Force-pushes HEAD to the branch of the remote. */
     void push(Path worktree, String remote, String branch);
+
+    /** Force-pushes HEAD like push, and returns the output of git, with the "remote:" lines of the hooks. */
+    String pushAndReadOutput(Path worktree, String remote, String branch);
 
     /** Force-pushes the commit to the branch of the remote. */
     void pushCommit(Path worktree, String remote, String commit, String branch);

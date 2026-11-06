@@ -133,6 +133,12 @@ public final class ProcessGit implements Git {
         return Optional.of(new String(runForBytes(repository, "cat-file", "blob", object), StandardCharsets.UTF_8));
     }
 
+    @Override
+    public boolean hasPath(Path repository, String commit, String path) {
+        String object = resolveCommit(repository, commit) + ":" + path;
+        return execute(repository, "cat-file", "-e", object).exitCode() == 0;
+    }
+
     /** A clone without origin/HEAD asks the remote once, and keeps the answer in the clone. */
     @Override
     public String defaultBranch(Path clone) {
@@ -235,12 +241,28 @@ public final class ProcessGit implements Git {
     }
 
     @Override
-    public void pushCommit(Path worktree, String remote, String commit, String branch) {
+    public String pushAndReadOutput(Path worktree, String remote, String branch) {
+        verifyFactoryBranch(branch);
+        GitProcess.Result result = requireSuccess(pushArguments(remote, "HEAD", branch),
+                process.execute(worktree, Optional.of(networkTimeout), List.of(pushArguments(remote, "HEAD", branch))));
+        return (result.outputText() + result.errorOutput()).strip();
+    }
+
+    private static String[] pushArguments(String remote, String commit, String branch) {
+        return new String[] {"push", "--force", remote, commit + ":refs/heads/" + branch};
+    }
+
+    private static void verifyFactoryBranch(String branch) {
         if (!branch.startsWith(FACTORY_BRANCH_PREFIX)) {
             throw new GitException("git push refused: the branch " + branch + " does not start with "
                     + FACTORY_BRANCH_PREFIX);
         }
-        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
+    }
+
+    @Override
+    public void pushCommit(Path worktree, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        runOverTheNetwork(worktree, pushArguments(remote, commit, branch));
     }
 
     @Override

@@ -151,6 +151,18 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void assignIssueSendsTheLogin() {
+        responder = request -> new Answer(201, "{}");
+
+        client.assignIssue(12, "bbossola");
+
+        RecordedRequest request = requests.get(0);
+        assertThat(request.method()).isEqualTo("POST");
+        assertThat(request.target()).isEqualTo("/repos/o/r/issues/12/assignees");
+        assertThat(request.body()).isEqualTo("{\"assignees\":[\"bbossola\"]}");
+    }
+
+    @Test
     void removeLabelAcceptsAMissingLabel() {
         responder = request -> new Answer(404, "{\"message\":\"Label does not exist\"}");
 
