@@ -227,6 +227,14 @@ class TmuxLiveSessionsTest {
     }
 
     @Test
+    void openAnswersTheTrustPromptAgainWhenClaudeLosesTheFirstAnswer() throws Exception {
+        String link = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_DEAF_SECONDS", "2"), System.getenv(), SUCCESS_TIMEOUT)
+                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
+
+        assertThat(link).isEqualTo(FAKE_LINK);
+    }
+
+    @Test
     void openTakesTheLinkOfTheStatusLineAndNotAnOldLink() throws Exception {
         String link = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_OLD_LINK", "1"), System.getenv(), SUCCESS_TIMEOUT)
                 .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);

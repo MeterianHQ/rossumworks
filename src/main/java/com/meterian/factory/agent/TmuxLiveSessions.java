@@ -23,7 +23,10 @@ public final class TmuxLiveSessions implements LiveSessions {
     private static final Pattern LINK = Pattern.compile("https://claude\\.ai/code/session_[A-Za-z0-9]+");
     private static final String LINK_LINE = "/remote-control is active";
     private static final String TRUST_PROMPT = "trust this folder";
+    private static final String SELECTED_CHOICE_MARK = "\u276F";
     private static final int TRUST_PROMPT_LINES = 5;
+    private static final Duration TRUST_PROMPT_SETTLE_TIME = Duration.ofSeconds(1);
+    private static final Duration TRUST_ANSWER_RETRY_TIME = Duration.ofSeconds(3);
     private static final String TERMINAL_VARIABLE = "TERM";
     private static final String TERMINAL_TYPE = "tmux-256color";
     private static final String SCREEN_WIDTH = "200";
@@ -143,20 +146,30 @@ public final class TmuxLiveSessions implements LiveSessions {
         }
     }
 
+    /**
+     * Claude shows the trust prompt before it reads the keys, and it loses the keys of that time. So the worker
+     * answers only a prompt that stays on the screen, and it answers again when the prompt does not go away.
+     */
     private String waitForTheLink(int issueNumber) throws LiveSessionException {
         long deadline = System.nanoTime() + openTimeout.toNanos();
-        boolean trustPromptAnswered = false;
+        long promptSeenSince = 0;
+        long lastAnswerAt = 0;
         while (true) {
             String screen = captureScreen(issueNumber);
             Optional<String> link = findTheLink(screen);
             if (link.isPresent()) {
                 return link.get();
             }
-            if (!trustPromptAnswered && showsTheTrustPrompt(screen)) {
-                answerTheTrustPrompt(issueNumber);
-                trustPromptAnswered = true;
+            long now = System.nanoTime();
+            if (!showsTheTrustPrompt(screen)) {
+                promptSeenSince = 0;
+            } else if (promptSeenSince == 0) {
+                promptSeenSince = now;
+            } else if (isTimeToAnswer(now, promptSeenSince, lastAnswerAt)) {
+                answerTheTrustPrompt(issueNumber, screen);
+                lastAnswerAt = now;
             }
-            if (System.nanoTime() >= deadline) {
+            if (now >= deadline) {
                 throw new LiveSessionException("The live session did not show a Remote Control link in "
                         + openTimeout.toSeconds() + " seconds.");
             }
@@ -203,10 +216,22 @@ public final class TmuxLiveSessions implements LiveSessions {
         }
     }
 
-    /** Claude Code 2.1.316 accepts the trust prompt with Down, then Enter. */
-    private void answerTheTrustPrompt(int issueNumber) throws LiveSessionException {
-        tmux.run("send-keys", "-t", windowTarget(issueNumber), "Down");
+    private static boolean isTimeToAnswer(long now, long promptSeenSince, long lastAnswerAt) {
+        boolean promptSettled = now - promptSeenSince >= TRUST_PROMPT_SETTLE_TIME.toNanos();
+        boolean answerLost = lastAnswerAt == 0 || now - lastAnswerAt >= TRUST_ANSWER_RETRY_TIME.toNanos();
+        return promptSettled && answerLost;
+    }
+
+    /** Claude Code 2.1.319 accepts the trust prompt with Down, then Enter. Down is not sent again on the yes. */
+    private void answerTheTrustPrompt(int issueNumber, String screen) throws LiveSessionException {
+        if (!isTheYesSelected(screen)) {
+            tmux.run("send-keys", "-t", windowTarget(issueNumber), "Down");
+        }
         tmux.run("send-keys", "-t", windowTarget(issueNumber), "Enter");
+    }
+
+    private static boolean isTheYesSelected(String screen) {
+        return screen.lines().anyMatch(line -> line.contains(SELECTED_CHOICE_MARK) && line.contains(TRUST_PROMPT));
     }
 
     private void pauseBeforeTheNextPoll() throws LiveSessionException {
