@@ -34,6 +34,7 @@ import org.junit.jupiter.api.io.TempDir;
 class CreateCommandTest {
 
     private static final String PASSWORD = "correct-horse-battery";
+    private static final String DEFAULT_START_LINE = "Start the worker with this command, in a clone of owner/project:";
     private static final List<String> PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
 
     @TempDir
@@ -86,7 +87,7 @@ class CreateCommandTest {
         PullRequest pullRequest = gitHub.pullRequests().get(0);
         assertThat(gitHub.assigneesOf(pullRequest.number())).containsExactly("bbossola");
         assertThat(outputText()).contains(workerFile().toString(), ".factory/factory.yaml", pullRequest.url(),
-                "run --config " + workerFile());
+                DEFAULT_START_LINE);
     }
 
     @Test
@@ -117,7 +118,7 @@ class CreateCommandTest {
         assertThat(branchesOfGitHub()).isEqualTo("refs/heads/main");
         assertThat(gitHub.pullRequests()).isEmpty();
         assertThat(outputText()).contains("The repository already has a .factory. The command opens no pull request.",
-                "run --config " + workerFile());
+                DEFAULT_START_LINE);
     }
 
     @Test
@@ -182,6 +183,28 @@ class CreateCommandTest {
     }
 
     @Test
+    void theDefaultWorkFolderGivesTheStartCommandWithoutTheOptionConfig() {
+        pushToMain("package.json", "{}\n");
+
+        runCreate(answering("", "", "", "", "y"));
+
+        assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
+                + "  java -jar claude-ai-factory.jar run" + System.lineSeparator()).doesNotContain("--config");
+    }
+
+    @Test
+    void anotherWorkFolderGivesTheStartCommandWithTheOptionConfig() {
+        pushToMain("package.json", "{}\n");
+        Path otherWorkDirectory = temporaryDirectory.resolve("other-work");
+
+        int exitCode = runCreate(answering("", otherWorkDirectory.toString(), "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(outputText()).contains("Start the worker with this command:" + System.lineSeparator()
+                + "  java -jar claude-ai-factory.jar run --config " + otherWorkDirectory.resolve("worker.yaml"));
+    }
+
+    @Test
     void aFailedAssignmentKeepsTheWorkerFileAndShowsThePullRequest() throws Exception {
         pushToMain("package.json", "{}\n");
         gitHub.failTheNextAssignment();
@@ -196,7 +219,7 @@ class CreateCommandTest {
         assertThat(outputText()).contains("The pull request: " + pullRequest.url(),
                 "Cannot assign the PR to bbossola: GitHub answered 422 for POST /issues/"
                         + pullRequest.number() + "/assignees. Assign it by hand.",
-                "run --config " + workerFile());
+                DEFAULT_START_LINE);
     }
 
     @Test

@@ -452,7 +452,7 @@ system property of Java.
 Example:
 
 ```
-java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>
+java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run
 ```
 
 ### 10.5 A change of the issue text

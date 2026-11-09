@@ -59,8 +59,7 @@ public final class SetupQuestions {
         if (options.workDirectory().isPresent()) {
             return expandHomeFolder(options.workDirectory().get().toString());
         }
-        String defaultAnswer = home.resolve(".claude-ai-factory")
-                .resolve(repository.owner() + "-" + repository.name()).toString();
+        String defaultAnswer = WorkerSettings.defaultWorkDirectory(home, repository).toString();
         if (!console.isInteractive()) {
             return Path.of(defaultAnswer);
         }

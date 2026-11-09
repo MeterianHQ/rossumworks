@@ -71,8 +71,13 @@ only: the record in the status comment keeps the state. The worker removes the o
    `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.1.0-SNAPSHOT.jar create`. Answer the questions.
    Enter takes the default answer.
 5. Merge the PR `factory/setup`.
-6. Run the `run` command that `create` shows, for example
-   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <work folder>/worker.yaml`.
+6. In the same clone, run the `run` command that `create` shows, for example
+   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.1.0-SNAPSHOT.jar run`.
+
+`run` without `--config` reads the owner and the name of the GitHub repository of the clone, for example
+`MeterianHQ/heidi-fix`. It then reads `~/.claude-ai-factory/MeterianHQ-heidi-fix/worker.yaml`. When the file
+does not exist, the worker does not start, and the message tells you to run `create`. For a work folder that is
+not the default, give the file: `run --config <work folder>/worker.yaml`. `create` then shows this command.
 
 `create` checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`. It clones the
 repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. The default answer is
@@ -134,7 +139,7 @@ Two retries of a technical failure stay inside an action. Set them with a system
 | A review session fails, for example `claude` stops. The reviews run again. | `factory.retries.review-session` | `2` |
 | After a push, GitHub does not show the commit yet. The next poll checks again. | `factory.retries.forward-check` | `3` |
 
-For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
+For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run`.
 The value is the number of tries, and the first try counts. So the value `2` gives one try and one retry.
 After the last try, the issue goes to the `block` target of its workflow. A value that is not a whole number
 of 1 or more stops the worker at the start, with exit code 1. The message names the property.

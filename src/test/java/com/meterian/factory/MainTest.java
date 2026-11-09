@@ -15,6 +15,7 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.setup.CreateOptions;
+import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -49,7 +50,7 @@ class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run [--config <file>]\n"
             + "       java -jar claude-ai-factory.jar hash-password\n"
             + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
@@ -217,17 +218,37 @@ class MainTest {
 
     @Test
     void readsTheConfigurationPath() throws Main.StartupException {
-        Path path = Main.readConfigurationPath(new String[] {"run", "--config", "factory.yaml"});
+        Path path = Main.readConfigurationPath(new String[] {"run", "--config", "factory.yaml"}, refusingFinder());
 
         assertThat(path).isEqualTo(Path.of("factory.yaml"));
     }
 
     @Test
+    void findsTheConfigurationOfTheCloneWithoutTheOptionConfig() throws Exception {
+        Path workerFile = Files.createDirectories(temporaryDirectory.resolve(".claude-ai-factory/owner-project"))
+                .resolve("worker.yaml");
+        Files.writeString(workerFile, "repository: owner/project\n");
+        WorkerFileFinder finder = new WorkerFileFinder(temporaryDirectory,
+                () -> Optional.of(new RepositoryName("owner", "project")));
+
+        Path path = Main.readConfigurationPath(new String[] {"run"}, finder);
+
+        assertThat(path).isEqualTo(workerFile);
+    }
+
+    @Test
     void refusesOtherArguments() {
         for (String[] arguments : List.of(new String[] {}, new String[] {"start", "--config", "factory.yaml"},
-                new String[] {"run", "--config"}, new String[] {"run", "--file", "factory.yaml"})) {
-            assertThatThrownBy(() -> Main.readConfigurationPath(arguments)).hasMessage(USAGE);
+                new String[] {"run", "--config"}, new String[] {"run", "--file", "factory.yaml"},
+                new String[] {"run", "factory.yaml"})) {
+            assertThatThrownBy(() -> Main.readConfigurationPath(arguments, refusingFinder())).hasMessage(USAGE);
         }
+    }
+
+    private static WorkerFileFinder refusingFinder() {
+        return new WorkerFileFinder(Path.of("no-home"), () -> {
+            throw new AssertionError("The command gives the file, so the finder must not run.");
+        });
     }
 
     @Test

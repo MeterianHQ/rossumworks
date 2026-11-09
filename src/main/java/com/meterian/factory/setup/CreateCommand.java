@@ -210,12 +210,25 @@ public final class CreateCommand {
             assignmentProblem.ifPresent(output::println);
             output.println("The worker takes issues after the merge of the pull request.");
         });
+        showStartCommand(settings);
+    }
+
+    /** In the default work folder, run finds worker.yaml from the clone. Another folder needs --config. */
+    private void showStartCommand(WorkerSettings settings) {
+        Path defaultWorkDirectory = WorkerSettings.defaultWorkDirectory(home, settings.repository())
+                .toAbsolutePath();
+        if (settings.workDirectory().equals(defaultWorkDirectory)) {
+            output.println("Start the worker with this command, in a clone of "
+                    + settings.repository().fullName() + ":");
+            output.println("  java -jar " + findJarPath() + " run");
+            return;
+        }
         output.println("Start the worker with this command:");
         output.println("  java -jar " + findJarPath() + " run --config " + settings.configurationFile());
     }
 
     /** The path of the running jar. Outside a jar, for example in a test, the name of the jar. */
-    static String findJarPath() {
+    public static String findJarPath() {
         try {
             CodeSource source = Main.class.getProtectionDomain().getCodeSource();
             if (source != null) {

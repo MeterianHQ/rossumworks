@@ -25,6 +25,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.setup.CreateCommand;
 import com.meterian.factory.setup.SystemSetupConsole;
+import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
@@ -67,7 +68,7 @@ import java.util.concurrent.Executors;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
-/** The command line: run --config <file>, hash-password, or create. */
+/** The command line: run [--config <file>], hash-password, or create. */
 public final class Main {
 
     private static final String PICK_UP_MARKER_NAME = "pick-up-paused";
@@ -76,7 +77,7 @@ public final class Main {
     public static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run [--config <file>]\n"
             + "       java -jar claude-ai-factory.jar hash-password\n"
             + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
@@ -188,8 +189,16 @@ public final class Main {
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors,
                    StartChecks.TokenSource ghToken,
                    WorkerStarter workerStarter, Git git) {
+        WorkerFileFinder finder = WorkerFileFinder.ofCurrentFolder(Path.of(System.getProperty("user.home")),
+                Path.of("").toAbsolutePath());
+        return run(arguments, environment, errors, ghToken, workerStarter, git, finder);
+    }
+
+    static int run(String[] arguments, Map<String, String> environment, PrintStream errors,
+                   StartChecks.TokenSource ghToken,
+                   WorkerStarter workerStarter, Git git, WorkerFileFinder finder) {
         try {
-            Path configurationFile = readConfigurationPath(arguments);
+            Path configurationFile = readConfigurationPath(arguments, finder);
             StartChecks.verifyNoApiKey(environment);
             RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
@@ -231,7 +240,11 @@ public final class Main {
         git.cloneRepository(configuration.repository().sshUrl(), clone);
     }
 
-    static Path readConfigurationPath(String[] arguments) throws StartupException {
+    /** run --config <file> gives the file. run alone finds the worker.yaml of the clone in the current folder. */
+    static Path readConfigurationPath(String[] arguments, WorkerFileFinder finder) throws StartupException {
+        if (arguments.length == 1 && arguments[0].equals("run")) {
+            return finder.find();
+        }
         boolean isValid = arguments.length == 3 && arguments[0].equals("run") && arguments[1].equals("--config");
         if (!isValid) {
             throw new StartupException(USAGE);

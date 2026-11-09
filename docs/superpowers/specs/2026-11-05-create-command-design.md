@@ -40,6 +40,12 @@ Anti-goals:
 `create` is a new first word of the command line: `java -jar claude-ai-factory.jar create [parameters]`. The
 commands `run --config <file>` and `hash-password` stay as they are (my call).
 
+Change of 2026-11-09 (owner decision): `run` without `--config` finds `worker.yaml` by itself. It reads the
+owner and the name of the GitHub repository of the clone in the current folder. It then reads
+`~/.claude-ai-factory/<owner>-<name>/worker.yaml`, the default work folder of `create`. When the file does not
+exist, the worker does not start, and the message tells the owner to run `create`. `--config <file>` stays for
+a work folder that is not the default.
+
 `claude-ai-factory create` asks these questions in this order. A parameter on the command line gives the
 answer and removes the question.
 
@@ -148,7 +154,8 @@ The command prints:
 
 - the files that it wrote,
 - the link of the PR, if it opened one,
-- the `run` command with the path of `worker.yaml`.
+- the `run` command. With the default work folder, it is `run` without `--config`, in a clone of the
+  repository. With another work folder, it is `run --config <work folder>/worker.yaml`.
 
 The exit code is 0 on success and 1 on a failure. A failure before the push leaves no branch on GitHub, and
 no `worker.yaml`.
