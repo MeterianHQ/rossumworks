@@ -323,7 +323,8 @@ Done. The page shows the columns of the newest version of `.factory` that loads.
 that version goes to an extra column at the end.
 
 A card shows the issue, its state, the result of each review of its workflow, the entries against each limit,
-the risk with its reasons, the context of the agent, and the newest note. A card in a state with the action
+the risk in one line, the context of the agent, and the newest note. The reasons of the risk check are in the
+status comment of the issue. A card in a state with the action
 `approval` or `conversation` waits for you. It shows the reason and the Remote Control link.
 The column of the `finish` state keeps the 20 newest cards.
 The page updates itself when the state changes.

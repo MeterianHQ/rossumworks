@@ -184,17 +184,15 @@ final class CardRenderer {
                 .append(Html.escape(StatusComment.describeEntries(record, limits)))
                 .append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
                 .append(risk).append("</dd></div></dl>");
-        appendRiskReasons(html, record);
+        appendRiskLine(html, record);
     }
 
-    private void appendRiskReasons(StringBuilder html, IssueRecord record) {
+    /** The reasons of the risk check are in the status comment of the issue, so the card shows only the line. */
+    private void appendRiskLine(StringBuilder html, IssueRecord record) {
         List<String> lines = StatusComment.describeRisk(record);
-        if (lines.isEmpty()) {
-            return;
+        if (!lines.isEmpty()) {
+            html.append("<p class=\"risk-line\">").append(Html.escape(lines.get(0))).append("</p>");
         }
-        html.append("<p class=\"risk-line\">").append(Html.escape(lines.get(0))).append("</p><ul class=\"risk-reasons\">");
-        record.riskReasons().forEach(reason -> html.append("<li>").append(Html.escape(reason)).append("</li>"));
-        html.append("</ul>");
     }
 
     /** The policy of the page forbids an inline style, so the bar is a meter element. */
