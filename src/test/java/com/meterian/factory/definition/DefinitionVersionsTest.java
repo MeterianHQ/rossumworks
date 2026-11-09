@@ -17,6 +17,7 @@ import com.meterian.factory.testing.RecordStates;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -144,7 +145,7 @@ class DefinitionVersionsTest {
 
         assertThat(versions.current()).isEmpty();
         assertThat(versions.warning()).contains("The default branch has no .factory. "
-                + "Merge the PR factory/setup, or run claude-ai-factory create. The factory takes no new issue.");
+                + "Merge the PR factory/setup, or run java -jar <path of the jar> create. The factory takes no new issue.");
     }
 
     @Test
@@ -237,6 +238,41 @@ class DefinitionVersionsTest {
 
         assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.commit()).isEqualTo(commit));
         assertThat(versions.warning()).isEmpty();
+    }
+
+    @Test
+    void doesNotTakeAnOlderVersionWhenGitFailsInTheWalkBack() {
+        String older = commitDefinition(author, mainFileWithImplementLimit(3));
+        String good = commitDefinition(author, mainFileWithImplementLimit(4));
+        commitDefinition(author, BROKEN_MAIN_FILE);
+        assertThat(older).isNotEqualTo(good);
+        DefinitionVersions afterRestart = new DefinitionVersions(failTheFirstShowFileOf(git, good), clone, "main",
+                builtIn);
+
+        afterRestart.refresh();
+        assertThat(afterRestart.current()).isEmpty();
+
+        afterRestart.refresh();
+
+        assertThat(afterRestart.current()).hasValueSatisfying(
+                version -> assertThat(version.commit()).isEqualTo(good));
+    }
+
+    /** A git that fails the first read of a file of one commit. */
+    private static Git failTheFirstShowFileOf(Git delegate, String commit) {
+        AtomicBoolean failed = new AtomicBoolean();
+        return (Git) Proxy.newProxyInstance(Git.class.getClassLoader(), new Class<?>[] {Git.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("showFile") && List.of(arguments).contains(commit)
+                            && failed.compareAndSet(false, true)) {
+                        throw new GitException("git cat-file failed: the index is locked");
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                });
     }
 
     /** A git that fails the first read of a file, as a lock file or a full disk can do. */

@@ -60,7 +60,13 @@ public final class DefinitionVersions implements DefinitionLookup {
             return;
         } catch (IllegalStateException exception) {
             if (current.isEmpty()) {
-                current = findNewestGoodVersionBefore(commit);
+                try {
+                    current = findNewestGoodVersionBefore(commit);
+                } catch (UnreadableCommitException unreadable) {
+                    LOGGER.log(System.Logger.Level.WARNING, "The read of an older .factory failed, so the next "
+                            + "refresh reads the history again: {0}", unreadable.getMessage());
+                    return;
+                }
             }
             warning = Optional.of(describeFailure(commit, exception));
             LOGGER.log(System.Logger.Level.WARNING, warning.get());
@@ -72,6 +78,8 @@ public final class DefinitionVersions implements DefinitionLookup {
      * After a start, the newest commit can fail while an older commit loads. This reads the history of the folder
      * .factory, newest first, within the limit, and takes the first commit that loads. Fail closed: no commit gives
      * no version.
+     *
+     * @throws UnreadableCommitException when git does not read a commit, so an older commit never replaces it
      */
     private Optional<DefinitionVersion> findNewestGoodVersionBefore(String failedCommit) {
         List<String> commits;
@@ -85,6 +93,8 @@ public final class DefinitionVersions implements DefinitionLookup {
         for (String commit : commits) {
             try {
                 return Optional.of(new DefinitionVersion(commit, definitionOfCommit(commit)));
+            } catch (UnreadableCommitException exception) {
+                throw exception;
             } catch (IllegalStateException exception) {
                 LOGGER.log(System.Logger.Level.INFO, "The version {0} of .factory does not load: {1}",
                         shorten(commit), exception.getMessage());
@@ -188,7 +198,7 @@ public final class DefinitionVersions implements DefinitionLookup {
                         + ". The factory keeps the version " + shorten(version.commit()) + ".")
                 .orElseGet(() -> failure instanceof MissingFactoryException
                         ? "The default branch has no .factory. Merge the PR factory/setup, "
-                                + "or run claude-ai-factory create. The factory takes no new issue."
+                                + "or run java -jar <path of the jar> create. The factory takes no new issue."
                         : "The default branch has no .factory that loads: " + reason
                                 + ". The factory takes no new issue.");
     }

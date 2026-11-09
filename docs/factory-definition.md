@@ -26,8 +26,9 @@ You can put the prompt files in any subfolder of `.factory`. A path cannot leave
 loader refuses a path that starts with `/` or that has the segment `..`.
 
 The jar of the factory contains a complete example:
-[`src/main/resources/factory/`](../src/main/resources/factory/). To start, copy this folder to `.factory` in
-your repository, and then change it. Section 15 shows its `factory.yaml`.
+[`src/main/resources/factory/`](../src/main/resources/factory/). Section 15 shows its `factory.yaml`. To start,
+run the command `create` of the jar (see "Setup" in the README). It writes this folder as `.factory` with the
+build command of your repository, and it opens the PR `factory/setup`. Then change the files as you need.
 
 ## 2. The main file
 

@@ -1,6 +1,6 @@
 # The create command — design
 
-Status: draft, for the approval of the owner.
+Status: approved by the owner on 2026-11-05.
 
 This design is plan B of `docs/superpowers/specs/2026-11-02-workflow-definitions-design.md`. Section 6 of that
 design is approved, and this design keeps it. This design adds only two things. The command writes `.factory`

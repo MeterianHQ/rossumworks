@@ -107,7 +107,7 @@ class ConfigurationLoaderTest {
                     .hasMessage("The configuration file " + file + " has the old form (the key "
                             + oldForm.getKey() + "). The workflow, the build, and the merge are now "
                             + "in the folder .factory of the repository. "
-                            + "Run claude-ai-factory create to write the new configuration.");
+                            + "Run java -jar <path of the jar> create to write the new configuration.");
         }
     }
 

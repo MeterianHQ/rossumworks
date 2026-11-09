@@ -39,7 +39,7 @@ public final class FakeAgentRunner implements AgentRunner {
     private static final SessionReport FAILURE = new SessionReport(false, "stopped", Optional.of("none"),
             Optional.empty(), List.of());
 
-    private static final SessionReport STOPPED = new SessionReport(false, "The phase was stopped.", Optional.empty(),
+    private static final SessionReport STOPPED = new SessionReport(false, "The action was stopped.", Optional.empty(),
             Optional.empty(), List.of(), true);
 
     private record ScriptedPhase(Action action, SessionReport report) {

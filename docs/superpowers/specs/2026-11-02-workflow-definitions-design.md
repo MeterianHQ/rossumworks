@@ -157,6 +157,9 @@ because no worktree of the old form exists at the upgrade (section 9).
 
 ## 5. The workflow definition
 
+Note: `2026-11-05-workflow-state-machine-design.md` replaces this section. The workflow is now a state
+machine of states, actions, and events. This section stays as history.
+
 ### 5.1 The model
 
 A workflow is a state machine:

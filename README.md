@@ -22,7 +22,7 @@ the facts of this machine:
 The workflow, the build, the merge target, and the allowed tools are in the folder `.factory`
 of the repository. A file with the old form (the keys `target`, `merge`, `accounts`, `prompts-directory`,
 `limits.fix-loops`, or `claude.allowed-tools`) does not start. The message points to
-`claude-ai-factory create`, which writes the new configuration.
+the command `create` of the jar, which writes the new configuration.
 
 ## .factory
 
@@ -67,18 +67,19 @@ only: the record in the status comment keeps the state. The worker removes the o
    refuses to start when it is set.
 2. Log in with `gh auth login`. Or set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account.
 3. Build the jar with `./mvnw verify`.
-4. In a clone of the target repository, run `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar create`.
-   Answer the questions. Enter takes the default answer.
+4. Go to a clone of the target repository. Run `java -jar <path of the jar> create`, for example
+   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.1.0-SNAPSHOT.jar create`. Answer the questions.
+   Enter takes the default answer.
 5. Merge the PR `factory/setup`.
 6. Run the `run` command that `create` shows, for example
-   `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <work folder>/worker.yaml`.
+   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <work folder>/worker.yaml`.
 
 `create` checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`. It clones the
 repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. The default answer is
 "no". After a yes, it writes `<work folder>/worker.yaml`. When the default branch has no `.factory`, it then
 pushes the branch `factory/setup` through the gatekeeper. It opens a PR and assigns it to the login of the
 token. When the assignment fails, `create` shows the problem, keeps `worker.yaml`, and ends with success.
-Then assign the PR by hand.
+Then assign the PR by hand. Until the merge of the PR, the worker takes no issue, and the page shows the reason.
 `create` never pushes to the default branch, and it never overwrites a file.
 
 The default `.factory` holds `factory.yaml` and the prompt files that it uses. `create` does not copy
@@ -91,7 +92,7 @@ no file. When the branch `factory/setup` exists on GitHub without an open PR, `c
 file. This can occur when the push succeeds and the creation of the PR fails. The gatekeeper refuses a
 delete, so the message gives a `gh api` command that deletes the branch on GitHub. Then run `create` again.
 When the default branch has `.factory/factory.yaml`, `create` writes only `worker.yaml` and opens no
-PR. Until the merge of the PR, the worker takes no issue, and the page shows the reason.
+PR.
 
 A parameter gives the answer and removes the question:
 
