@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** Checks the rules 2 to 7 and 11 of the loader: start, finish, single actions, on-any-state, events, targets. */
+/** Checks the rules 2 to 7 and 11 of the loader: start, finish, build, single actions, on-any-state, events. */
 final class DefinitionRules {
 
     private static final String PREPARE_EVENT = "done";
@@ -17,6 +17,7 @@ final class DefinitionRules {
     static void verify(WorkflowDefinition workflow) throws DefinitionException {
         verifyStart(workflow);
         verifyFinish(workflow);
+        verifyBuildForMergeGate(workflow);
         verifySingleActions(workflow);
         verifyOnAnyState(workflow);
         for (StateDefinition state : workflow.states().values()) {
@@ -47,6 +48,16 @@ final class DefinitionRules {
     private static void verifyFinish(WorkflowDefinition workflow) throws DefinitionException {
         if (workflow.findStateWithAction(ActionType.FINISH).isEmpty()) {
             throw DefinitionNode.createFailure("no state has the action finish");
+        }
+    }
+
+    /** Only the action build pushes the branch and opens the pull request, so the merge gate needs it. */
+    private static void verifyBuildForMergeGate(WorkflowDefinition workflow) throws DefinitionException {
+        Optional<StateDefinition> mergeGate = workflow.findStateWithAction(ActionType.MERGE_GATE);
+        if (mergeGate.isPresent() && workflow.findStateWithAction(ActionType.BUILD).isEmpty()) {
+            throw DefinitionNode.createFailure("the state " + mergeGate.get().name()
+                    + " has the action merge-gate, but no state has the action build; "
+                    + "the action build pushes the branch and opens the pull request");
         }
     }
 

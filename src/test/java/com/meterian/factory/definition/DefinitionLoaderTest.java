@@ -136,6 +136,19 @@ class DefinitionLoaderTest {
     }
 
     @Test
+    void refusesAMergeGateWithoutBuild() {
+        String withoutBuild = DEFAULT_YAML
+                .replace("    build:\n      column: in-progress\n" + BUILD_ACTION
+                        + "      on: { passed: review, failed: implement }\n", "")
+                .replace("changed: build", "changed: review")
+                .replace("needs-new-reviews: build", "needs-new-reviews: review");
+        assertThat(withoutBuild).doesNotContain("type: build");
+
+        assertRefused(withoutBuild, "factory.yaml: the state merge has the action merge-gate, but no state has "
+                + "the action build; the action build pushes the branch and opens the pull request");
+    }
+
+    @Test
     void refusesTwoStatesWithTheSameAction() {
         String secondBuild = "    build-again:\n      column: in-progress\n" + BUILD_ACTION + "      " + BUILD_EVENTS + "\n";
         assertRefused(DEFAULT_YAML.replace("    review:\n", secondBuild + "    review:\n"),

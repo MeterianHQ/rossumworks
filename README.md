@@ -341,7 +341,7 @@ A button of an old page gets "This action is not possible now." when the card ch
 There are two ways to continue a blocked issue. Continue keeps the work. In the default workflow, `blocked` maps
 `continue` to `previous`, so the issue continues in the action where it stopped. Enter and then
 `/factory:continue` also keep the work. Start again discards the work: the worker writes a new record, removes the worktree,
-resets the branch, and starts a new session. The page asks for a confirm first. An open pull request stays open and
+resets the branch, and starts a new session. The issue takes the current version of `.factory`. The page asks for a confirm first. An open pull request stays open and
 gets the new commit. A pull request that GitHub merged moves the issue to Done, so the change never runs again.
 Start again shows only on an issue in the `block` target without a live conversation.
 

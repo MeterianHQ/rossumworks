@@ -510,6 +510,22 @@ class WorkerTest {
     }
 
     @Test
+    void startAgainTakesTheCurrentVersionOfTheDefinition() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord blocked = writeBlockedRecordWithEarlierWork();
+        String correction = commitDefinition(clone, mainFileFor("echo corrected"));
+        assertThat(blocked.definitionCommit()).isPresent().isNotEqualTo(Optional.of(correction));
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("prepare");
+        assertThat(record.definitionCommit()).contains(correction);
+    }
+
+    @Test
     void startAgainRunsTheAgentInANewSessionAndACleanWorktree() throws InterruptedException, IOException {
         AtomicBoolean strayFileSeen = new AtomicBoolean();
         Path strayFile = worktree().resolve("stray.txt");

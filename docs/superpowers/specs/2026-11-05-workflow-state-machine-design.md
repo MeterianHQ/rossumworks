@@ -37,7 +37,8 @@ these words. They do not use "step", "phase", or "status".
 Goals:
 
 - Any number of states, in any order, with the names that the user chooses.
-- Optional actions. Only `prepare` and `finish` are required.
+- Optional actions. Only `prepare` and `finish` are required. A workflow with
+  `merge-gate` also needs `build` (owner decision of 2026-11-09).
 - User-defined reviews: any number, each with a name and a prompt.
 - A separate limit on each state, so a user can have a fix cycle of 2 and a
   review cycle of 10.
@@ -322,8 +323,9 @@ The four checks of `main` (`MergeGate.decide`):
 3. The reviews are for the current files.
 4. The build is for the current files.
 
-The checks 2, 3, and 4 apply only when the workflow has the state of that
-action. Without a `build` state, there is no build check.
+The checks 2 and 3 apply only when the workflow has a `reviews` state. A
+workflow with `merge-gate` always has a `build` state, because only the
+action `build` pushes the branch and opens the pull request (rule 2).
 
 A failed check refuses the merge. The issue goes to the `block` target, with
 the reason, for example "the files changed after the reviews".
@@ -446,7 +448,8 @@ The new model keeps the button "Start again" and the label
    nothing.
 2. The worker deletes the earlier work of the issue. It writes a new record
    in the `start` state, with a new agent session. All the limit counts are
-   0.
+   0. The issue takes the current version of `.factory`, so a correction of
+   `.factory` reaches it (owner decision of 2026-11-09).
 3. The action `prepare` makes the worktree and the branch again.
 4. Exception: when the pull request of the issue is already merged, the
    issue goes to the `finish` state. So the factory never makes the change
@@ -491,6 +494,8 @@ names the file, the state, and the key.
 
 1. `version` is `1`. No key is unknown, at each level.
 2. `start` exists, and its action is `prepare`. A state with `finish` exists.
+   When a state has `merge-gate`, a state with `build` exists (owner decision
+   of 2026-11-09).
 3. Each action type is in one state at most, except `approval`.
 4. Each state has `column`. No column is `queued`.
 5. `on-any-state` has `block`, `enter`, and `issue-text-changed`. Each one

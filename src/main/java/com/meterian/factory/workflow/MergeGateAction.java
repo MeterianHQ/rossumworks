@@ -66,7 +66,7 @@ final class MergeGateAction implements Action {
                 .orElse(MergeMode.RISK);
     }
 
-    /** A workflow without a reviews state has no review checks. A workflow without a build state has no build check. */
+    /** A workflow without a reviews state has no review checks. The loader refuses a merge gate without a build state. */
     private MergeChecks findChecks() {
         boolean hasReviews = definition.workflow().findStateWithAction(ActionType.REVIEWS).isPresent();
         boolean hasBuild = definition.workflow().findStateWithAction(ActionType.BUILD).isPresent();

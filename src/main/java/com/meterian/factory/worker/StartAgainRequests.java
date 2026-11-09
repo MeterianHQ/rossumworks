@@ -1,6 +1,7 @@
 package com.meterian.factory.worker;
 
-import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.DefinitionVersion;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
@@ -22,13 +23,15 @@ final class StartAgainRequests {
             "GitHub already merged the pull request, so the issue does not start again.";
     private static final String DEFINITION_NOTE =
             "Start again has no effect: the workflow definition of the issue does not load.";
+    private static final String NO_CURRENT_VERSION_NOTE =
+            "Start again has no effect: no version of .factory on the default branch loads.";
 
     private final GitHubClient gitHub;
     private final StatusPublisher statusPublisher;
-    private final DefinitionLookup definitions;
+    private final DefinitionVersions definitions;
     private final IssueDefinitionFacts facts;
 
-    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionLookup definitions) {
+    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionVersions definitions) {
         this.gitHub = gitHub;
         this.statusPublisher = statusPublisher;
         this.definitions = definitions;
@@ -64,18 +67,21 @@ final class StartAgainRequests {
         if (record.pullRequestNumber().map(gitHub::isMerged).orElse(false)) {
             return moveTo(record, workflow.finishState()).withNote(MERGED_NOTE);
         }
-        return createQueuedRecord(issue, record, workflow);
+        return definitions.current()
+                .map(current -> createQueuedRecord(issue, record, current))
+                .orElseGet(() -> record.withNote(NO_CURRENT_VERSION_NOTE));
     }
 
     /**
      * The start state has the action prepare. It removes the old worktree and resets the branch, so nothing of the
-     * earlier work stays. The issue keeps its definition version. All the counts of the limits are 0.
+     * earlier work stays. The issue takes the current version of the definition, so a correction of .factory
+     * reaches it. All the counts of the limits are 0.
      */
-    private static IssueRecord createQueuedRecord(Issue issue, IssueRecord record, WorkflowDefinition workflow) {
-        IssueRecord queued = IssueRecord.queued(issue.number(), workflow.start())
+    private static IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
+        IssueRecord queued = IssueRecord.queued(issue.number(), current.definition().workflow().start())
+                .withDefinitionCommit(current.commit())
                 .withIssueTextHash(IssueText.computeHash(issue))
                 .withNote(STARTED_AGAIN_NOTE);
-        queued = record.definitionCommit().map(queued::withDefinitionCommit).orElse(queued);
         return record.statusCommentId().map(queued::withStatusComment).orElse(queued);
     }
 

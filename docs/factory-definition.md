@@ -205,7 +205,8 @@ file, `prompts/resume.md`.
 ### 6.3 `build`
 
 The action runs `build.command` in the worktree. It sends `passed` or `failed`. With `failed`, the errors of
-the build go to the next `coding` action as `{{findings}}`.
+the build go to the next `coding` action as `{{findings}}`. With `passed`, it pushes the branch and opens the
+pull request. A workflow with `merge-gate` needs a `build` state.
 
 ### 6.4 `reviews`
 
@@ -261,8 +262,8 @@ The four checks:
 3. The reviews are for the current files.
 4. The build is for the current files.
 
-The checks 2, 3, and 4 apply only when the workflow has the state of that action. For example, without a
-`build` state, there is no build check.
+The checks 2 and 3 apply only when the workflow has a `reviews` state. A workflow with `merge-gate` always has
+a `build` state, because only the action `build` pushes the branch and opens the pull request (rule 2).
 
 A failed check refuses the merge. The issue goes to the `block` target, with the reason in a note, for
 example "the files changed after the reviews".
@@ -471,7 +472,8 @@ beginning.
 1. The button and the label work only when the issue is in the `block` target and has no live conversation.
    In the other states, the worker removes the label, writes a note, and does nothing.
 2. The worker discards the earlier work of the issue. It writes a new record in the `start` state, with a new
-   agent session. The issue keeps its version of `.factory`. All the limit counts are 0.
+   agent session. The issue takes the current version of `.factory`, so a correction of `.factory` reaches
+   it. All the limit counts are 0. When no version of `.factory` loads, Start again has no effect.
 3. The action `prepare` makes the worktree and the branch again.
 4. Exception: when GitHub already merged the pull request of the issue, the issue goes to the `finish` state.
    So the factory never makes the change two times.
@@ -569,7 +571,7 @@ It names the state and the key.
 | Rule | Example message |
 |------|-----------------|
 | 1. `version` is `1`. No key is unknown, at each level. | `factory.yaml: version 2 is not supported`<br>`factory.yaml: the state build has the unknown key step` |
-| 2. `start` exists, and its action is `prepare`. A state with `finish` exists. | `factory.yaml: the start state build has the action build; it needs the action prepare`<br>`factory.yaml: no state has the action finish` |
+| 2. `start` exists, and its action is `prepare`. A state with `finish` exists. When a state has `merge-gate`, a state with `build` exists. | `factory.yaml: the start state build has the action build; it needs the action prepare`<br>`factory.yaml: no state has the action finish`<br>`factory.yaml: the state merge has the action merge-gate, but no state has the action build; the action build pushes the branch and opens the pull request` |
 | 3. Each action type is in one state at most, except `approval`. | `factory.yaml: the states build and build-again both have the action build; an action other than approval is in one state at most` |
 | 4. Each state has `column`. No column is `queued`. | `factory.yaml: the state build has no column`<br>`factory.yaml: the state build has the column queued, which the factory keeps for new issues` |
 | 5. `on-any-state` has `block`, `enter`, and `issue-text-changed`. Each one names a state that exists. The target of `issue-text-changed` has the action `approval`. The target of `enter` has the action `conversation`. The target of `block` is a state with no action. | `factory.yaml: key workflow.on-any-state.enter is missing`<br>`factory.yaml: on-any-state block goes to the state stuck, which does not exist`<br>`factory.yaml: the enter target blocked needs the action conversation`<br>`factory.yaml: the block target build has the action build; the block target must have no action` |
