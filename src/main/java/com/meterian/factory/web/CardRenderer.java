@@ -178,9 +178,9 @@ final class CardRenderer {
     }
 
     private void appendFacts(StringBuilder html, IssueRecord record, Map<String, Integer> limits) {
-        html.append("<dl class=\"facts\"><div><dt>Entries</dt><dd>")
+        html.append("<p class=\"entries\" title=\"Entries into each state with a limit\">")
                 .append(Html.escape(describeShortEntries(record, limits)))
-                .append("</dd></div></dl>");
+                .append("</p>");
         appendRiskLine(html, record);
     }
 

@@ -441,7 +441,8 @@ class BoardPageTest {
                 "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
                 "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
                 "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
-        assertThat(html).contains("<dt>Entries</dt><dd>implement 1/3, review 0/10</dd>").doesNotContain("<dt>Risk</dt>");
+        assertThat(html).contains("<p class=\"entries\" title=\"Entries into each state with a limit\">implement 1/3, review 0/10</p>")
+                .doesNotContain("<dt>Entries</dt>", "<dt>Risk</dt>");
         assertThat(html).contains(
                 "<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
@@ -463,7 +464,7 @@ class BoardPageTest {
     void showsNoRiskLineBeforeTheRiskCheck() {
         String html = page.renderBoard(model(List.of(card(record(12, "review"), "Fix the parser"))));
 
-        assertThat(html).contains("<dt>Entries</dt>").doesNotContain("risk-line");
+        assertThat(html).contains("<p class=\"entries\"").doesNotContain("risk-line");
     }
 
     @Test

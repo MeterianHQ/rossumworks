@@ -549,23 +549,8 @@ button {
     content: "\2717";
 }
 
-.facts {
-    display: flex;
-    gap: 1.2rem;
+.entries {
     margin: 0.4rem 0;
-}
-
-.facts div {
-    display: flex;
-    gap: 0.35rem;
-}
-
-.facts dt {
-    color: var(--text-muted);
-}
-
-.facts dd {
-    margin: 0;
     font-weight: 600;
 }
 
