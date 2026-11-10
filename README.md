@@ -322,7 +322,7 @@ YAML. For the default workflow, the columns are Queued, In progress, In review, 
 Done. The page shows the columns of the newest version of `.factory` that loads. A card whose column is not in
 that version goes to an extra column at the end.
 
-A card shows the issue, its state, the result of each review of its workflow, the entries against each limit,
+A card shows the issue, its state, the result of each review of its workflow, the entries against each limit (for example "implement 1/3"),
 the risk in one line, the context of the agent, and the newest note. The reasons of the risk check are in the
 status comment of the issue. A card in a state with the action
 `approval` or `conversation` waits for you. It shows the reason and the Remote Control link.

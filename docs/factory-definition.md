@@ -272,7 +272,7 @@ example "the files changed after the reviews".
 The events:
 
 - `merged`: the merge is done.
-- `needs-approval`: the merge needs your approval.
+- `needs-approval`: the merge needs approval.
 - `needs-new-reviews`: the target changed, and the reviews must run again on the merged files.
 - `conflict`: the merge with the target has a conflict. The agent must solve it.
 - `factory-changed`: the pull request changes `.factory`. This event comes in each mode, also with

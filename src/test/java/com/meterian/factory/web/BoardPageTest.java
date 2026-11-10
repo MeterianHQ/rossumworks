@@ -41,7 +41,7 @@ class BoardPageTest {
         return new IssueCard(record.issueNumber(), title, Set.of("factory"), record, Optional.empty());
     }
 
-    private static final String NEEDS_APPROVAL_NOTE = "The merge needs your approval.";
+    private static final String NEEDS_APPROVAL_NOTE = "The merge needs approval.";
 
     /** A record in the state of the built-in workflow, after the state implement. The start state stays queued. */
     private static IssueRecord record(int number, String stateName) {
@@ -441,11 +441,11 @@ class BoardPageTest {
                 "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
                 "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
                 "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
-        assertThat(html).contains("<dt>Entries</dt><dd>implement 1 of 3, review 0 of 10</dd>", "<dt>Risk</dt><dd class=\"risk-low\">low</dd>");
+        assertThat(html).contains("<dt>Entries</dt><dd>implement 1/3, review 0/10</dd>").doesNotContain("<dt>Risk</dt>");
         assertThat(html).contains(
                 "<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
-        assertThat(html).contains("<p class=\"risk-line\">risk: low, small</p>");
+        assertThat(html).contains("<p class=\"risk-line risk-low\">Risk: low, small</p>");
     }
 
     @Test
@@ -455,8 +455,15 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(List.of(card(record, "Fix the parser"))));
 
-        assertThat(html).contains("<p class=\"risk-line\">risk: low, not small</p>")
+        assertThat(html).contains("<p class=\"risk-line risk-low\">Risk: low, not small</p>")
                 .doesNotContain("risk-reasons", "Size: 3 files", "Tests: new tests cover the delete.");
+    }
+
+    @Test
+    void showsNoRiskLineBeforeTheRiskCheck() {
+        String html = page.renderBoard(model(List.of(card(record(12, "review"), "Fix the parser"))));
+
+        assertThat(html).contains("<dt>Entries</dt>").doesNotContain("risk-line");
     }
 
     @Test

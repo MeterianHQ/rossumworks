@@ -10,7 +10,7 @@ import java.util.Optional;
 /** Decides if a change can merge. A missing proof means refuse. */
 public final class MergeGate {
 
-    private static final String OWNER_APPROVAL_NEEDED = "The merge needs your approval.";
+    private static final String OWNER_APPROVAL_NEEDED = "The merge needs approval.";
 
     private MergeGate() {
     }

@@ -5,7 +5,6 @@ import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.Verdict;
 import java.time.Instant;
@@ -17,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Writes the HTML of one card. All text from GitHub and from the agents goes through {@link Html#escape}. */
 final class CardRenderer {
@@ -178,21 +178,30 @@ final class CardRenderer {
     }
 
     private void appendFacts(StringBuilder html, IssueRecord record, Map<String, Integer> limits) {
-        String risk = record.risk().map(level -> toLowerCase(level.name())).orElse(NO_VALUE);
-        String riskClass = record.risk().map(level -> " class=\"risk-" + toLowerCase(level.name()) + "\"").orElse("");
         html.append("<dl class=\"facts\"><div><dt>Entries</dt><dd>")
-                .append(Html.escape(StatusComment.describeEntries(record, limits)))
-                .append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
-                .append(risk).append("</dd></div></dl>");
+                .append(Html.escape(describeShortEntries(record, limits)))
+                .append("</dd></div></dl>");
         appendRiskLine(html, record);
+    }
+
+    /** The short form "implement 1/3" keeps the entries on one line of the card. */
+    private String describeShortEntries(IssueRecord record, Map<String, Integer> limits) {
+        if (limits.isEmpty()) {
+            return NO_VALUE;
+        }
+        return limits.entrySet().stream()
+                .map(limit -> limit.getKey() + " " + record.entriesOf(limit.getKey()) + "/" + limit.getValue())
+                .collect(Collectors.joining(", "));
     }
 
     /** The reasons of the risk check are in the status comment of the issue, so the card shows only the line. */
     private void appendRiskLine(StringBuilder html, IssueRecord record) {
-        List<String> lines = StatusComment.describeRisk(record);
-        if (!lines.isEmpty()) {
-            html.append("<p class=\"risk-line\">").append(Html.escape(lines.get(0))).append("</p>");
-        }
+        record.risk().ifPresent(level -> {
+            String levelName = toLowerCase(level.name());
+            String size = record.small() ? "small" : "not small";
+            html.append("<p class=\"risk-line risk-").append(levelName).append("\">Risk: ").append(levelName)
+                    .append(", ").append(size).append("</p>");
+        });
     }
 
     /** The policy of the page forbids an inline style, so the bar is a meter element. */

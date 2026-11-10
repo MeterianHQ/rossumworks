@@ -277,7 +277,7 @@ class IssueWorkflowTest {
 
         IssueRecord record = advanceUntilWaiting(workflow, waiting);
 
-        assertThat(waiting.notes()).contains("The merge needs your approval.");
+        assertThat(waiting.notes()).contains("The merge needs approval.");
         assertThat(record.notes()).last().isEqualTo("The pull request is merged.");
     }
 
@@ -1760,7 +1760,7 @@ class IssueWorkflowTest {
         assertThat(continued.live()).isEmpty();
         assertThat(record.column()).isEqualTo("waits-for-you");
         assertThat(record.state()).isEqualTo("waits-for-approval");
-        assertThat(record.newestNote()).contains("The merge needs your approval.");
+        assertThat(record.newestNote()).contains("The merge needs approval.");
         assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
@@ -2091,7 +2091,7 @@ class IssueWorkflowTest {
         assertThat(waiting.state()).isEqualTo("waits-for-approval");
         assertThat(waiting.column()).isEqualTo("waits-for-you");
         assertThat(waiting.actionStarted()).isTrue();
-        assertThat(waiting.newestNote()).contains("The merge needs your approval.");
+        assertThat(waiting.newestNote()).contains("The merge needs approval.");
         assertThat(stillWaiting).isEqualTo(waiting);
         assertThat(approved.state()).isEqualTo("merge");
         assertThat(record.state()).isEqualTo("done");

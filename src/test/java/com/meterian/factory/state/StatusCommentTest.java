@@ -155,11 +155,11 @@ class StatusCommentTest {
     @Test
     void showsTheReasonForWaitsForYouAsANote() {
         IssueRecord waiting = RecordStates.move(record, "waits-for-approval")
-                .withNewestNote("The merge needs your approval.");
+                .withNewestNote("The merge needs approval.");
 
         assertThat(StatusComment.render(waiting, LIMIT, REVIEWS))
                 .startsWith("**Factory status:** Waits for you — state waits-for-approval\n")
-                .contains("The merge needs your approval.\n");
+                .contains("The merge needs approval.\n");
     }
 
     @Test

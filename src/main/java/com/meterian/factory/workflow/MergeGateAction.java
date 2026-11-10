@@ -16,10 +16,10 @@ import java.util.List;
 
 final class MergeGateAction implements Action {
 
-    static final String NEEDS_APPROVAL_NOTE = "The merge needs your approval.";
+    static final String NEEDS_APPROVAL_NOTE = "The merge needs approval.";
     static final String MERGED_NOTE = "The pull request is merged.";
     static final String FACTORY_CHANGE_NOTE =
-            "The pull request changes the folder .factory. The merge needs your approval.";
+            "The pull request changes the folder .factory. The merge needs approval.";
     private static final String DEFINITION_FOLDER = ".factory";
 
     private final ActionServices services;

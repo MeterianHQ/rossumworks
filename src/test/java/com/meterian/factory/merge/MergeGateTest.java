@@ -111,14 +111,14 @@ class MergeGateTest {
     void asksTheOwnerForAMediumRisk() {
         MergeDecision decision = MergeGate.decide(approvedRecord(RiskLevel.MEDIUM, true), "a", false, false, MergeMode.RISK, checksOf(RecordStates.REVIEW_NAMES));
 
-        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs your approval."));
+        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs approval."));
     }
 
     @Test
     void asksTheOwnerForALowRiskThatIsNotSmall() {
         MergeDecision decision = MergeGate.decide(approvedRecord(RiskLevel.LOW, false), "a", false, false, MergeMode.RISK, checksOf(RecordStates.REVIEW_NAMES));
 
-        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs your approval."));
+        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs approval."));
     }
 
     @Test
@@ -135,7 +135,7 @@ class MergeGateTest {
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false, MergeMode.RISK, checksOf(RecordStates.REVIEW_NAMES));
 
-        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs your approval."));
+        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs approval."));
     }
 
     @Test
@@ -185,7 +185,7 @@ class MergeGateTest {
     void asksAlwaysWithAlwaysAsk() {
         MergeDecision decision = MergeGate.decide(approvedRecord(RiskLevel.LOW, true), "a", false, false, MergeMode.ALWAYS_ASK, checksOf(RecordStates.REVIEW_NAMES));
 
-        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs your approval."));
+        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs approval."));
     }
 
     @Test
@@ -219,6 +219,6 @@ class MergeGateTest {
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false, MergeMode.RISK, NO_REVIEWS_AND_NO_BUILD);
 
-        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs your approval."));
+        assertThat(decision).isEqualTo(new MergeDecision.NeedsOwner("The merge needs approval."));
     }
 }
