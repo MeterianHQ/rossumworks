@@ -269,6 +269,32 @@ class IssueWorkflowTest {
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain("factory", APPROVE_LABEL);
     }
 
+    @Test
+    void aMergeAfterAnApprovalGivesTheNewestNote() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(waiting.notes()).contains("The merge needs your approval.");
+        assertThat(record.notes()).last().isEqualTo("The pull request is merged.");
+    }
+
+    @Test
+    void aMergeByAPersonOnGitHubGivesTheNewestNote() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        gitHub.mergeByAPerson(waiting.pullRequestNumber().orElseThrow());
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(record.notes()).last().isEqualTo("The pull request is merged.");
+    }
+
     private static FakeAgentRunner.Action writeFactoryFile() {
         return request -> {
             Path prompts = request.workingDirectory().resolve(".factory/prompts");
@@ -971,7 +997,8 @@ class IssueWorkflowTest {
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
 
         assertThat(record.state()).isEqualTo("done");
-        assertThat(record.notes()).containsExactly("The tree on main after the merge differs from the built tree.");
+        assertThat(record.notes()).containsExactly("The pull request is merged.",
+                "The tree on main after the merge differs from the built tree.");
     }
 
     @Test
@@ -1451,7 +1478,7 @@ class IssueWorkflowTest {
         IssueRecord record = workflow.advance(merged);
 
         assertThat(record.state()).isEqualTo("done");
-        assertThat(record.notes()).containsExactly(
+        assertThat(record.notes()).containsExactly("The pull request is merged.",
                 "An action after the merge failed: com.meterian.factory.git.GitException. The change is merged.");
         assertThat(gitHub.columnOf(ISSUE)).contains("done");
         assertThat(gitHub.labelsOf(ISSUE)).contains("factory");

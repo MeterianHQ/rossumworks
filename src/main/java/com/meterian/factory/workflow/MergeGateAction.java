@@ -17,6 +17,7 @@ import java.util.List;
 final class MergeGateAction implements Action {
 
     static final String NEEDS_APPROVAL_NOTE = "The merge needs your approval.";
+    static final String MERGED_NOTE = "The pull request is merged.";
     static final String FACTORY_CHANGE_NOTE =
             "The pull request changes the folder .factory. The merge needs your approval.";
     private static final String DEFINITION_FOLDER = ".factory";
@@ -34,7 +35,8 @@ final class MergeGateAction implements Action {
     @Override
     public ActionResult run(Issue issue, IssueRecord record, Path worktree) {
         if (isMergedOnGitHub(record)) {
-            return ActionResult.endWith(record.withBuiltTree(services.git().treeHash(worktree)), "merged");
+            return ActionResult.endWith(
+                    record.withNote(MERGED_NOTE).withBuiltTree(services.git().treeHash(worktree)), "merged");
         }
         version.reviewedCommit().restoreRebasedHead(worktree, record);
         String currentTreeHash = services.git().treeHash(worktree);
@@ -76,7 +78,7 @@ final class MergeGateAction implements Action {
     private ActionResult mergePullRequest(Issue issue, IssueRecord record, Path worktree) {
         MergeResult result = version.merger().merge(worktree, record);
         return switch (result) {
-            case MergeResult.Merged merged -> ActionResult.endWith(merged.note().map(record::withNote).orElse(record)
+            case MergeResult.Merged merged -> ActionResult.endWith(withMergedNotes(record, merged)
                     .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()), "merged");
             case MergeResult.NeedsNewReviews needsNewReviews ->
                     ActionResult.endWith(record.withoutReviews(), "needs-new-reviews");
@@ -86,6 +88,12 @@ final class MergeGateAction implements Action {
             case MergeResult.NotForwarded notForwarded -> services.forwardCheckFailure().count(
                     issue, record, record, notForwarded.pushedCommit(), notForwarded.pushedTree());
         };
+    }
+
+    /** A note of the merger comes after the merged note, so that the card shows the problem. */
+    private static IssueRecord withMergedNotes(IssueRecord record, MergeResult.Merged merged) {
+        IssueRecord withMergedNote = record.withNote(MERGED_NOTE);
+        return merged.note().map(withMergedNote::withNote).orElse(withMergedNote);
     }
 
     /** Opens a merge with the target in the worktree, so that the agent solves a conflict in the files. */

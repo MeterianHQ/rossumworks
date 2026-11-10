@@ -378,6 +378,11 @@ public final class FakeGitHubClient implements GitHubClient {
         return readBranchHead(branch);
     }
 
+    /** A person merges an open pull request on GitHub, outside the factory. */
+    public synchronized void mergeByAPerson(int pullRequestNumber) {
+        mergedPullRequests.add(pullRequestNumber);
+    }
+
     /** A pull request that GitHub merged before the test starts. */
     public synchronized int addMergedPullRequest(String branch) {
         int number = nextPullRequestNumber++;

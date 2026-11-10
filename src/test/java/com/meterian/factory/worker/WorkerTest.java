@@ -80,6 +80,7 @@ class WorkerTest {
     private static final String ENDED_NOTE = "The live conversation ended without /factory:continue."
             + " Add the label factory:enter to open a new one.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
+    private static final String MERGED_NOTE = "The pull request is merged.";
     private static final String FINISH_FAILURE_NOTE =
             "An action after the merge failed: java.lang.IllegalStateException. The change is merged.";
     private static final String BROKEN_RECORD_NOTE =
@@ -624,7 +625,7 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.state()).isEqualTo("done");
         assertThat(record.column()).isNotEqualTo("blocked");
-        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, DONE_BLOCK_NOTE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
@@ -638,14 +639,14 @@ class WorkerTest {
         IssueRecord afterTheFailure = readRecord(ISSUE).orElseThrow();
         assertThat(afterTheFailure.state()).isEqualTo("done");
         assertThat(afterTheFailure.column()).isNotEqualTo("blocked");
-        assertThat(afterTheFailure.notes()).containsExactly(FINISH_FAILURE_NOTE);
+        assertThat(afterTheFailure.notes()).containsExactly(MERGED_NOTE, FINISH_FAILURE_NOTE);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.state()).isEqualTo("done");
-        assertThat(record.notes()).containsExactly(FINISH_FAILURE_NOTE);
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, FINISH_FAILURE_NOTE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
         assertThat(worktree()).doesNotExist();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
@@ -709,7 +710,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.state()).isEqualTo("done");
-        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, DONE_BLOCK_NOTE);
         assertThat(gitHub.columnOf(ISSUE)).contains("done");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
     }
