@@ -326,6 +326,8 @@ A card shows the issue, its state, the result of each review of its workflow, th
 the risk in one line, the context of the agent, and the newest note. The reasons of the risk check are in the
 status comment of the issue. A card in a state with the action
 `approval` or `conversation` waits for you. It shows the reason and the Remote Control link.
+After a click on a button, the card shows the sent request. Until the worker acts on it, the card is gray and
+all its buttons are disabled.
 The column of the `finish` state keeps the 20 newest cards.
 The page updates itself when the state changes.
 The page uses a dark theme. On a narrow screen, the columns go one under the other, and "Waits for you" is at

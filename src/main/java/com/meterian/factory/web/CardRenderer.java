@@ -37,18 +37,19 @@ final class CardRenderer {
     String render(IssueCard card, PageModel model) {
         IssueRecord record = card.record();
         boolean waits = record.action().filter(ActionType::waitsForYou).isPresent();
+        List<PageAction> pendingRequests = findPendingRequests(card, model);
+        boolean suspended = !pendingRequests.isEmpty();
         StringBuilder html = new StringBuilder();
-        html.append("<article class=\"").append(waits ? "card waits" : "card").append("\">");
+        html.append("<article class=\"").append(describeCardClass(waits, suspended)).append("\">");
         html.append("<div class=\"card-head\"><span class=\"phase\">").append(Html.escape(record.state()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
-        List<PageAction> pendingRequests = findPendingRequests(card, model);
         appendRequests(html, pendingRequests);
-        boolean showsTheReason = waits && pendingRequests.isEmpty();
+        boolean showsTheReason = waits && !suspended;
         if (showsTheReason) {
             appendReason(html, record);
         }
-        appendLiveBox(html, card, model);
+        appendLiveBox(html, card, model, suspended);
         appendReviews(html, record, model.reviewNamesOf(record.issueNumber()));
         appendFacts(html, record, model.limitsOf(record.issueNumber()));
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
@@ -57,9 +58,15 @@ final class CardRenderer {
             appendNewestNote(html, record);
         }
         card.doneAt().ifPresent(doneAt -> appendDoneDate(html, doneAt));
-        appendActions(html, card, model);
+        appendActions(html, card, model, suspended);
         html.append("</article>");
         return html.toString();
+    }
+
+    /** A card with a sent request is suspended: it is gray, and its buttons are disabled until the worker acts. */
+    private static String describeCardClass(boolean waits, boolean suspended) {
+        String cardClass = waits ? "card waits" : "card";
+        return suspended ? cardClass + " pending" : cardClass;
     }
 
     private void appendTitle(StringBuilder html, IssueCard card, String repositoryFullName) {
@@ -111,13 +118,13 @@ final class CardRenderer {
     }
 
     /** The box shows where the owner opened the live conversation, and the places where it opens again. */
-    private void appendLiveBox(StringBuilder html, IssueCard card, PageModel model) {
+    private void appendLiveBox(StringBuilder html, IssueCard card, PageModel model, boolean suspended) {
         Optional<String> link = card.record().live().flatMap(live -> live.link());
         if (link.isEmpty()) {
             return;
         }
         LivePlace chosenPlace = card.record().live().orElseThrow().place();
-        String openGroup = createOpenGroup(card, model, link.get(), chosenPlace);
+        String openGroup = createOpenGroup(card, model, link.get(), chosenPlace, suspended);
         html.append("<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p>")
                 .append("<p class=\"open-label\">").append(describeChosenPlace(chosenPlace));
         if (!openGroup.isEmpty()) {
@@ -142,12 +149,13 @@ final class CardRenderer {
     }
 
     /** Only a full match of the Remote Control pattern becomes the Browser link. Any other value is text. */
-    private String createOpenGroup(IssueCard card, PageModel model, String link, LivePlace chosenPlace) {
+    private String createOpenGroup(IssueCard card, PageModel model, String link, LivePlace chosenPlace,
+            boolean suspended) {
         StringBuilder group = new StringBuilder();
         String fingerprint = CardFingerprint.of(card);
         if (isPossible(PageAction.OPEN_TERMINAL, card, model)) {
             appendPlaceForm(group, card.issueNumber(), PageAction.OPEN_TERMINAL, chosenPlace == LivePlace.TERMINAL,
-                    fingerprint);
+                    fingerprint, suspended);
         }
         if (TmuxLiveSessions.isRemoteControlLink(link)) {
             appendExternalLinkStart(group, link, createPlaceAttributes(chosenPlace == LivePlace.BROWSER,
@@ -156,7 +164,7 @@ final class CardRenderer {
         }
         if (isPossible(PageAction.SEND_TO_PHONE, card, model)) {
             appendPlaceForm(group, card.issueNumber(), PageAction.SEND_TO_PHONE, chosenPlace == LivePlace.PHONE,
-                    fingerprint);
+                    fingerprint, suspended);
         }
         return group.toString();
     }
@@ -240,7 +248,7 @@ final class CardRenderer {
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
      * The Enter buttons are one group before the other forms.
      */
-    private void appendActions(StringBuilder html, IssueCard card, PageModel model) {
+    private void appendActions(StringBuilder html, IssueCard card, PageModel model, boolean suspended) {
         String fingerprint = CardFingerprint.of(card);
         List<PageAction> enterActions = ENTER_ACTIONS.stream()
                 .filter(action -> isPossible(action, card, model))
@@ -249,14 +257,15 @@ final class CardRenderer {
         if (!enterActions.isEmpty()) {
             html.append("<div class=\"enter-group\">");
             for (PageAction action : enterActions) {
-                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint);
+                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint, suspended);
             }
             html.append("</div><span class=\"separator\"></span>");
         }
         for (PageAction action : OTHER_ACTIONS) {
             if (isPossible(action, card, model)) {
                 appendFormStart(html, card.issueNumber(), action, fingerprint);
-                html.append("<button>").append(action.buttonText()).append("</button></form>");
+                html.append(suspended ? "<button disabled>" : "<button>").append(action.buttonText())
+                        .append("</button></form>");
             }
         }
         html.append("</div>");
@@ -270,10 +279,10 @@ final class CardRenderer {
 
     /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */
     private void appendPlaceForm(StringBuilder html, int issueNumber, PageAction action, boolean current,
-            String fingerprint) {
+            String fingerprint, boolean suspended) {
         appendFormStart(html, issueNumber, action, fingerprint);
         html.append("<button").append(createPlaceAttributes(current, action.buttonText(), action.tooltip()))
-                .append('>').append(action.buttonText()).append("</button></form>");
+                .append(suspended ? " disabled>" : ">").append(action.buttonText()).append("</button></form>");
     }
 
     /** The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it. */

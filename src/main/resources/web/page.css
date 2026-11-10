@@ -347,6 +347,21 @@ button {
     box-shadow: 0 0 0 1px rgba(210, 153, 34, 0.45);
 }
 
+/* A card with a sent request waits for the worker: all of it is gray, except the sent text. */
+.card.pending {
+    border-left-color: var(--grey);
+    box-shadow: none;
+}
+
+.card.pending > :not(.request) {
+    filter: grayscale(1);
+    opacity: 0.55;
+}
+
+.card.pending button:disabled {
+    cursor: not-allowed;
+}
+
 .card-head {
     margin-bottom: 0.3rem;
 }

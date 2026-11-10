@@ -503,6 +503,27 @@ class BoardPageTest {
     }
 
     @Test
+    void aCardWithASentRequestIsSuspendedWithAllButtonsDisabled() {
+        IssueRecord record = waitsForApproval(12);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
+                Map.of(12, Set.of("factory:approve"))));
+
+        String cardHtml = html.substring(html.indexOf("<article"), html.indexOf("</article>"));
+        assertThat(cardHtml).startsWith("<article class=\"card waits pending\">")
+                .contains("<button disabled>Block</button>", "action=\"/issues/12/enter-terminal\"")
+                .doesNotContainPattern("<button(?![^>]*disabled)[^>]*>");
+    }
+
+    @Test
+    void aCardWithoutASentRequestHasActiveButtons() {
+        String html = page.renderBoard(model(List.of(card(waitsForApproval(12)))));
+
+        assertThat(html).contains("<article class=\"card waits\">", "<button>Approve</button>")
+                .doesNotContain("pending", "disabled");
+    }
+
+    @Test
     void anApproveRequestEndsWhenTheIssueNoLongerWaitsForTheApproval() {
         IssueRecord record = record(12, "merge");
 
