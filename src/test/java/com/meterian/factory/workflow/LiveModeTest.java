@@ -94,6 +94,26 @@ class LiveModeTest {
     }
 
     @Test
+    void anOpenAfterAFailedOpenAddsTheNewestNote() throws Exception {
+        IssueRecord failed = recordInState("live").withNote("The live conversation did not open: no link");
+
+        IssueRecord live = open(failed);
+
+        assertThat(live.notes()).last().isEqualTo("The live conversation is open.");
+    }
+
+    @Test
+    void aTerminalThatDoesNotOpenGivesTheNewestNote() throws Exception {
+        pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
+        liveSessions.failOpenTerminalWith(new LiveSessionException("no display"));
+
+        IssueRecord live = open(recordInState("live"));
+
+        assertThat(live.notes()).containsExactly("The live conversation is open.",
+                "The terminal window did not open: no display Use the Remote Control link.");
+    }
+
+    @Test
     void anOpenWithoutAPageRequestIsPhoneWithNoMention() throws Exception {
         IssueRecord live = open(recordInState("live"));
 

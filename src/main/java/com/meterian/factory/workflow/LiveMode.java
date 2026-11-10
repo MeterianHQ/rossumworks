@@ -16,6 +16,7 @@ import java.util.Optional;
 final class LiveMode {
 
     private static final System.Logger LOGGER = System.getLogger(LiveMode.class.getName());
+    static final String OPEN_NOTE = "The live conversation is open.";
     private static final String TERMINAL_NOT_OPEN_NOTE = "The terminal window did not open: ";
 
     private final Git git;
@@ -31,7 +32,8 @@ final class LiveMode {
     }
 
     /**
-     * A record that already has a live state keeps its start head commit: a new session never replaces it.
+     * A record that already has a live state keeps its start head commit: a new session never replaces it. The
+     * note of the open is the newest note, so that the card does not show the note of an earlier failed open.
      *
      * @param allowedTools the allowed tools of the definition of the issue
      */
@@ -43,7 +45,7 @@ final class LiveMode {
         LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
         String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree, allowedTools);
         postOpenComment(record.issueNumber(), link);
-        IssueRecord opened = record.withLive(before.withLink(link).withPlace(place));
+        IssueRecord opened = record.withLive(before.withLink(link).withPlace(place)).withNote(OPEN_NOTE);
         return place == LivePlace.TERMINAL ? openTerminal(opened) : opened;
     }
 
