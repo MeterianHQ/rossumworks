@@ -5,11 +5,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueStatus;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class FakeGitHubClientTest {
 
     private final FakeGitHubClient github = new FakeGitHubClient();
+
+    @Test
+    void assignByRecordsTheAssigneeAndTheEvent() {
+        github.addIssue(1, "T", "B");
+
+        github.assignBy(1, "alice");
+
+        assertThat(github.issue(1).assignees()).isEqualTo(Set.of("alice"));
+        assertThat(github.assignmentEvents(1)).hasSize(1);
+        assertThat(github.assignmentEvents(1).get(0).assignee()).isEqualTo("alice");
+    }
+
+    @Test
+    void ignoredAssigneeLeavesTheIssueUnassigned() {
+        github.addIssue(1, "T", "B");
+        github.ignoreTheAssignees();
+
+        github.addAssignee(1, "worker");
+
+        assertThat(github.assigneesOf(1)).isEmpty();
+    }
 
     @Test
     void closesThePullRequestAfterAMerge() {

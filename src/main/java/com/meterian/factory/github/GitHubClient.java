@@ -20,6 +20,15 @@ public interface GitHubClient {
 
     void editComment(long commentId, String body);
 
+    /** GitHub does nothing for a login that has no access to the repository. */
+    void addAssignee(int issueNumber, String login);
+
+    /** Does nothing when the login is not an assignee of the issue. */
+    void removeAssignee(int issueNumber, String login);
+
+    /** Returns the "assigned" events of the issue, in the order of GitHub. */
+    List<AssignmentEvent> assignmentEvents(int issueNumber);
+
     /** Creates the label when it does not exist. Does nothing when it exists. */
     void ensureLabel(String label, String color, String description);
 

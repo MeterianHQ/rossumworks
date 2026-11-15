@@ -136,6 +136,34 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public void addAssignee(int issueNumber, String login) {
+        send("POST", repositoryPath + "/issues/" + issueNumber + "/assignees", Map.of("assignees", List.of(login)));
+    }
+
+    @Override
+    public void removeAssignee(int issueNumber, String login) {
+        String path = repositoryPath + "/issues/" + issueNumber + "/assignees";
+        HttpResponse<String> response = sendRaw("DELETE", path, Map.of("assignees", List.of(login)));
+        if (response.statusCode() != 404) {
+            requireSuccess("DELETE", path, response);
+        }
+    }
+
+    @Override
+    public List<AssignmentEvent> assignmentEvents(int issueNumber) {
+        List<AssignmentEvent> assignmentEvents = new ArrayList<>();
+        String eventsPath = repositoryPath + "/issues/" + issueNumber + "/events?per_page=" + PAGE_SIZE;
+        for (JsonNode event : readAllPages(eventsPath)) {
+            if ("assigned".equals(event.path("event").asText())) {
+                assignmentEvents.add(new AssignmentEvent(event.path("id").asLong(),
+                        event.path("assignee").path("login").asText(),
+                        Instant.parse(event.path("created_at").asText())));
+            }
+        }
+        return List.copyOf(assignmentEvents);
+    }
+
+    @Override
     public void ensureLabel(String label, String color, String description) {
         HttpResponse<String> response = sendRaw("POST", repositoryPath + "/labels",
                 Map.of("name", label, "color", color, "description", description));
@@ -253,8 +281,12 @@ public final class HttpGitHubClient implements GitHubClient {
         for (JsonNode label : item.path("labels")) {
             labels.add(label.path("name").asText());
         }
+        Set<String> assignees = new LinkedHashSet<>();
+        for (JsonNode assignee : item.path("assignees")) {
+            assignees.add(assignee.path("login").asText());
+        }
         return new Issue(item.path("number").asInt(), item.path("title").asText(), item.path("body").asText(""),
-                labels);
+                labels, assignees);
     }
 
     private PullRequest toPullRequest(JsonNode item) {
