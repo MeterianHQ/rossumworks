@@ -1186,6 +1186,43 @@ class WorkerTest {
     }
 
     @Test
+    void anOpenLiveSessionHoldsItsSlot() throws InterruptedException {
+        enterTheWaitingIssue();
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+        assertThat(agent.requests()).isEmpty();
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void anIssueBackFromItsLiveSessionStartsBeforeANewIssue() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        addLabeledIssue(3);
+        worker.pollOnce();
+        liveSessions.requestContinue(ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).doesNotContain(3);
+        assertThat(readRecord(3).orElseThrow().column()).isEqualTo("queued");
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
+    }
+
+    @Test
     void enterBeforeTheSessionFileExistsOpensNoConversationAndBlocksNothing() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().withoutASavedSession().thenWaitForStop().thatIsStopped();
         Worker worker = createWorker(agent, 2);

@@ -91,6 +91,8 @@ public final class Worker {
     private final Set<Integer> issuesOfAnotherOwner = new HashSet<>();
     /** The issues with a release in progress. The poll neither releases nor starts them again. */
     private final Set<Integer> releasesInProgress = new HashSet<>();
+    /** The issues with an open live session at the last poll. Each one holds a slot, as an issue in work. */
+    private final Set<Integer> issuesInLiveSession = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -143,11 +145,12 @@ public final class Worker {
             List<IssueRecord> startable = new ArrayList<>();
             List<Issue> ownedIssues = claimOwnedIssues(readLabeledIssues());
             board.recordPoll(ownedIssues);
+            Set<Integer> earlierLiveIssues = forgetLiveSessions();
             for (Issue issue : ownedIssues) {
                 verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
-            for (IssueRecord record : startable) {
+            for (IssueRecord record : orderBackFromLiveFirst(startable, earlierLiveIssues)) {
                 verifyEnoughRequestsRemain();
                 if (!factorySwitch.isStopRequested()) {
                     startIssue(record);
@@ -224,6 +227,40 @@ public final class Worker {
 
     public synchronized Set<Integer> issuesInWork() {
         return Set.copyOf(issuesInWork);
+    }
+
+    /** The issues in work and the open live sessions share the parallel limit. */
+    public synchronized int countUsedSlots() {
+        return issuesInWork.size() + countLiveSessionsOutsideWork(Optional.empty());
+    }
+
+    /** An issue back from its live session takes over the slot of its own session. */
+    private synchronized int countLiveSessionsOutsideWork(Optional<Integer> excludedIssueNumber) {
+        return (int) issuesInLiveSession.stream()
+                .filter(issueNumber -> !issuesInWork.contains(issueNumber))
+                .filter(issueNumber -> excludedIssueNumber.filter(issueNumber::equals).isEmpty())
+                .count();
+    }
+
+    /** Each poll finds the open live sessions again, so a session that ended gives back its slot. */
+    private synchronized Set<Integer> forgetLiveSessions() {
+        Set<Integer> earlierLiveIssues = Set.copyOf(issuesInLiveSession);
+        issuesInLiveSession.clear();
+        return earlierLiveIssues;
+    }
+
+    private synchronized void rememberLiveSession(IssueRecord record) {
+        if (record.live().isPresent()) {
+            issuesInLiveSession.add(record.issueNumber());
+        }
+    }
+
+    /** An issue back from its live session gets the slot that its session held, before any other issue. */
+    private static List<IssueRecord> orderBackFromLiveFirst(List<IssueRecord> startable,
+                                                            Set<Integer> earlierLiveIssues) {
+        return startable.stream()
+                .sorted(Comparator.comparing((IssueRecord record) -> !earlierLiveIssues.contains(record.issueNumber())))
+                .toList();
     }
 
     private void ensureLabelsOnce() {
@@ -364,6 +401,7 @@ public final class Worker {
         IssueRecord current = EnterRequests.isRequested(issue) ? enterRequests.enter(afterStartAgain)
                 : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
+        rememberLiveSession(current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> workflow.isStartable(issue, found));
     }
@@ -476,7 +514,8 @@ public final class Worker {
     }
 
     private synchronized boolean reserveSlot(int issueNumber) {
-        boolean hasFreeSlot = issuesInWork.size() < configuration.limits().parallelIssues();
+        int usedSlots = issuesInWork.size() + countLiveSessionsOutsideWork(Optional.of(issueNumber));
+        boolean hasFreeSlot = usedSlots < configuration.limits().parallelIssues();
         return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber)
                 && !releasesInProgress.contains(issueNumber) && issuesInWork.add(issueNumber);
     }

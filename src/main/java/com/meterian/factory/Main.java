@@ -288,7 +288,7 @@ public final class Main {
                 shared.lostIssues());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 definitions, definitions::warning,
-                () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
+                worker::countUsedSlots, worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
             shared.board().recordRequestChange();
