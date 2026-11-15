@@ -27,6 +27,7 @@ import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.setup.CreateCommand;
+import com.meterian.factory.setup.RunningJar;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
@@ -136,7 +137,7 @@ public final class Main {
         CreateCommand command = new CreateCommand(new SystemSetupConsole(), System.getenv(), output, errors,
                 StartChecks::readTokenFromGh, new ProcessGit(),
                 (repository, token) -> new HttpGitHubClient(GITHUB_API, token, repository, createHttpClient()),
-                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")));
+                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")), RunningJar.find());
         return command.run(arguments);
     }
 

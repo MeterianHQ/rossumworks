@@ -10,9 +10,12 @@ import com.meterian.factory.github.PullRequest;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /** Reads the repository, and publishes the default .factory on the branch factory/setup through the gatekeeper. */
@@ -21,6 +24,8 @@ public final class RepositorySetup {
     private static final String SETUP_BRANCH = "factory/setup";
     private static final String FACTORY_FOLDER = ".factory";
     private static final String MAIN_FILE = ".factory/factory.yaml";
+    private static final String SHELL_SCRIPT_SUFFIX = ".sh";
+    private static final Set<PosixFilePermission> EXECUTABLE_PERMISSIONS = PosixFilePermissions.fromString("rwxr-xr-x");
     private static final String WORKTREE_NAME = "setup-worktree";
     private static final String GATEKEEPER_REMOTE = "gatekeeper";
     private static final String COMMIT_MESSAGE = "Add the definition of the factory";
@@ -172,10 +177,17 @@ public final class RepositorySetup {
                 Path target = worktree.resolve(file.getKey());
                 Files.createDirectories(target.getParent());
                 Files.writeString(target, file.getValue());
+                if (isShellScript(target)) {
+                    Files.setPosixFilePermissions(target, EXECUTABLE_PERMISSIONS);
+                }
             }
         } catch (IOException exception) {
             throw new SetupException("Cannot write the files of .factory: " + exception.getMessage());
         }
+    }
+
+    private static boolean isShellScript(Path file) {
+        return file.getFileName().toString().endsWith(SHELL_SCRIPT_SUFFIX);
     }
 
     private void verifyGitHubHasTheBranch(PushResult pushed) throws SetupException {

@@ -5,18 +5,23 @@ import com.meterian.factory.definition.ClasspathDefinitionFiles;
 import com.meterian.factory.definition.DefinitionException;
 import com.meterian.factory.definition.FactoryDefinition;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/** The default folder .factory: the files of the jar, adapted to the build of the repository. */
+/** The default folder .factory: the files of the jar, adapted to the build of the repository, and the run script. */
 public final class DefaultFactoryFolder {
 
     private static final String FOLDER = ".factory/";
     private static final String MAIN_FILE = "factory.yaml";
     private static final String BUILD_COMMAND_LINE = "  command: ./mvnw verify\n";
     private static final String TARGET_BRANCH_LINE = "  target-branch: main\n";
+    private static final String RUN_SCRIPT = "run.sh";
+    private static final String RUN_SCRIPT_RESOURCE = "/setup/" + RUN_SCRIPT;
     private static final String MAVEN_TOOLS = "\"Bash(./mvnw *)\", \"Bash(mvn *)\"";
 
     private DefaultFactoryFolder() {
@@ -30,6 +35,7 @@ public final class DefaultFactoryFolder {
         for (String promptPath : definition.prompts().keySet()) {
             files.put(FOLDER + promptPath, readResource(promptPath));
         }
+        files.put(FOLDER + RUN_SCRIPT, readRunScript());
         return files;
     }
 
@@ -56,6 +62,17 @@ public final class DefaultFactoryFolder {
                     () -> new IllegalStateException("The built-in definition has no file " + relativePath + "."));
         } catch (DefinitionException exception) {
             throw new IllegalStateException(exception.getMessage(), exception);
+        }
+    }
+
+    private static String readRunScript() {
+        try (InputStream stream = DefaultFactoryFolder.class.getResourceAsStream(RUN_SCRIPT_RESOURCE)) {
+            if (stream == null) {
+                throw new IllegalStateException("The jar has no file " + RUN_SCRIPT_RESOURCE + ".");
+            }
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot read the file " + RUN_SCRIPT_RESOURCE + ".", exception);
         }
     }
 }
