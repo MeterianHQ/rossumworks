@@ -73,7 +73,7 @@ At each poll, for an open issue with the label `factory`:
 | None | Assigns the issue to the worker login, then does the race check of section 4.1. |
 | Only the worker login | Works on the issue as now. |
 | Only other accounts | Does not pick up the issue. Writes nothing on the issue. |
-| The worker login and other accounts | Does not pick up the issue (my call: the ownership is not clear). Writes nothing on the issue. |
+| The worker login and other accounts | Applies the rule of section 4.1: the earliest "assigned" event wins (my call, changed at the plan: one rule for all the cases). |
 
 The factory assigns itself before it takes the issue into the queue, that is
 before it writes its first status comment.
