@@ -34,6 +34,9 @@ Warning: two other paths add labels. They can give work to the factory from any 
 
 Do not put `factory` or a `factory:` label in an issue template, an issue form, or a workflow.
 
+The account of the token must be able to assign issues in the target repository. Without this access, GitHub
+ignores the assignee, and the factory does not work on the issue. The factory writes a warning in the log.
+
 Note: the comments of the worker mention nobody. If the token belongs to the owner, GitHub sends the owner no
 notification for these comments. With a separate worker account, the owner gets a notification only for the
 issues that the owner watches.
@@ -41,6 +44,47 @@ issues that the owner watches.
 The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
 before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
 their start at the next run.
+
+## More than one factory on one repository
+
+Several people can run a factory on the same repository. Each person uses a token of their own account. The
+assignee of an issue decides which factory owns the issue. The factory assigns the issue to the account of its
+token.
+
+### Pick up
+
+- The factory picks up an issue that has no assignee. It needs the label `factory` from an account in
+  `accounts.allowed`.
+- The factory assigns the issue to itself. Then it reads the issue again.
+- When the issue has more than one assignee, the earliest "assigned" event among the current assignees wins.
+  The factory that loses removes its own assignee.
+- An assignee with no event wins over the others. The factory gives way.
+- An issue of another account gets no work and no comment. It gets no card on the board of this factory.
+
+### Stop
+
+The factory checks the owner at each poll and before each step. It also checks just before each push, each
+change to the pull request, and the merge. A running agent or build is never interrupted.
+
+When another account becomes the owner, the factory starts no new step. It writes one comment: "The factory of
+`<login>` stops work on this issue, because the issue has a new assignee. The branch and the pull request stay.
+The factory of the new assignee continues the work." An open live session stays open. A merged issue (phase
+DONE) gets no stop.
+
+### Continuation
+
+- The new owner continues from the branch `factory/issue-<n>` on GitHub when the branch exists. It starts a new
+  agent session, builds again, reviews again, and uses the existing pull request.
+- When the branch does not exist, the new owner starts the issue from the beginning.
+- The work before the first push stays on the first machine. The Claude session stays there too.
+- The new owner keeps a block and a wait of the earlier record.
+- A wait for the merge approval stays only when the pushed branch exists. After the approval, the factory builds
+  and reviews again. Then it asks for the approval a second time. Without the branch, the issue starts from the
+  beginning.
+- A factory that gets an issue back continues as a new owner.
+
+The labels are always orders. They keep the rule of `accounts.allowed`. An assignee change from any account
+counts.
 
 ## The language of the agents
 
