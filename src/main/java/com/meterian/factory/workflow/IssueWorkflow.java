@@ -300,7 +300,7 @@ public final class IssueWorkflow {
                 .map(pullRequest -> withTree.withPullRequest(pullRequest.number()))
                 .orElse(withTree);
         if (!published.isOnGitHub()) {
-            return forwardCheckFailure.count(issue, record, built, headCommit, treeHash);
+            return countFailedForwardCheck(issue, record, built, headCommit, treeHash);
         }
         return built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.REVIEW);
     }
@@ -309,6 +309,16 @@ public final class IssueWorkflow {
     private void withdrawTheApprovalAsTheOwner(int issueNumber) {
         ownershipGuard.verifyStillOwner(issueNumber);
         ownerApproval.withdraw(issueNumber);
+    }
+
+    /**
+     * The gatekeeper refuses a forward over a commit of another factory. When another account owns the issue now,
+     * the refused forward is not a failure: the loop ends, and the issue gets no count and no block.
+     */
+    private IssueRecord countFailedForwardCheck(Issue issue, IssueRecord before, IssueRecord after,
+                                                String pushedCommit, String pushedTree) {
+        ownershipGuard.verifyStillOwner(issue.number());
+        return forwardCheckFailure.count(issue, before, after, pushedCommit, pushedTree);
     }
 
     /** The build passed for this tree and only the forward failed, so the build does not run again. */
@@ -391,7 +401,7 @@ public final class IssueWorkflow {
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> record;
             case MergeResult.NotForwarded notForwarded ->
-                    forwardCheckFailure.count(issue, record, record, notForwarded.pushedCommit(),
+                    countFailedForwardCheck(issue, record, record, notForwarded.pushedCommit(),
                             notForwarded.pushedTree());
         };
     }

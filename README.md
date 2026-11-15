@@ -67,6 +67,11 @@ token.
 The factory checks the owner at each poll and before each step. It also checks just before each push, each
 change to the pull request, and the merge. A running agent or build is never interrupted.
 
+The gatekeeper forwards a push to GitHub only when the branch on GitHub is at the commit that the factory
+expects: the commit that it forwarded last, or the commit that its continuation starts from. Thus a factory never
+removes a commit of another factory. When GitHub refuses the forward and another account owns the issue, the
+factory stops as for a new assignee. Otherwise the refused forward counts as a failed forward check.
+
 When another account becomes the owner, the factory starts no new step. It writes one comment: "The factory of
 `<login>` stops work on this issue, because the issue has a new assignee. The branch and the pull request stay.
 The factory of the new assignee continues the work." An open live session stays open. A merged issue (phase

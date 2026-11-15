@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -857,6 +858,28 @@ class IssueWorkflowTest {
         assertThat(run(temporaryDirectory.resolve("gatekeeper.git"), "branch", "--list")).isEmpty();
         assertThat(run(githubRepository, "branch", "--list")).isEmpty();
         assertThat(gitHub.pullRequests()).isEmpty();
+    }
+
+    @Test
+    void refusedForwardOfALostIssueCountsNoFailedCheck() throws ApiKeyDetectedException {
+        agent.thenChangeFile();
+        AtomicInteger ownerChecks = new AtomicInteger();
+        OwnershipGuard ownerChangesAfterThePush = issueNumber -> {
+            if (ownerChecks.incrementAndGet() > 2) {
+                throw new OwnershipLostException(issueNumber);
+            }
+        };
+        IssueWorkflow workflow = createWorkflow("true", ownerChangesAfterThePush);
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        ownerChecks.set(0);
+        run(clone, "push", "-q", githubRepository.toString(), "main:refs/heads/factory/issue-7");
+        String commitOfAnotherFactory = run(githubRepository, "rev-parse", "refs/heads/factory/issue-7");
+
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(OwnershipLostException.class);
+
+        assertThat(run(githubRepository, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(commitOfAnotherFactory);
+        assertThat(readRecordFromGitHub().failedForwardChecks()).isZero();
+        assertThat(readRecordFromGitHub().status()).isNotEqualTo(IssueStatus.BLOCKED);
     }
 
     @Test
