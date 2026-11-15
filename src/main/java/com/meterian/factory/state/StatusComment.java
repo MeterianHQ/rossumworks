@@ -54,9 +54,21 @@ public final class StatusComment {
     private static Optional<IssueComment> findNewestStatusComment(List<IssueComment> comments, String workerLogin) {
         return comments.stream()
                 .filter(comment -> workerLogin.equals(comment.authorLogin()))
-                .filter(comment -> comment.body().startsWith(HEADLINE_START))
-                .filter(comment -> comment.body().contains(RECORD_START))
+                .filter(StatusComment::isStatusComment)
                 .max(Comparator.comparingLong(IssueComment::id));
+    }
+
+    /** Reads the record of the newest status comment that another account wrote. */
+    public static Optional<IssueRecord> findNewestRecordOfAnotherAuthor(List<IssueComment> comments, String workerLogin) {
+        return comments.stream()
+                .filter(comment -> !workerLogin.equalsIgnoreCase(comment.authorLogin()))
+                .filter(StatusComment::isStatusComment)
+                .max(Comparator.comparingLong(IssueComment::id))
+                .flatMap(comment -> readRecord(comment.body()));
+    }
+
+    private static boolean isStatusComment(IssueComment comment) {
+        return comment.body().startsWith(HEADLINE_START) && comment.body().contains(RECORD_START);
     }
 
     /** Makes one line of a text that cannot open or close a hidden block. */

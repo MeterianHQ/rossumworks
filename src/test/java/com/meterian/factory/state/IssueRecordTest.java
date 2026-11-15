@@ -181,4 +181,19 @@ class IssueRecordTest {
         assertThat(queued.withLiveLink("https://claude.ai/code/session_x")).isEqualTo(queued);
         assertThat(queued.withoutLiveLink()).isEqualTo(queued);
     }
+
+    @Test
+    void withersKeepTheHandOver() {
+        IssueRecord handedOver = queued.withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
+
+        assertThat(handedOver.withPhase(Phase.REVIEW).handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(handedOver.withStatus(IssueStatus.IN_REVIEW).handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(handedOver.withNote("A note").handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(handedOver.withSessionId(UUID.randomUUID()).handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+    }
+
+    @Test
+    void withoutHandOverClearsTheHandOver() {
+        assertThat(queued.withHandOver(HandOver.RELEASED).withoutHandOver().handOver()).isEmpty();
+    }
 }
