@@ -1,5 +1,8 @@
 package com.meterian.factory.worker;
 
+import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
+import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -11,26 +14,24 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
-import com.meterian.factory.merge.Merger;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
-import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeGitHubServer;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueWorkflow;
@@ -108,6 +109,8 @@ class GitHubRequestBudgetTest {
     };
     private FakeGitHubServer server;
     private HttpGitHubClient gitHub;
+    private static final String BUILD_COMMAND = "true";
+
     private Path clone;
     private Worker worker;
 
@@ -119,17 +122,17 @@ class GitHubRequestBudgetTest {
     @BeforeEach
     void createRepositoriesAndGitHub() {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget().sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
         fakeGitHub.setAuthenticatedLogin(WORKER_LOGIN);
         fakeGitHub.readPullRequestHeadsFrom(githubRepository);
         server = new FakeGitHubServer(fakeGitHub, "MeterianHQ", "sample");
-        gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createTarget(), HttpClient.newHttpClient(), clock);
+        gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createRepositoryName(), HttpClient.newHttpClient(), clock);
         fakeGitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
         fakeGitHub.addLabel(ISSUE, "factory");
     }
@@ -150,32 +153,32 @@ class GitHubRequestBudgetTest {
         WORKER_LOGGER.setLevel(Level.OFF);
     }
 
-    private TargetRepository createTarget() {
-        return new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
         BoardState board = new BoardState(clock);
-        FactoryConfiguration configuration = new FactoryConfiguration(createTarget(), "main",
-                new Limits(1, 2, Duration.ofSeconds(60), 0.90),
-                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), new WorkerLimits(1, Duration.ofSeconds(60), 0.90), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO, OwnershipGuard.none());
+        commitDefinition(clone, mainFileFor(BUILD_COMMAND));
+        DefinitionVersions versions = new DefinitionVersions(git, clone, "main",
+                builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         LostIssues lostIssues = new LostIssues();
-        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
-                new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests, OwnershipGuard.none(), lostIssues);
+        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
+                buildRunner, Duration.ZERO, new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
+                board, new ContextTracker(), pageRequests,
+                com.meterian.factory.workflow.RetrySettings.defaults(), OwnershipGuard.none(), lostIssues);
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
-                liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")), lostIssues);
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, pageRequests, WORKER_LOGIN,
+                executor, liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")), lostIssues);
     }
 
     private Optional<IssueRecord> readRecord() {
@@ -207,7 +210,7 @@ class GitHubRequestBudgetTest {
         worker = createWorker(agent);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
 
         List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
 
@@ -239,7 +242,7 @@ class GitHubRequestBudgetTest {
         worker = createWorker(new FakeAgentRunner().thenChangeFile().thatFails());
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty()
-                && readRecord().filter(record -> record.status() == IssueStatus.BLOCKED).isPresent());
+                && readRecord().filter(record -> record.state().equals("blocked")).isPresent());
     }
 
     /** Counts the requests also when GitHub answers 304. */
@@ -266,12 +269,12 @@ class GitHubRequestBudgetTest {
     @Test
     void aStatusCommentOfAStrangerCostsOneReadOfTheEvents() throws InterruptedException {
         blockTheIssue();
-        fakeGitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(IssueRecord.queued(ISSUE), 2));
+        fakeGitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(RecordStates.queued(ISSUE), Map.of(), List.of()));
 
         List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
 
         assertThat(countAllAnswers(countsByPoll, EVENTS_REQUEST)).isEqualTo(1);
-        assertThat(readRecord().orElseThrow().status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("blocked");
     }
 
     private static int sum(Map<String, Integer> counts) {
@@ -322,7 +325,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
         int requestsBeforeThePolls = server.receivedRequestCount();
         clock.set(RESET.minusSeconds(1));
         worker.pollOnce();
@@ -334,7 +337,7 @@ class GitHubRequestBudgetTest {
 
     /** The commit of the first run is the change of the phase, so a resumed run without a change does not block. */
     @Test
-    void aStepThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
+    void anActionThatMeetsTheRateLimitRunsAgainAfterTheResetAndDoesNotBlock() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFileAnd(() -> server.refuseWithTheRateLimit(RESET))
                 .thenChangeNothing().thenWaitForStop().thatFails();
@@ -343,8 +346,8 @@ class GitHubRequestBudgetTest {
         waitUntil(() -> worker.issuesInWork().isEmpty());
 
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
-        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
-        assertThat(readRecord().orElseThrow().fixLoops()).isZero();
+        assertThat(readRecord().orElseThrow().column()).isNotEqualTo("blocked");
+        assertThat(readRecord().orElseThrow().entriesOf("implement")).isEqualTo(1);
         int requestsInTheWait = server.receivedRequestCount();
         worker.pollOnce();
         assertThat(server.receivedRequestCount()).isEqualTo(requestsInTheWait);
@@ -354,8 +357,8 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
 
-        assertThat(readRecord().orElseThrow().phase()).isEqualTo(Phase.REVIEW);
-        assertThat(readRecord().orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("review");
+        assertThat(readRecord().orElseThrow().column()).isNotEqualTo("blocked");
         assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
         assertThat(workerLog).noneMatch(line -> line.contains(TOKEN));
     }
@@ -392,7 +395,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
 
         assertThat(pollLines()).hasSize(1).first().asString()
-                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=11, .*");
+                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=6, .*");
     }
 
     private List<String> pollLines() {

@@ -2,9 +2,8 @@ package com.meterian.factory.web;
 
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.workflow.ApprovalCheck;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.StartAgainCheck;
@@ -21,10 +20,10 @@ import java.util.stream.Collectors;
  */
 public enum PageAction {
     ENTER_TERMINAL("enter-terminal", "Terminal", "factory:enter", LivePlace.TERMINAL,
-            "Enter sent. The worker stops the current step, and a terminal window opens in a few seconds.",
+            "Enter sent. The worker stops the current action, and a terminal window opens in a few seconds.",
             "Opens the conversation in a terminal window on this machine. Close the window with Ctrl-b d."),
     ENTER_BROWSER("enter-browser", "Browser", "factory:enter", LivePlace.BROWSER,
-            "Enter sent. The worker stops the current step, and the new tab opens the conversation in a few seconds.",
+            "Enter sent. The worker stops the current action, and the new tab opens the conversation in a few seconds.",
             "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link."),
     APPROVE("approve", "Approve", "factory:approve", null,
             "Approval sent. The worker takes it in a few seconds.", ""),
@@ -107,9 +106,10 @@ public enum PageAction {
      * @param continueRequested true when the marker of Continue exists
      * @param rememberedLabels the labels that the page asked for on this issue, see {@link #findRememberedLabels}
      * @param viewerOnThisMachine true when the browser runs on the machine of the worker, see {@link ViewerLocation}
+     * @param inBlockTarget true when the state of the card is the block target of its definition
      */
     public boolean isPossible(IssueCard card, boolean continueRequested, Set<String> rememberedLabels,
-            boolean viewerOnThisMachine) {
+            boolean viewerOnThisMachine, boolean inBlockTarget) {
         if (needsThisMachine() && !viewerOnThisMachine) {
             return false;
         }
@@ -121,8 +121,8 @@ public enum PageAction {
             case ENTER_TERMINAL, ENTER_BROWSER -> isEnterPossible(record);
             case APPROVE -> ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isBlockPossible(record);
-            case START_AGAIN -> StartAgainCheck.isPossible(record);
-            case CONTINUE -> record.live().isPresent() && !continueRequested;
+            case START_AGAIN -> StartAgainCheck.isPossible(record, inBlockTarget);
+            case CONTINUE -> waitsForContinue(record) && !continueRequested;
             case OPEN_TERMINAL -> findLiveLink(record).isPresent() && !continueRequested;
         };
     }
@@ -131,15 +131,17 @@ public enum PageAction {
      * Tells if the page sent this request and the record does not show its effect yet. A label that the page
      * did not request is a pending request only after the worker finds it at a poll.
      */
-    public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
+    public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels,
+            boolean inBlockTarget) {
         IssueRecord record = card.record();
         return switch (this) {
             case ENTER_TERMINAL, ENTER_BROWSER ->
                     isRequestedLabelOnTheCard(card, rememberedLabels) && isEnterPossible(record);
             case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && isBlockPossible(record);
-            case START_AGAIN -> isRequestedLabelOnTheCard(card, rememberedLabels) && StartAgainCheck.isPossible(record);
-            case CONTINUE -> continueRequested && record.live().isPresent();
+            case START_AGAIN -> isRequestedLabelOnTheCard(card, rememberedLabels)
+                    && StartAgainCheck.isPossible(record, inBlockTarget);
+            case CONTINUE -> continueRequested && waitsForContinue(record);
             case OPEN_TERMINAL -> false;
         };
     }
@@ -147,7 +149,7 @@ public enum PageAction {
     /** The two Enter buttons add the same label, so one Enter request is pending for both. */
     public static boolean isEnterRequestPending(IssueCard card, boolean continueRequested,
             Set<String> rememberedLabels) {
-        return ENTER_TERMINAL.isRequestPending(card, continueRequested, rememberedLabels);
+        return ENTER_TERMINAL.isRequestPending(card, continueRequested, rememberedLabels, false);
     }
 
     /** True when the card has the label of this button. */
@@ -161,16 +163,24 @@ public enum PageAction {
 
     /** A live state without a link can enter again, because the open of the session did not end. */
     private static boolean isEnterPossible(IssueRecord record) {
-        return record.agentSessionStarted() && record.phase() != Phase.DONE && findLiveLink(record).isEmpty();
+        return record.agentSessionStarted() && !isInTheFinishState(record) && findLiveLink(record).isEmpty();
+    }
+
+    /** A live conversation and a state without an action end with a continue request. */
+    private static boolean waitsForContinue(IssueRecord record) {
+        return record.live().isPresent() || record.action().isEmpty();
     }
 
     private static Optional<String> findLiveLink(IssueRecord record) {
         return record.live().flatMap(live -> live.link());
     }
 
+    /** A state without an action runs nothing to stop, and a record in the finish state has a merged change. */
     private static boolean isBlockPossible(IssueRecord record) {
-        return record.status() != IssueStatus.BLOCKED
-                && record.status() != IssueStatus.DONE
-                && record.phase() != Phase.DONE;
+        return record.action().isPresent() && !isInTheFinishState(record);
+    }
+
+    private static boolean isInTheFinishState(IssueRecord record) {
+        return record.action().equals(Optional.of(ActionType.FINISH));
     }
 }

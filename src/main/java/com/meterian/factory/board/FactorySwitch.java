@@ -7,7 +7,7 @@ import java.nio.file.Path;
 
 /**
  * Tells if the owner asked the factory to stop. A stop interrupts no step: each loop ends after its current step and
- * the move to the next phase, and no issue starts. A local marker file keeps the stop after a restart of the worker.
+ * the move to the next state, and no issue starts. A local marker file keeps the stop after a restart of the worker.
  */
 public final class FactorySwitch {
 

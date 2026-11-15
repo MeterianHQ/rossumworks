@@ -8,12 +8,11 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.ColumnLabels;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -31,6 +30,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
     private final Map<Integer, Set<String>> assignees = new TreeMap<>();
     private final Map<Integer, List<AssignmentEvent>> assignmentEventsByIssue = new TreeMap<>();
+    private final Set<String> createdLabels = new LinkedHashSet<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
@@ -53,6 +53,8 @@ public final class FakeGitHubClient implements GitHubClient {
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
     private boolean failsTheNextCommentCreate;
+    private boolean failsTheNextPullRequestCreation;
+    private boolean failsTheNextAssignment;
     private boolean failsTheCommentEditAfterTheMerge;
     private final Set<Integer> issuesWithFailingComments = new HashSet<>();
     private final List<String> editedBodies = new ArrayList<>();
@@ -86,9 +88,9 @@ public final class FakeGitHubClient implements GitHubClient {
 
     /** A person assigns the issue: the assignee and an "assigned" event appear. */
     public synchronized void assignBy(int issueNumber, String assignee) {
-        if (assignees.get(issueNumber).add(assignee)) {
+        if (assignees.computeIfAbsent(issueNumber, number -> new LinkedHashSet<>()).add(assignee)) {
             long id = nextAssignmentEventId++;
-            assignmentEventsByIssue.get(issueNumber)
+            assignmentEventsByIssue.computeIfAbsent(issueNumber, number -> new ArrayList<>())
                     .add(new AssignmentEvent(id, assignee, Instant.EPOCH.plusSeconds(id)));
         }
     }
@@ -98,7 +100,7 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     public synchronized Set<String> assigneesOf(int issueNumber) {
-        return Set.copyOf(assignees.get(issueNumber));
+        return Set.copyOf(assignees.getOrDefault(issueNumber, Set.of()));
     }
 
     public synchronized int assignmentEventReads() {
@@ -121,17 +123,18 @@ public final class FakeGitHubClient implements GitHubClient {
         return id;
     }
 
-    public synchronized Optional<IssueStatus> statusOf(int issueNumber) {
-        Set<String> statusLabels = statusLabelsOf(issueNumber);
-        if (statusLabels.size() != 1) {
+    /** The column of the one column label of the issue. Empty when the issue has no column label or several. */
+    public synchronized Optional<String> columnOf(int issueNumber) {
+        Set<String> columnLabels = columnLabelsOf(issueNumber);
+        if (columnLabels.size() != 1) {
             return Optional.empty();
         }
-        return Arrays.stream(IssueStatus.values())
-                .filter(status -> status.labelName().equals(statusLabels.iterator().next())).findFirst();
+        String label = columnLabels.iterator().next();
+        return Optional.of(label.substring(ColumnLabels.labelName("").length()));
     }
 
-    public synchronized Set<String> statusLabelsOf(int issueNumber) {
-        return labels.get(issueNumber).stream().filter(IssueStatus::isStatusLabel)
+    public synchronized Set<String> columnLabelsOf(int issueNumber) {
+        return labels.get(issueNumber).stream().filter(ColumnLabels::isColumnLabel)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -162,6 +165,16 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The next createComment throws a GitHubException, as a lost connection does. */
     public synchronized void failTheNextCommentCreate() {
         failsTheNextCommentCreate = true;
+    }
+
+    /** The next createPullRequest throws a GitHubException, as a lost connection does. */
+    public synchronized void failTheNextPullRequestCreation() {
+        failsTheNextPullRequestCreation = true;
+    }
+
+    /** The next addAssignee throws a GitHubException, as a refused assignment does. */
+    public synchronized void failTheNextAssignment() {
+        failsTheNextAssignment = true;
     }
 
     /** The next editComment throws a GitHubException, as a lost connection does. */
@@ -315,6 +328,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized void addAssignee(int issueNumber, String login) {
+        if (failsTheNextAssignment) {
+            failsTheNextAssignment = false;
+            throw new GitHubException("GitHub answered 422 for POST /issues/" + issueNumber + "/assignees");
+        }
         if (!ignoresTheAssignees) {
             assignBy(issueNumber, login);
         }
@@ -333,11 +350,17 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized List<AssignmentEvent> assignmentEvents(int issueNumber) {
         assignmentEventReads++;
-        return List.copyOf(assignmentEventsByIssue.get(issueNumber));
+        return List.copyOf(assignmentEventsByIssue.getOrDefault(issueNumber, List.of()));
     }
 
     @Override
     public synchronized void ensureLabel(String label, String color, String description) {
+        createdLabels.add(label);
+    }
+
+    /** The names of the labels that the factory created, in the order of the creation. */
+    public synchronized Set<String> createdLabels() {
+        return new LinkedHashSet<>(createdLabels);
     }
 
     @Override
@@ -358,10 +381,13 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     @Override
-    public synchronized void setStatus(Issue issue, IssueStatus status) {
-        labels.get(issue.number()).removeIf(label -> IssueStatus.isStatusLabel(label)
-                && !label.equals(status.labelName()));
-        addLabel(issue.number(), status.labelName());
+    public synchronized void setColumn(Issue issue, String column) {
+        String wantedLabel = ColumnLabels.labelName(column);
+        labels.get(issue.number()).removeIf(label -> ColumnLabels.isColumnLabel(label) && !label.equals(wantedLabel));
+        if (!createdLabels.contains(wantedLabel)) {
+            ensureLabel(wantedLabel, ColumnLabels.colorOf(column), ColumnLabels.describe(column));
+        }
+        addLabel(issue.number(), wantedLabel);
     }
 
     @Override
@@ -375,6 +401,10 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized PullRequest createPullRequest(String headBranch, String baseBranch, String title,
                                                       String body) {
+        if (failsTheNextPullRequestCreation) {
+            failsTheNextPullRequestCreation = false;
+            throw new GitHubException("GitHub answered 502 for POST /pulls");
+        }
         verifyBranchIsOnGitHub(headBranch);
         int number = nextPullRequestNumber++;
         PullRequest pullRequest = new PullRequest(number, "https://github.test/pull/" + number, headBranch, body);
@@ -413,6 +443,11 @@ public final class FakeGitHubClient implements GitHubClient {
     @Override
     public synchronized Optional<String> findBranchHead(String branch) {
         return readBranchHead(branch);
+    }
+
+    /** A person merges an open pull request on GitHub, outside the factory. */
+    public synchronized void mergeByAPerson(int pullRequestNumber) {
+        mergedPullRequests.add(pullRequestNumber);
     }
 
     /** A pull request that GitHub merged before the test starts. */

@@ -32,7 +32,7 @@ final class GitHubRateLimit {
         }
     }
 
-    /** The reset time of the window when few requests remain in it. Only the poll uses it, never a step. */
+    /** The reset time of the window when few requests remain in it. Only the poll uses it, never an action. */
     synchronized Optional<Instant> findLowRemainingReset() {
         return clock.instant().isBefore(lowRemainingEnd) ? Optional.of(lowRemainingEnd) : Optional.empty();
     }

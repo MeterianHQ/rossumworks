@@ -1,42 +1,51 @@
 package com.meterian.factory.worker;
 
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.StateDefinition;
+import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.PullRequest;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.workflow.OnAnyStateMoves;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Writes the first record of a new owner in a new status comment. The record continues the pushed branch and keeps
- * a block or a wait of the earlier record.
+ * a block or an approval wait of the earlier record, in the matching state of the current workflow.
  */
 final class OwnershipTakeover {
 
     private static final String OPEN_QUESTION_NOTE =
             "The earlier owner had an open question. The question stays on the machine of the earlier owner.";
-    /** These waits need the session or the worktree of the earlier owner, so the new owner cannot keep them. */
-    private static final Set<WaitReason> WAITS_ON_THE_EARLIER_MACHINE =
-            Set.of(WaitReason.QUESTION, WaitReason.LIVE_CONVERSATION);
+    private static final String NEEDS_APPROVAL_EVENT = "needs-approval";
 
     private final GitHubClient gitHub;
     private final StatusPublisher statusPublisher;
     private final String workerLogin;
+    private final DefinitionLookup definitions;
+    private final OnAnyStateMoves onAnyStateMoves;
 
-    OwnershipTakeover(GitHubClient gitHub, StatusPublisher statusPublisher, String workerLogin) {
+    OwnershipTakeover(GitHubClient gitHub, StatusPublisher statusPublisher, String workerLogin,
+                      DefinitionLookup definitions, OnAnyStateMoves onAnyStateMoves) {
         this.gitHub = gitHub;
         this.statusPublisher = statusPublisher;
         this.workerLogin = workerLogin;
+        this.definitions = definitions;
+        this.onAnyStateMoves = onAnyStateMoves;
     }
 
-    /** The new status comment is the newest one of the worker, so the next poll does not take over again. */
-    IssueRecord takeOver(Issue issue, Optional<IssueRecord> earlierRecord) {
-        IssueRecord record = keepAcceptedIssueText(IssueRecord.queued(issue.number()), earlierRecord);
+    /**
+     * The new status comment is the newest one of the worker, so the next poll does not take over again.
+     *
+     * @param queued a new record in the start state of the current definition version
+     */
+    IssueRecord takeOver(Issue issue, IssueRecord queued, Optional<IssueRecord> earlierRecord) {
+        IssueRecord record = keepAcceptedIssueText(queued, earlierRecord);
         record = continuePushedBranch(issue.number(), record)
                 .withNote("The factory of " + workerLogin + " continues the work of an earlier owner.");
         if (earlierRecord.isPresent()) {
@@ -47,7 +56,7 @@ final class OwnershipTakeover {
 
     /**
      * Only the text that an earlier owner accepted counts. Fail closed: without its hash, the issue text check
-     * stops the next agent phase until the owner approves the text.
+     * stops the next action until the owner approves the text.
      */
     private static IssueRecord keepAcceptedIssueText(IssueRecord record, Optional<IssueRecord> earlierRecord) {
         return earlierRecord.flatMap(IssueRecord::issueTextHash).map(record::withIssueTextHash).orElse(record);
@@ -63,30 +72,56 @@ final class OwnershipTakeover {
                 .orElse(continuing);
     }
 
-    /** Only the status and the wait reason pass on. The other fields of an earlier record stay behind. */
-    private static IssueRecord keepBlockOrWait(IssueRecord record, IssueRecord earlierRecord) {
+    /**
+     * Only the block or the wait passes on. The other fields of an earlier record stay behind. A state without an
+     * action waits for a continue, so it becomes the block target.
+     */
+    private IssueRecord keepBlockOrWait(IssueRecord record, IssueRecord earlierRecord) {
         if (isWaitOnTheEarlierMachine(earlierRecord)) {
             return record.withNote(OPEN_QUESTION_NOTE);
         }
-        if (!isBlockOrWait(earlierRecord.status()) || isApprovalWaitWithoutBranch(record, earlierRecord)) {
+        if (earlierRecord.action().isEmpty()) {
+            return onAnyStateMoves.moveToBlockTarget(record, record.newestNote().orElseThrow());
+        }
+        if (earlierRecord.action().equals(Optional.of(ActionType.APPROVAL))) {
+            return keepApprovalWait(record, earlierRecord);
+        }
+        return record;
+    }
+
+    /** A conversation needs the session and the worktree of the earlier owner, so the new owner cannot keep it. */
+    private static boolean isWaitOnTheEarlierMachine(IssueRecord earlierRecord) {
+        return earlierRecord.action().equals(Optional.of(ActionType.CONVERSATION)) || earlierRecord.live().isPresent();
+    }
+
+    /** An approval of the merge without the pushed branch has no pull request to merge, so the work starts again. */
+    private IssueRecord keepApprovalWait(IssueRecord record, IssueRecord earlierRecord) {
+        WorkflowDefinition workflow = definitions.definitionOf(record).workflow();
+        Optional<WorkflowDefinition> earlierWorkflow = findWorkflowOf(earlierRecord);
+        String earlierTextChangedTarget = earlierWorkflow.orElse(workflow).onAnyState().issueTextChanged();
+        if (earlierRecord.state().equals(earlierTextChangedTarget)) {
+            return onAnyStateMoves.moveToTextChangedTarget(record);
+        }
+        if (record.handOver().isEmpty()) {
             return record;
         }
-        IssueRecord withStatus = record.withStatus(earlierRecord.status());
-        return earlierRecord.waitReason().map(withStatus::withWaitReason).orElse(withStatus);
+        String event = earlierWorkflow.flatMap(found -> found.findMergeGateEventTo(earlierRecord.state()))
+                .orElse(NEEDS_APPROVAL_EVENT);
+        return workflow.findMergeGateTarget(event).map(workflow::state)
+                .map(approvalState -> moveTo(record, approvalState))
+                .orElse(record);
     }
 
-    private static boolean isWaitOnTheEarlierMachine(IssueRecord earlierRecord) {
-        return earlierRecord.status() == IssueStatus.WAITS_FOR_YOU
-                && earlierRecord.waitReason().filter(WAITS_ON_THE_EARLIER_MACHINE::contains).isPresent();
+    /** The definition of an earlier record can fail to load. Then the current workflow gives the names. */
+    private Optional<WorkflowDefinition> findWorkflowOf(IssueRecord earlierRecord) {
+        try {
+            return Optional.of(definitions.definitionOf(earlierRecord).workflow());
+        } catch (IllegalStateException exception) {
+            return Optional.empty();
+        }
     }
 
-    /** An approval without the pushed branch has no pull request to merge, so the work starts again. */
-    private static boolean isApprovalWaitWithoutBranch(IssueRecord record, IssueRecord earlierRecord) {
-        return record.handOver().isEmpty() && earlierRecord.status() == IssueStatus.WAITS_FOR_YOU
-                && earlierRecord.waitReason().equals(Optional.of(WaitReason.MERGE_NEEDS_APPROVAL));
-    }
-
-    private static boolean isBlockOrWait(IssueStatus status) {
-        return status == IssueStatus.BLOCKED || status == IssueStatus.WAITS_FOR_YOU;
+    private static IssueRecord moveTo(IssueRecord record, StateDefinition state) {
+        return record.withMove(state.name(), state.actionType(), state.column());
     }
 }

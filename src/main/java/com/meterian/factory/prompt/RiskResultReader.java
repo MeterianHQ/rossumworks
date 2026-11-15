@@ -2,6 +2,7 @@ package com.meterian.factory.prompt;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.meterian.factory.state.RiskLevel;
+import com.meterian.factory.workflow.ScratchFolder;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +15,7 @@ public final class RiskResultReader {
     }
 
     public static RiskResult read(Path worktree) {
-        return ResultFileReader.readObject(worktree.resolve(".factory").resolve("risk.json"))
+        return ResultFileReader.readObject(worktree.resolve(ScratchFolder.NAME).resolve("risk.json"))
                 .flatMap(RiskResultReader::parseRiskResult)
                 .orElseGet(RiskResultReader::createHighRiskResult);
     }

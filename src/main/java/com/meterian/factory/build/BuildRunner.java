@@ -1,7 +1,6 @@
 package com.meterian.factory.build;
 
 import com.meterian.factory.agent.ClaudeCommand;
-import com.meterian.factory.configuration.TargetRepository;
 import com.meterian.factory.process.ProcessGroup;
 import java.io.BufferedReader;
 import java.io.File;
@@ -18,7 +17,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** Runs the build command of a target in a worktree, in its own process group. A stop ends the group. */
+/** Runs a build command in a worktree, in its own process group. A stop ends the group. */
 public final class BuildRunner {
 
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
@@ -45,13 +44,13 @@ public final class BuildRunner {
         runningBuilds.stopAll();
     }
 
-    public BuildOutcome run(Path worktree, TargetRepository target) {
+    public BuildOutcome run(Path worktree, BuildSettings settings) {
         if (runningBuilds.refusesNewBuilds()) {
             return BuildOutcome.createStopped();
         }
         Process process;
         try {
-            process = startProcess(worktree, target);
+            process = startProcess(worktree, settings);
         } catch (IOException exception) {
             return new BuildOutcome(false, "The build did not start: " + exception.getMessage());
         }
@@ -95,12 +94,12 @@ public final class BuildRunner {
         }
     }
 
-    private Process startProcess(Path worktree, TargetRepository target) throws IOException {
-        ProcessBuilder builder = new ProcessBuilder("setsid", "--wait", "sh", "-c", target.buildCommand());
+    private Process startProcess(Path worktree, BuildSettings settings) throws IOException {
+        ProcessBuilder builder = new ProcessBuilder("setsid", "--wait", "sh", "-c", settings.command());
         builder.directory(worktree.toFile());
         builder.environment().clear();
         Map<String, String> environment = new LinkedHashMap<>(parentEnvironment);
-        environment.putAll(target.buildEnvironment());
+        environment.putAll(settings.environment());
         builder.environment().putAll(ClaudeCommand.environment(environment));
         builder.redirectErrorStream(true);
         builder.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));

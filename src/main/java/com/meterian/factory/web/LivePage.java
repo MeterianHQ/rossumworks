@@ -22,7 +22,7 @@ final class LivePage {
                 <div class="live-spinner" aria-hidden="true"></div>
                 <p class="message" id="live-title">The live conversation of #%1$d opens…</p>
                 <p class="login-subtitle" id="live-detail">This tab goes to the conversation when it is ready.</p>
-                <p class="login-subtitle">Usually in a few seconds. After the current step, if the issue is in work.</p>
+                <p class="login-subtitle">Usually in a few seconds. After the current action, if the issue is in work.</p>
                 <p><a href="/">Back to the board</a></p>
                 </div></main>
                 <script src="/live.js"></script>

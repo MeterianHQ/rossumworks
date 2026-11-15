@@ -5,95 +5,78 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
-import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.WaitReason;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
-/** Opens the live conversation of an issue, and chooses the next step after /factory:continue. */
+/** Opens and closes the live conversation of an issue: the tmux session, its comment, and its place. */
 final class LiveMode {
 
     private static final System.Logger LOGGER = System.getLogger(LiveMode.class.getName());
-    private static final String TOO_EARLY_NOTE =
-            "The factory opens a live conversation only after the first implement step.";
-    private static final String DONE_NOTE = "The issue is done; a live conversation has no effect.";
-    private static final String ALREADY_OPEN_NOTE = "The live conversation is already open: ";
+    static final String OPEN_NOTE = "The live conversation is open.";
     private static final String TERMINAL_NOT_OPEN_NOTE = "The terminal window did not open: ";
-    private static final String NOT_OPEN_NOTE = "The live conversation did not open: ";
-    /** Without this note, the card after the conversation looks the same as before Enter. */
-    static final String NO_CHANGE_NOTE =
-            "The live conversation ended with no change to the code. The issue waits for you again.";
-    private static final Set<WaitReason> APPROVAL_WAITS =
-            EnumSet.of(WaitReason.MERGE_NEEDS_APPROVAL, WaitReason.ISSUE_TEXT_CHANGED);
 
     private final Git git;
     private final GitHubClient gitHub;
     private final LiveSessions liveSessions;
-    private final OwnerApproval ownerApproval;
     private final PageRequests pageRequests;
 
-    LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, OwnerApproval ownerApproval,
-             PageRequests pageRequests) {
-        this.pageRequests = pageRequests;
+    LiveMode(Git git, GitHubClient gitHub, LiveSessions liveSessions, PageRequests pageRequests) {
         this.git = git;
         this.gitHub = gitHub;
         this.liveSessions = liveSessions;
-        this.ownerApproval = ownerApproval;
+        this.pageRequests = pageRequests;
     }
 
-    /** A record that already has a live state keeps its state before: a new session never replaces it. */
-    IssueRecord enter(IssueRecord record, Path worktree) {
-        if (record.phase() == Phase.DONE) {
-            return record.withNote(DONE_NOTE);
-        }
-        if (!record.agentSessionStarted() || !Files.isDirectory(worktree)) {
-            return record.withNote(TOO_EARLY_NOTE);
-        }
-        Optional<String> openLink = findOpenLink(record);
-        if (openLink.isPresent()) {
-            return record.withNote(ALREADY_OPEN_NOTE + openLink.get());
-        }
-        try {
-            // The head commit is read before the open: a failure of git never leaves a session that is open.
-            LiveSession stateBefore = record.live().orElseGet(() -> captureStateBefore(record, worktree));
-            LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
-            String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree);
-            postOpenComment(record.issueNumber(), link);
-            IssueRecord opened = record.withLive(stateBefore.withLink(link).withPlace(place))
-                    .withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.LIVE_CONVERSATION);
-            return place == LivePlace.TERMINAL ? openTerminal(opened) : opened;
-        } catch (LiveSessionException | GitException exception) {
-            return record.withNote(NOT_OPEN_NOTE + exception.getMessage());
-        }
+    /**
+     * A record that already has a live state keeps its start head commit: a new session never replaces it. The
+     * note of the open is the newest note, so that the card does not show the note of an earlier failed open.
+     *
+     * @param allowedTools the allowed tools of the definition of the issue
+     */
+    IssueRecord open(IssueRecord record, Path worktree, List<String> allowedTools)
+            throws LiveSessionException, GitException {
+        // The head commit is read before the open: a failure of git never leaves a session that is open.
+        LiveSession before = record.live().orElseGet(
+                () -> new LiveSession(git.headCommit(worktree), Optional.empty(), LivePlace.GITHUB_COMMENT));
+        LivePlace place = pageRequests.takeEnterPlace(record.issueNumber());
+        String link = liveSessions.open(record.issueNumber(), record.sessionId(), worktree, allowedTools);
+        postOpenComment(record.issueNumber(), link);
+        IssueRecord opened = record.withLive(before.withLink(link).withPlace(place)).withNote(OPEN_NOTE);
+        return place == LivePlace.TERMINAL ? openTerminal(opened) : opened;
+    }
+
+    Optional<String> findOpenLink(IssueRecord record) {
+        return record.live().flatMap(LiveSession::link).filter(link -> liveSessions.isOpen(record.issueNumber()));
     }
 
     boolean isContinueRequested(IssueRecord record) {
         return liveSessions.isContinueRequested(record.issueNumber());
     }
 
-    /** The publisher clears the continue request after it writes the record: a failure here runs this again. */
-    IssueRecord continueWork(Issue issue, IssueRecord record, Path worktree) {
-        LiveSession live = record.live().orElseThrow();
+    /**
+     * The live conversation answers the question, so the merge gate does not see an open question. The publisher
+     * clears the continue request after it writes the record: a failure after this call runs it again.
+     */
+    void close(IssueRecord record, Path worktree) {
         liveSessions.close(record.issueNumber());
         new FactoryFolder(worktree).deleteQuestion();
-        return chooseNextStep(issue, record, live, worktree).withoutLive();
     }
 
-    private Optional<String> findOpenLink(IssueRecord record) {
-        return record.live().flatMap(LiveSession::link).filter(link -> liveSessions.isOpen(record.issueNumber()));
-    }
-
-    private LiveSession captureStateBefore(IssueRecord record, Path worktree) {
-        return new LiveSession(git.headCommit(worktree), record.status(), record.waitReason(), Optional.empty(),
-                LivePlace.GITHUB_COMMENT);
+    /**
+     * The agent of a coding action leaves its work not committed, also before a question. So after a coding action
+     * only a new commit is a change of the conversation; the coding action commits the rest after the next run.
+     *
+     * @param afterCodingAction true when the action of previous is coding
+     */
+    boolean hasChangedInLiveMode(LiveSession live, boolean afterCodingAction, Path worktree) {
+        if (!git.headCommit(worktree).equals(live.startHeadCommit())) {
+            return true;
+        }
+        return !afterCodingAction && git.hasUncommittedChanges(worktree);
     }
 
     /** The session stays open when the window does not open: the owner uses the link. */
@@ -116,54 +99,5 @@ final class LiveMode {
             LiveSessionClosing.closeAfterAFailure(liveSessions, issueNumber, exception);
             throw exception;
         }
-    }
-
-    private IssueRecord chooseNextStep(Issue issue, IssueRecord record, LiveSession live, Path worktree) {
-        if (hasChangedInLiveMode(record, live, worktree)) {
-            return buildAgain(issue, record, worktree);
-        }
-        if (live.waitBefore().filter(APPROVAL_WAITS::contains).isPresent()) {
-            return restoreTheWait(record, live);
-        }
-        if (record.phase() == Phase.IMPLEMENT) {
-            return record.withAfterConversation().withStatus(IssueStatus.IN_PROGRESS).withoutWaitReason();
-        }
-        return record.withStatus(statusOfThePhase(record.phase())).withoutWaitReason();
-    }
-
-    /**
-     * The agent of an implement step leaves its work not committed, also before a question. So in that phase only
-     * a new commit is a change of the conversation; the implement step commits the rest after the next run.
-     */
-    private boolean hasChangedInLiveMode(IssueRecord record, LiveSession live, Path worktree) {
-        if (!git.headCommit(worktree).equals(live.startHeadCommit())) {
-            return true;
-        }
-        return record.phase() != Phase.IMPLEMENT && git.hasUncommittedChanges(worktree);
-    }
-
-    /** An approval covers one diff, so a change of the conversation withdraws it. */
-    private IssueRecord buildAgain(Issue issue, IssueRecord record, Path worktree) {
-        if (git.hasUncommittedChanges(worktree)) {
-            git.commitAll(worktree, ChangeTitle.describe(issue));
-        }
-        ownerApproval.withdraw(record.issueNumber());
-        return record.withoutReviews().withoutRisk().withoutBuiltTree().withoutWaitReason()
-                .withPhase(Phase.BUILD).withStatus(IssueStatus.IN_PROGRESS);
-    }
-
-    /** /factory:continue is never an approval, so the issue waits for the label again. */
-    private static IssueRecord restoreTheWait(IssueRecord record, LiveSession live) {
-        IssueRecord restored = record.withStatus(live.statusBefore()).withNewestNote(NO_CHANGE_NOTE);
-        return live.waitBefore().map(restored::withWaitReason).orElseGet(restored::withoutWaitReason);
-    }
-
-    /** A blocked issue starts again in the phase where it stopped. */
-    private static IssueStatus statusOfThePhase(Phase phase) {
-        return switch (phase) {
-            case PREPARE, IMPLEMENT, BUILD -> IssueStatus.IN_PROGRESS;
-            case REVIEW, RISK, MERGE -> IssueStatus.IN_REVIEW;
-            case DONE -> IssueStatus.DONE;
-        };
     }
 }

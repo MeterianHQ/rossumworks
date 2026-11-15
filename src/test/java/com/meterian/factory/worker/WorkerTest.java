@@ -1,6 +1,9 @@
 package com.meterian.factory.worker;
 
 import static com.meterian.factory.testing.TemporaryRepository.commitFile;
+import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
+import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -16,30 +19,28 @@ import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
-import com.meterian.factory.merge.Merger;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
-import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueText;
@@ -86,11 +87,13 @@ class WorkerTest {
     private static final String ENDED_NOTE = "The live conversation ended without /factory:continue."
             + " Add the label factory:enter to open a new one.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
+    private static final String MERGED_NOTE = "The pull request is merged.";
     private static final String FINISH_FAILURE_NOTE =
-            "A step after the merge failed: java.lang.IllegalStateException. The change is merged.";
+            "An action after the merge failed: java.lang.IllegalStateException. The change is merged.";
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
+    private static final Map<String, Integer> LIMITS = Map.of("implement", 3, "review", 10);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
     private static final Logger WORKER_LOGGER = Logger.getLogger(Worker.class.getName());
 
@@ -107,6 +110,7 @@ class WorkerTest {
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final List<ExecutorService> executors = new ArrayList<>();
+    private String buildCommand = "true";
     private Path clone;
 
     /** The tests cause the failures on purpose, so the log of the worker is only noise. */
@@ -118,10 +122,10 @@ class WorkerTest {
     @BeforeEach
     void createRepositoriesAndIssue() {
         Path origin = createBare(temporaryDirectory.resolve("origin.git"));
-        clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        clone = createClone(origin, temporaryDirectory.resolve("work").resolve("repository"));
         Path githubRepository = createBare(temporaryDirectory.resolve("github.git"));
         Path gatekeeper = temporaryDirectory.resolve("gatekeeper.git");
-        String targetUrl = createTarget().sshUrl();
+        String targetUrl = createRepositoryName().sshUrl();
         Gatekeeper.ensure(gatekeeper, targetUrl);
         // The gatekeeper forwards to the local "github" repository, not to the network.
         run(gatekeeper, "config", "url." + githubRepository + ".insteadOf", targetUrl);
@@ -150,24 +154,15 @@ class WorkerTest {
         gitHub.addLabel(number, FACTORY_LABEL);
     }
 
-    private TargetRepository createTarget() {
-        return createTarget("true");
-    }
-
-    private TargetRepository createTarget(String buildCommand) {
-        return new TargetRepository("MeterianHQ", "sample", clone, buildCommand, Map.of());
+    private RepositoryName createRepositoryName() {
+        return new RepositoryName("MeterianHQ", "sample");
     }
 
     private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval) {
-        return createConfiguration(parallelIssues, pollInterval, "true");
-    }
-
-    private FactoryConfiguration createConfiguration(int parallelIssues, Duration pollInterval, String buildCommand) {
-        return new FactoryConfiguration(createTarget(buildCommand), "main",
-                new Limits(parallelIssues, 2, pollInterval, 0.90),
-                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
-                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
-                temporaryDirectory.resolve("live"), Optional.empty(),
+        return new FactoryConfiguration(createRepositoryName(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
+                temporaryDirectory.resolve("live"), new WorkerLimits(parallelIssues, pollInterval, 0.90), Map.of(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
     }
 
@@ -179,23 +174,33 @@ class WorkerTest {
         return createWorker(agent, configuration, board);
     }
 
+    /** The default branch gets a .factory with the build command of the configuration. */
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board) {
+        commitDefinition(clone, mainFileFor(buildCommand));
+        return createWorker(agent, configuration, board, createVersions(configuration));
+    }
+
+    private DefinitionVersions createVersions(FactoryConfiguration configuration) {
+        return new DefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board,
+                                DefinitionVersions versions) {
         BuildRunner buildRunner = new BuildRunner();
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, WORKER_LOGIN);
         LostIssues lostIssues = new LostIssues();
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO, ownershipGuard);
-        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
-                new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
+        IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
+                buildRunner, Duration.ZERO,
                 new UsageTracker(0.90, Clock.systemUTC()),
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests, ownershipGuard, lostIssues);
+                board, new ContextTracker(), pageRequests,
+                com.meterian.factory.workflow.RetrySettings.defaults(), ownershipGuard, lostIssues);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues);
+        return new Worker(configuration, gitHub, workflow, versions, phaseStopper, pageRequests, WORKER_LOGIN,
+                executor, liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -238,7 +243,7 @@ class WorkerTest {
         });
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.REVIEW);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("review");
         return firstAgent;
     }
 
@@ -251,8 +256,54 @@ class WorkerTest {
 
         IssueCard card = findCard(board, 1).orElseThrow();
         assertThat(card.title()).isEqualTo("Change the greeting 1");
-        assertThat(card.record().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(card.record().column()).isEqualTo("queued");
         assertThat(board.snapshot().lastCheckAt()).contains(clock.instant());
+    }
+
+    @Test
+    void takesNoNewIssueWithoutAGoodDefinition() {
+        FactoryConfiguration configuration = createConfiguration(2, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+        assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void givesTheIntakeTheCurrentCommit() {
+        String commit = commitDefinition(clone, mainFileFor("true"));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, createVersions(configuration));
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
+    }
+
+    @Test
+    void blocksARecordWhoseDefinitionDoesNotLoadAndStartsTheNextIssue() throws InterruptedException {
+        String broken = commitDefinition(clone, "version: 1\nworkflow: [\n");
+        IssueRecord unloadable = RecordStates.move(RecordStates.queued(ISSUE).withAgentSessionStarted(), "implement")
+                .withDefinitionCommit(broken);
+        gitHub.addCommentBy(ISSUE, WORKER_LOGIN, StatusComment.render(unloadable, LIMITS, RecordStates.REVIEW_NAMES));
+        addLabeledIssue(OTHER_ISSUE);
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
+                .thenAssessRisk("low", true), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow();
+        assertThat(blocked.state()).isEqualTo("implement");
+        assertThat(blocked.action()).isEmpty();
+        assertThat(blocked.column()).isEqualTo("blocked");
+        assertThat(blocked.notes()).anySatisfy(note -> assertThat(note)
+                .startsWith("The definition " + broken.substring(0, 7) + " of the issue does not load: "));
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isNotEqualTo("queued");
+        assertThat(worker.issuesInWork()).isEmpty();
     }
 
     @Test
@@ -269,14 +320,14 @@ class WorkerTest {
     }
 
     @Test
-    void aStepUpdatesTheCardBetweenPolls() throws InterruptedException {
+    void anActionUpdatesTheCardBetweenPolls() throws InterruptedException {
         Worker worker = createWorker(new FakeAgentRunner().thenAskQuestion("Which greeting do you want?"), 2);
 
         worker.pollOnce();
         waitForTheLoops();
 
         IssueRecord onGitHub = readRecord(ISSUE).orElseThrow();
-        assertThat(onGitHub.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(onGitHub.column()).isEqualTo("waits-for-you");
         assertThat(findCard(board, ISSUE).orElseThrow().record()).isEqualTo(onGitHub);
     }
 
@@ -300,11 +351,24 @@ class WorkerTest {
         worker.pollOnce();
         worker.pollOnce();
 
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.columnOf(ISSUE)).contains("queued");
         assertThat(statusComments(ISSUE)).hasSize(1);
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isEqualTo("queued");
         assertThat(readRecord(ISSUE).orElseThrow().issueTextHash())
                 .contains(IssueText.computeHash(gitHub.issue(ISSUE)));
+    }
+
+    @Test
+    void takesAnIssueWithTheFactoryLabelFromAnyAccountIntoTheQueue() {
+        addLabeledIssue(8);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+        worker.pollOnce();
+
+        assertThat(readRecord(8).orElseThrow().column()).isEqualTo("queued");
+        assertThat(gitHub.columnOf(8)).contains("queued");
+        assertThat(gitHub.commentsOf(8)).hasSize(1);
     }
 
     @Test
@@ -320,7 +384,7 @@ class WorkerTest {
         worker.pollOnce();
 
         assertThat(worker.issuesInWork()).isEqualTo(Set.of(7, 8));
-        assertThat(readRecord(9).orElseThrow().status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(readRecord(9).orElseThrow().column()).isEqualTo("queued");
         agent.stopPhase(7);
         waitForTheLoops();
     }
@@ -354,11 +418,12 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(agent.stoppedIssues()).contains(ISSUE);
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
+        assertThat(record.previousState()).contains("implement");
+        assertThat(record.entriesOf("implement")).isZero();
         assertThat(record.notes()).noneMatch(note -> note.startsWith("The agent session failed"));
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.BLOCKED);
+        assertThat(gitHub.columnOf(ISSUE)).contains("blocked");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(worker.issuesInWork()).isEmpty();
@@ -373,20 +438,19 @@ class WorkerTest {
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
     }
 
     private IssueRecord writeBlockedRecordWithEarlierWork() {
-        IssueRecord blocked = readRecord(ISSUE).orElseThrow()
+        IssueRecord inBuild = RecordStates.move(readRecord(ISSUE).orElseThrow()
                 .withAgentSessionStarted()
-                .withFixLoop()
-                .withBuiltTree("tree")
-                .withPhase(Phase.BUILD)
-                .withStatus(IssueStatus.BLOCKED)
-                .withWaitReason(WaitReason.BLOCKED_BY_OWNER);
-        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, 2));
+                .withEntryCounted("implement")
+                .withEntryCounted("implement")
+                .withBuiltTree("tree"), "build");
+        IssueRecord blocked = RecordStates.move(inBuild, "blocked").withNewestNote("The owner blocked the issue.");
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, LIMITS, RecordStates.REVIEW_NAMES));
         return blocked;
     }
 
@@ -400,7 +464,7 @@ class WorkerTest {
 
         assertThat(readRecord(ISSUE)).isEmpty();
         assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
-        assertThat(gitHub.statusOf(ISSUE)).isEmpty();
+        assertThat(gitHub.columnOf(ISSUE)).isEmpty();
         assertThat(findCard(board, ISSUE)).isEmpty();
         assertThat(worker.issuesInWork()).isEmpty();
         assertThat(agent.requests()).isEmpty();
@@ -419,11 +483,28 @@ class WorkerTest {
     }
 
     @Test
+    void aStartedIssueGetsTheSlotBeforeAQueuedIssueWithALowerNumber() throws InterruptedException {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord started = RecordStates.move(readRecord(ISSUE).orElseThrow().withAgentSessionStarted(),
+                "implement");
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, LIMITS, RecordStates.REVIEW_NAMES));
+        addLabeledIssue(3);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).containsOnly(ISSUE);
+        assertThat(readRecord(3).orElseThrow().column()).isEqualTo("queued");
+    }
+
+    @Test
     void aStoppedFactoryDoesNotStartAnIssueThatIsAlreadyStarted() {
         createWorker(new FakeAgentRunner(), 0).pollOnce();
-        IssueRecord started = readRecord(ISSUE).orElseThrow().withAgentSessionStarted()
-                .withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
-        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, 2));
+        IssueRecord started = RecordStates.move(readRecord(ISSUE).orElseThrow().withAgentSessionStarted(),
+                "implement");
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, LIMITS, RecordStates.REVIEW_NAMES));
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
         Worker worker = createWorker(agent, 2);
         factorySwitch().requestStop();
@@ -435,7 +516,7 @@ class WorkerTest {
     }
 
     @Test
-    void aStopEndsTheLoopAfterTheCurrentStepAndItsMove() throws InterruptedException {
+    void aStopEndsTheLoopAfterTheCurrentActionAndItsMove() throws InterruptedException {
         CountDownLatch phaseStarted = new CountDownLatch(1);
         CountDownLatch phaseMayEnd = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
@@ -456,12 +537,12 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(agent.stoppedIssues()).isEmpty();
         assertThat(agent.requests()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
-        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(record.state()).isEqualTo("build");
+        assertThat(record.column()).isEqualTo("in-progress");
     }
 
     @Test
-    void aStoppedIssueContinuesInItsNextPhaseAfterTheStart() throws InterruptedException {
+    void aStoppedIssueContinuesInItsNextStateAfterTheStart() throws InterruptedException {
         CountDownLatch phaseStarted = new CountDownLatch(1);
         CountDownLatch phaseMayEnd = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
@@ -479,9 +560,9 @@ class WorkerTest {
         factorySwitch().start();
         worker.pollOnce();
 
-        waitUntil(() -> readRecord(ISSUE).orElseThrow().phase() != Phase.BUILD);
+        waitUntil(() -> !readRecord(ISSUE).orElseThrow().state().equals("build"));
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isNotIn(Phase.PREPARE, Phase.IMPLEMENT, Phase.BUILD);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isNotIn("prepare", "implement", "build");
     }
 
     @Test
@@ -494,17 +575,34 @@ class WorkerTest {
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
-        assertThat(record.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(record.column()).isEqualTo("queued");
+        assertThat(record.state()).isEqualTo("prepare");
+        assertThat(record.action()).contains(ActionType.PREPARE);
+        assertThat(record.definitionCommit()).isEqualTo(blocked.definitionCommit()).isPresent();
         assertThat(record.sessionId()).isNotEqualTo(blocked.sessionId());
         assertThat(record.agentSessionStarted()).isFalse();
-        assertThat(record.fixLoops()).isZero();
+        assertThat(record.entriesOf("implement")).isLessThanOrEqualTo(1);
         assertThat(record.builtTreeHash()).isEmpty();
-        assertThat(record.waitReason()).isEmpty();
         assertThat(record.notes()).contains("The owner started the issue again. The earlier work is discarded.");
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.columnOf(ISSUE)).contains("queued");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
         assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void startAgainTakesTheCurrentVersionOfTheDefinition() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord blocked = writeBlockedRecordWithEarlierWork();
+        String correction = commitDefinition(clone, mainFileFor("echo corrected"));
+        assertThat(blocked.definitionCommit()).isPresent().isNotEqualTo(Optional.of(correction));
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("prepare");
+        assertThat(record.definitionCommit()).contains(correction);
     }
 
     @Test
@@ -557,13 +655,13 @@ class WorkerTest {
         worker.pollOnce();
         IssueRecord blocked = writeBlockedRecordWithEarlierWork()
                 .withPullRequest(gitHub.addMergedPullRequest("factory/issue-" + ISSUE));
-        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, 2));
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(blocked, LIMITS, RecordStates.REVIEW_NAMES));
         gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
 
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
+        assertThat(record.action()).contains(ActionType.FINISH);
         assertThat(record.sessionId()).isEqualTo(blocked.sessionId());
         assertThat(record.notes()).contains("GitHub already merged the pull request, so the issue does not start again.");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
@@ -583,8 +681,8 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(agent.stoppedIssues()).contains(ISSUE);
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
+        assertThat(gitHub.columnOf(ISSUE)).contains("done");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
@@ -604,50 +702,49 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.phase()).isEqualTo(Phase.DONE);
-        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).isEmpty();
-        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(record.column()).isNotEqualTo("blocked");
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, DONE_BLOCK_NOTE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 
     @Test
-    void aDefectInTheFinishStepKeepsTheIssueDone() throws InterruptedException {
+    void aDefectInTheFinishActionKeepsTheIssueDone() throws InterruptedException {
         gitHub.failTheRemoveLabelAfterTheMergeWithADefect();
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
         IssueRecord afterTheFailure = readRecord(ISSUE).orElseThrow();
-        assertThat(afterTheFailure.phase()).isEqualTo(Phase.DONE);
-        assertThat(afterTheFailure.status()).isNotEqualTo(IssueStatus.BLOCKED);
-        assertThat(afterTheFailure.notes()).containsExactly(FINISH_FAILURE_NOTE);
+        assertThat(afterTheFailure.state()).isEqualTo("done");
+        assertThat(afterTheFailure.column()).isNotEqualTo("blocked");
+        assertThat(afterTheFailure.notes()).containsExactly(MERGED_NOTE, FINISH_FAILURE_NOTE);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
-        assertThat(record.notes()).containsExactly(FINISH_FAILURE_NOTE);
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, FINISH_FAILURE_NOTE);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
         assertThat(worktree()).doesNotExist();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 
     @Test
-    void aFailedFinishStepLeavesTheLabelFactoryForTheNextPoll() throws InterruptedException {
+    void aFailedFinishActionLeavesTheLabelFactoryForTheNextPoll() throws InterruptedException {
         gitHub.failTheRemoveLabelAfterTheMerge();
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(gitHub.columnOf(ISSUE)).contains("done");
         assertThat(gitHub.labelsOf(ISSUE)).contains(FACTORY_LABEL);
         assertThat(worktree()).doesNotExist();
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
         assertThat(gitHub.removedLabels()).last().isEqualTo(FACTORY_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
@@ -665,13 +762,13 @@ class WorkerTest {
         });
         worker.pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isNotEqualTo("blocked");
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL, FACTORY_LABEL);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
@@ -691,9 +788,9 @@ class WorkerTest {
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
-        assertThat(record.notes()).containsExactly(DONE_BLOCK_NOTE);
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.DONE);
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(record.notes()).containsExactly(MERGED_NOTE, DONE_BLOCK_NOTE);
+        assertThat(gitHub.columnOf(ISSUE)).contains("done");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
     }
 
@@ -712,8 +809,8 @@ class WorkerTest {
         assertThat(agent.requests()).hasSize(1);
         for (int issueNumber : List.of(7, 8)) {
             IssueRecord record = readRecord(issueNumber).orElseThrow();
-            assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
-            assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+            assertThat(record.column()).isEqualTo("in-progress");
+            assertThat(record.state()).isEqualTo("implement");
             assertThat(record.notes()).isEmpty();
         }
     }
@@ -727,7 +824,7 @@ class WorkerTest {
         worker.pollOnce();
 
         assertThat(worker.isStopped()).isFalse();
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.columnOf(ISSUE)).contains("queued");
     }
 
     @Test
@@ -736,14 +833,14 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        gitHub.whenACommentEditContains(WaitReason.BLOCKED_BY_OWNER.sentence(), worker::pollOnce);
+        gitHub.whenACommentEditContains("The owner blocked the issue.", worker::pollOnce);
         gitHub.addLabel(ISSUE, BLOCK_LABEL);
 
         worker.pollOnce();
         waitForTheLoops();
 
         assertThat(agent.stoppedIssues()).containsExactly(ISSUE);
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(readRecord(ISSUE).orElseThrow().newestNote()).contains("The owner blocked the issue.");
     }
 
     @Test
@@ -762,7 +859,7 @@ class WorkerTest {
         assertThat(agent.stoppedIssues()).contains(7, 8);
         assertThat(worker.foundAnApiKey()).isFalse();
         for (int issueNumber : List.of(7, 8)) {
-            assertThat(readRecord(issueNumber).orElseThrow().status()).isNotEqualTo(IssueStatus.BLOCKED);
+            assertThat(readRecord(issueNumber).orElseThrow().column()).isNotEqualTo("blocked");
         }
     }
 
@@ -777,8 +874,8 @@ class WorkerTest {
         createWorker(firstAgent, 2).pollOnce();
         waitForTheLoops();
         IssueRecord stopped = readRecord(ISSUE).orElseThrow();
-        assertThat(stopped.phase()).isEqualTo(Phase.REVIEW);
-        assertThat(stopped.fixLoops()).isEqualTo(1);
+        assertThat(stopped.state()).isEqualTo("review");
+        assertThat(stopped.entriesOf("implement")).isEqualTo(2);
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -788,8 +885,8 @@ class WorkerTest {
 
         PhaseRequest implement = secondAgent.requests().getFirst();
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
-        assertThat(record.fixLoops()).isEqualTo(1);
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(record.entriesOf("implement")).isEqualTo(3);
         assertThat(implement.newSession()).isTrue();
         assertThat(implement.sessionId()).isNotEqualTo(firstAgent.requests().getFirst().sessionId());
         assertThat(implement.prompt()).startsWith("Do the work of the issue below")
@@ -804,7 +901,7 @@ class WorkerTest {
 
         worker.pollOnce();
 
-        assertThat(gitHub.statusOf(8)).contains(IssueStatus.QUEUED);
+        assertThat(gitHub.columnOf(8)).contains("queued");
         assertThat(worker.isStopped()).isFalse();
     }
 
@@ -816,8 +913,8 @@ class WorkerTest {
         createWorker(secondAgent, 2).pollOnce();
         waitForTheLoops();
 
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory/review-");
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
+        assertThat(secondAgent.requests().getFirst().prompt()).contains(".factory-work/review-");
         assertThat(gitHub.commentsOf(ISSUE)).hasSize(1);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(gitHub.pullRequests()).hasSize(1);
@@ -836,8 +933,8 @@ class WorkerTest {
 
         PhaseRequest firstImplement = firstAgent.requests().getFirst();
         PhaseRequest secondImplement = secondAgent.requests().getFirst();
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
-        assertThat(secondImplement.prompt()).doesNotContain(".factory/review-");
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
+        assertThat(secondImplement.prompt()).doesNotContain(".factory-work/review-");
         assertThat(secondImplement.newSession()).isTrue();
         assertThat(secondImplement.sessionId()).isNotEqualTo(firstImplement.sessionId());
         assertThat(statusComments(ISSUE)).hasSize(1);
@@ -849,13 +946,13 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 
@@ -864,14 +961,14 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
         pageRequests.remember(ISSUE, APPROVE_LABEL);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
     }
 
@@ -881,7 +978,7 @@ class WorkerTest {
         gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("text-changed");
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
         FakeAgentRunner agent = new FakeAgentRunner()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -889,15 +986,16 @@ class WorkerTest {
         createWorker(agent, 2).pollOnce();
         waitForTheLoops();
 
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
         assertThat(agent.requests().getFirst().prompt()).contains("Change the greeting to hello.");
     }
 
     @Test
     void aBlockStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
         gitHub.addLabel(ISSUE, BLOCK_LABEL);
@@ -906,17 +1004,18 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
-        assertThat(record.fixLoops()).isZero();
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
+        assertThat(record.previousState()).contains("build");
+        assertThat(record.entriesOf("implement")).isEqualTo(1);
     }
 
     @Test
     void shutDownStopsTheRunningBuild() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
+        buildCommand = "touch " + started + "; sleep 60";
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+                createConfiguration(2, Duration.ofSeconds(60)));
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
 
@@ -924,9 +1023,9 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(loopsEnded).isTrue();
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
-        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
-        assertThat(record.fixLoops()).isZero();
+        assertThat(record.state()).isEqualTo("build");
+        assertThat(record.column()).isEqualTo("in-progress");
+        assertThat(record.entriesOf("implement")).isLessThanOrEqualTo(1);
     }
 
     @Test
@@ -935,7 +1034,7 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.MERGE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("merge");
         run(clone, "worktree", "remove", "--force", worktree().toString());
         FakeAgentRunner secondAgent = new FakeAgentRunner();
 
@@ -943,7 +1042,7 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.DONE);
+        assertThat(record.state()).isEqualTo("done");
         assertThat(secondAgent.requests()).isEmpty();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
@@ -964,8 +1063,8 @@ class WorkerTest {
         assertThat(worker.isStopped()).isTrue();
         assertThat(worker.foundAnApiKey()).isTrue();
         assertThat(agent.stoppedIssues()).contains(otherIssue);
-        assertThat(otherRecord.status()).isIn(IssueStatus.QUEUED, IssueStatus.IN_PROGRESS);
-        assertThat(otherRecord.phase()).isIn(Phase.PREPARE, Phase.IMPLEMENT);
+        assertThat(otherRecord.column()).isIn("queued", "in-progress");
+        assertThat(otherRecord.state()).isIn("prepare", "implement");
         assertThat(otherRecord.notes()).isEmpty();
     }
 
@@ -977,13 +1076,13 @@ class WorkerTest {
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty());
-        assertThat(readRecord(ISSUE).orElseThrow().phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("implement");
 
         worker.pollOnce();
         waitForTheLoops();
 
         assertThat(worker.isStopped()).isFalse();
-        assertThat(readRecord(ISSUE).orElseThrow().status()).isEqualTo(IssueStatus.DONE);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
         assertThat(statusComments(ISSUE)).hasSize(1);
     }
 
@@ -995,8 +1094,8 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.previousState()).contains("implement");
         assertThat(record.notes()).anyMatch(note -> note.contains("IllegalStateException")
                 && note.contains("The test has no scripted action"));
         assertThat(worker.isStopped()).isFalse();
@@ -1011,8 +1110,8 @@ class WorkerTest {
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.column()).isEqualTo("blocked");
         assertThat(record.notes()).containsExactly(BROKEN_RECORD_NOTE);
         assertThat(gitHub.commentsOf(ISSUE)).hasSize(2);
         assertThat(worker.issuesInWork()).isEmpty();
@@ -1023,7 +1122,7 @@ class WorkerTest {
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true), 2)
                 .pollOnce();
         waitForTheLoops();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
     }
 
     /** The owner gives factory:enter on the waiting issue, and a new worker reads it. */
@@ -1032,7 +1131,7 @@ class WorkerTest {
         gitHub.addLabel(ISSUE, ENTER_LABEL);
         Worker worker = createWorker(new FakeAgentRunner(), 2);
         worker.pollOnce();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
         return worker;
     }
 
@@ -1051,8 +1150,8 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(liveSessions.openCalls()).hasSize(1);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
-        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.column()).isEqualTo("waits-for-you");
+        assertThat(record.state()).isEqualTo("live");
         assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
     }
 
@@ -1070,9 +1169,10 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(agent.stoppedIssues()).contains(ISSUE);
         assertThat(liveSessions.openCalls()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(record.previousState()).contains("implement");
+        assertThat(record.entriesOf("implement")).isZero();
         assertThat(record.agentSessionStarted()).isTrue();
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.state()).isEqualTo("live");
         assertThat(record.notes()).noneMatch(note -> note.startsWith("The agent session failed"));
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
     }
@@ -1098,8 +1198,100 @@ class WorkerTest {
         assertThat(secondRun.sessionId()).isEqualTo(agent.requests().get(0).sessionId());
         assertThat(secondRun.prompt()).startsWith("The owner discussed the issue with you");
         assertThat(record.live()).isEmpty();
-        assertThat(record.fixLoops()).isZero();
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.entriesOf("implement")).isEqualTo(1);
+        assertThat(record.state()).isEqualTo("waits-for-approval");
+    }
+
+    @Test
+    void anOpenLiveSessionHoldsItsSlot() throws InterruptedException {
+        enterTheWaitingIssue();
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+        assertThat(agent.requests()).isEmpty();
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void aSessionThatTheLoopOpensHoldsItsSlotBeforeTheNextPoll() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void anOpenSessionKeepsItsSlotWhenThePollDoesNotFindItsIssue() throws InterruptedException {
+        enterTheWaitingIssue();
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        gitHub.removeLabel(ISSUE, FACTORY_LABEL);
+        addLabeledIssue(OTHER_ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void anIssueBackFromItsLiveSessionStartsBeforeAStartedIssueWithALowerNumber() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        addLabeledIssue(3);
+        worker.pollOnce();
+        IssueRecord started = RecordStates.move(readRecord(3).orElseThrow().withAgentSessionStarted(), "implement");
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, LIMITS, RecordStates.REVIEW_NAMES));
+        liveSessions.requestContinue(ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).doesNotContain(3);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
+    }
+
+    @Test
+    void anIssueBackFromItsLiveSessionStartsBeforeANewIssue() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        addLabeledIssue(3);
+        worker.pollOnce();
+        liveSessions.requestContinue(ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).doesNotContain(3);
+        assertThat(readRecord(3).orElseThrow().column()).isEqualTo("queued");
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
     }
 
     @Test
@@ -1115,7 +1307,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(liveSessions.openCalls()).isEmpty();
-        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(record.column()).isEqualTo("in-progress");
         assertThat(record.agentSessionStarted()).isFalse();
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
     }
@@ -1123,8 +1315,8 @@ class WorkerTest {
     @Test
     void enterStopsTheRunningBuildAndOpensTheConversation() throws InterruptedException {
         Path started = temporaryDirectory.resolve("build-started");
-        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), "touch " + started + "; sleep 60"));
+        buildCommand = "touch " + started + "; sleep 60";
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(), 2);
         worker.pollOnce();
         waitUntil(() -> Files.exists(started));
         gitHub.addLabel(ISSUE, ENTER_LABEL);
@@ -1134,13 +1326,13 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(liveSessions.openCalls()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
-        assertThat(record.fixLoops()).isZero();
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.previousState()).contains("build");
+        assertThat(record.entriesOf("implement")).isEqualTo(1);
+        assertThat(record.state()).isEqualTo("live");
     }
 
     @Test
-    void enterKeepsTheResultOfAStepThatEndsBeforeTheStop() throws InterruptedException {
+    void enterKeepsTheResultOfAnActionThatEndsBeforeTheStop() throws InterruptedException {
         CountDownLatch phaseStarted = new CountDownLatch(1);
         CountDownLatch phaseMayEnd = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
@@ -1160,8 +1352,8 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(agent.requests()).hasSize(1);
         assertThat(liveSessions.openCalls()).hasSize(1);
-        assertThat(record.phase()).isEqualTo(Phase.BUILD);
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.previousState()).contains("build");
+        assertThat(record.state()).isEqualTo("live");
     }
 
     /** Counts the calls that tell the page about a request. The other calls go to the board of the test. */
@@ -1272,7 +1464,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.live()).isEmpty();
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.state()).isEqualTo("waits-for-approval");
         assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
     }
@@ -1289,8 +1481,8 @@ class WorkerTest {
         assertThat(record.notes()).filteredOn(ENDED_NOTE::equals).hasSize(1);
         assertThat(gitHub.editedBodies()).filteredOn(body -> body.contains(ENDED_NOTE)).hasSize(1);
         assertThat(readLiveLink()).isEmpty();
-        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.column()).isEqualTo("waits-for-you");
+        assertThat(record.state()).isEqualTo("live");
         gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
         assertThat(liveSessions.openCalls()).hasSize(2);
@@ -1310,7 +1502,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.live()).isEmpty();
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.state()).isEqualTo("waits-for-approval");
         assertThat(liveSessions.openCalls()).hasSize(1);
     }
 
@@ -1325,10 +1517,26 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(liveSessions.closeCalls()).containsExactly(ISSUE);
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
         assertThat(record.live()).isEmpty();
         assertThat(record.notes()).doesNotContain(ENDED_NOTE);
+    }
+
+    @Test
+    void aBlockAfterAContinueRequestKeepsTheIssueInTheBlockTarget() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        liveSessions.requestContinue(ISSUE);
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        worker.pollOnce();
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
+        assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
     }
 
     @Test
@@ -1357,11 +1565,11 @@ class WorkerTest {
         };
     }
 
-    /** The owner starts the blocked issue again: the record goes back to the implement step in progress. */
+    /** The owner continues the blocked issue: the record goes back to its previous state. */
     private void resumeTheBlockedIssue() {
         IssueRecord blocked = readRecord(ISSUE).orElseThrow();
-        IssueRecord resumed = blocked.withStatus(IssueStatus.IN_PROGRESS).withoutWaitReason();
-        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(resumed, 2));
+        IssueRecord resumed = RecordStates.move(blocked, blocked.previousState().orElseThrow());
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(), StatusComment.render(resumed, LIMITS, RecordStates.REVIEW_NAMES));
     }
 
     @Test
@@ -1385,23 +1593,28 @@ class WorkerTest {
         assertThat(liveSessions.openCalls()).hasSize(1);
         assertThat(liveSessions.closeCalls()).hasSize(2);
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
         assertThat(record.live()).isEmpty();
     }
 
     @Test
     void aBlockedEnterRequestDoesNotOpenALaterSession() throws InterruptedException {
-        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails().thenChangeFile();
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(changeFileAfter(phaseStarted, phaseMayEnd))
+                .thenChangeFile();
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
-        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        awaitQuietly(phaseStarted);
         gitHub.addLabel(ISSUE, ENTER_LABEL);
         worker.pollOnce();
         gitHub.addLabel(ISSUE, BLOCK_LABEL);
         worker.pollOnce();
+        // The action ends only after the block, so the enter request can never open a session before it.
+        phaseMayEnd.countDown();
         waitUntil(() -> worker.issuesInWork().isEmpty()
-                && readRecord(ISSUE).orElseThrow().status() == IssueStatus.BLOCKED
+                && readRecord(ISSUE).orElseThrow().column().equals("blocked")
                 && !gitHub.labelsOf(ISSUE).contains(BLOCK_LABEL));
         gitHub.removeLabel(ISSUE, ENTER_LABEL);
         resumeTheBlockedIssue();
@@ -1452,7 +1665,7 @@ class WorkerTest {
 
         assertThat(liveSessions.openCalls()).hasSize(2);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
     }
 
     @Test
@@ -1469,31 +1682,48 @@ class WorkerTest {
         assertThat(liveSessions.openCalls()).hasSize(1);
         assertThat(liveSessions.isOpen(ISSUE)).isTrue();
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
     }
 
     @Test
-    void aBlockedLiveIssueWithAContinueRequestContinues() throws InterruptedException {
+    void doesNotContinueAfterAFailureWithAnOldContinueRequest() throws InterruptedException {
         enterTheWaitingIssue();
         liveSessions.failTheNextClose();
         liveSessions.requestContinue(ISSUE);
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
         IssueRecord blocked = readRecord(ISSUE).orElseThrow();
-        assertThat(blocked.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(blocked.live()).isPresent();
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(blocked.state()).isEqualTo("blocked");
+        assertThat(blocked.previousState()).contains("merge");
+        assertThat(blocked.live()).isEmpty();
+        assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
+        assertThat(readRecord(ISSUE).orElseThrow()).isEqualTo(blocked);
+    }
+
+    @Test
+    void continuesAfterAFailureWithANewContinueRequest() throws InterruptedException {
+        enterTheWaitingIssue();
+        liveSessions.failTheNextClose();
+        liveSessions.requestContinue(ISSUE);
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+        liveSessions.requestContinue(ISSUE);
 
         createWorker(new FakeAgentRunner(), 2).pollOnce();
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.live()).isEmpty();
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.state()).isEqualTo("waits-for-approval");
         assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
     }
 
-    /** Another thread stops the worker, as the shutdown hook does. The step goes on after the stop. */
-    private static void stopTheWorkerDuringTheStep(Worker worker) {
+    /** Another thread stops the worker, as the shutdown hook does. The action goes on after the stop. */
+    private static void stopTheWorkerDuringTheAction(Worker worker) {
         new Thread(() -> worker.shutDown(TIME_BOUND), "test-shutdown").start();
         try {
             waitUntil(worker::isStopped);
@@ -1506,7 +1736,7 @@ class WorkerTest {
     @Test
     void aStopDuringTheOpenAfterAQuestionKeepsTheLiveRecord() throws InterruptedException {
         Worker worker = createWorker(new FakeAgentRunner().thenAskQuestion("Which greeting do you want?"), 2);
-        liveSessions.whenOpening(() -> stopTheWorkerDuringTheStep(worker));
+        liveSessions.whenOpening(() -> stopTheWorkerDuringTheAction(worker));
 
         worker.pollOnce();
         waitForTheLoops();
@@ -1515,14 +1745,14 @@ class WorkerTest {
         assertThat(worker.isStopped()).isTrue();
         assertThat(liveSessions.isOpen(ISSUE)).isTrue();
         assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
-        assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(record.state()).isEqualTo("live");
     }
 
     @Test
     void aStopDuringTheContinueKeepsTheRecordAfterTheContinue() throws InterruptedException {
         Worker worker = enterTheWaitingIssue();
         liveSessions.requestContinue(ISSUE);
-        liveSessions.whenClosing(() -> stopTheWorkerDuringTheStep(worker));
+        liveSessions.whenClosing(() -> stopTheWorkerDuringTheAction(worker));
 
         worker.pollOnce();
         waitForTheLoops();
@@ -1531,7 +1761,7 @@ class WorkerTest {
         assertThat(worker.isStopped()).isTrue();
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
         assertThat(record.live()).isEmpty();
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.state()).isEqualTo("merge");
     }
 
     @Test
@@ -1560,6 +1790,151 @@ class WorkerTest {
         assertThat(readRecord(ISSUE).orElseThrow().live()).isEmpty();
     }
 
+    @Test
+    void countsOneEntryAfterABlockDuringTheAction() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        worker.pollOnce();
+        waitForTheLoops();
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow();
+        liveSessions.requestContinue(ISSUE);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(blocked.state()).isEqualTo("blocked");
+        assertThat(blocked.entriesOf("implement")).isZero();
+        assertThat(record.state()).isEqualTo("waits-for-approval");
+        assertThat(record.entriesOf("implement")).isEqualTo(1);
+        assertThat(liveSessions.isContinueRequested(ISSUE)).isFalse();
+    }
+
+    @Test
+    void entersAtOnceAndOpensTheConversation() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("live");
+        assertThat(record.previousState()).contains("merge");
+        assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+        assertThat(gitHub.columnOf(ISSUE)).contains("waits-for-you");
+        assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void stopsTheActionOnEnterAndEntersOnTheKeptRecord() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.stoppedIssues()).contains(ISSUE);
+        assertThat(record.state()).isEqualTo("live");
+        assertThat(record.previousState()).contains("implement");
+        assertThat(record.entriesOf("implement")).isZero();
+        assertThat(record.agentSessionStarted()).isTrue();
+        assertThat(readLiveLink()).contains("https://claude.ai/code/session_test" + ISSUE);
+        assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void blocksTheIssueIntoTheBlockTarget() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.column()).isEqualTo("blocked");
+        assertThat(record.previousState()).contains("merge");
+        assertThat(record.newestNote()).contains("The owner blocked the issue.");
+        assertThat(gitHub.columnOf(ISSUE)).contains("blocked");
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+    }
+
+    @Test
+    void doesNothingWhenTheIssueIsInTheBlockTargetAlready() throws InterruptedException {
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+        IssueRecord blocked = readRecord(ISSUE).orElseThrow();
+        int editsBefore = gitHub.editedBodies().size();
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(blocked.state()).isEqualTo("blocked");
+        assertThat(blocked.newestNote()).hasValueSatisfying(note -> assertThat(note)
+                .startsWith("An unexpected failure stopped the issue: "));
+        assertThat(readRecord(ISSUE).orElseThrow()).isEqualTo(blocked);
+        assertThat(gitHub.editedBodies()).hasSize(editsBefore);
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
+    }
+
+    @Test
+    void movesAnUnexpectedFailureToTheBlockTarget() throws InterruptedException {
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.column()).isEqualTo("blocked");
+        assertThat(record.previousState()).contains("implement");
+        assertThat(record.newestNote()).hasValueSatisfying(note -> assertThat(note)
+                .startsWith("An unexpected failure stopped the issue: java.lang.IllegalStateException: "));
+    }
+
+    @Test
+    void startsAgainOnlyFromTheBlockTarget() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        IssueRecord waiting = readRecord(ISSUE).orElseThrow();
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        worker.pollOnce();
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+
+        worker.pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(waiting.state()).isEqualTo("waits-for-approval");
+        assertThat(waiting.newestNote())
+                .contains("Start again has no effect: it works only on a Blocked issue without a live conversation.");
+        assertThat(record.state()).isEqualTo("prepare");
+        assertThat(record.column()).isEqualTo("queued");
+        assertThat(record.entries()).isEmpty();
+        assertThat(record.previousState()).contains("prepare");
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL, BLOCK_LABEL);
+    }
+
+    /** The default branch gets a .factory with this build command. */
+    private Worker createWorkerWithBuild(FakeAgentRunner agent, String newBuildCommand) {
+        buildCommand = newBuildCommand;
+        return createWorker(agent, 2);
+    }
+
     /** Another factory takes the issue: its account becomes the only assignee. */
     private void reassignToAlice() {
         gitHub.unassign(ISSUE, WORKER_LOGIN);
@@ -1579,7 +1954,7 @@ class WorkerTest {
 
     /** The factory of alice wrote this record on the issue. */
     private void addRecordOfAlice(IssueRecord record) {
-        gitHub.addCommentBy(ISSUE, ALICE, StatusComment.render(record, 2));
+        gitHub.addCommentBy(ISSUE, ALICE, StatusComment.render(record, LIMITS, RecordStates.REVIEW_NAMES));
     }
 
     /** The issue had the assignee alice once, and has it no longer. */
@@ -1629,7 +2004,7 @@ class WorkerTest {
     @Test
     void aStoppedFactoryDoesNotTakeOverANewIssueOfAnEarlierOwner() {
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review"));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         Worker worker = createWorker(new FakeAgentRunner(), 0);
         factorySwitch().requestStop();
@@ -1662,21 +2037,21 @@ class WorkerTest {
         worker.pollOnce();
 
         assertThat(gitHub.commentsOf(OTHER_ISSUE)).isEmpty();
-        assertThat(gitHub.statusLabelsOf(OTHER_ISSUE)).isEmpty();
+        assertThat(gitHub.columnLabelsOf(OTHER_ISSUE)).isEmpty();
         assertThat(gitHub.assigneesOf(OTHER_ISSUE)).containsExactly(ALICE);
         assertThat(findCard(board, OTHER_ISSUE)).isEmpty();
         assertThat(findCard(board, ISSUE)).isPresent();
     }
 
     @Test
-    void runningStepEndsWhenTheAssigneeChanges() throws InterruptedException {
+    void runningActionEndsWhenTheAssigneeChanges() throws InterruptedException {
         Path buildStarted = temporaryDirectory.resolve("build-started");
         CountDownLatch pollSawTheNewAssignee = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(() -> {
             reassignToAlice();
             awaitQuietly(pollSawTheNewAssignee);
         });
-        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60), "touch " + buildStarted));
+        Worker worker = createWorkerWithBuild(agent, "touch " + buildStarted);
         worker.pollOnce();
         waitUntil(() -> gitHub.assigneesOf(ISSUE).contains(ALICE));
 
@@ -1696,9 +2071,8 @@ class WorkerTest {
     void buildPushRefusedEndsTheLoopWithoutABlock() throws InterruptedException, IOException {
         Path buildStarted = temporaryDirectory.resolve("build-started");
         Path buildMayEnd = temporaryDirectory.resolve("build-may-end");
-        String buildCommand = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
-        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), buildCommand));
+        String waitingBuild = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
+        Worker worker = createWorkerWithBuild(new FakeAgentRunner().thenChangeFile(), waitingBuild);
         worker.pollOnce();
         waitUntil(() -> Files.exists(buildStarted));
 
@@ -1707,40 +2081,39 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.state()).isNotEqualTo("blocked");
         assertThat(record.handOver()).contains(HandOver.RELEASED);
         assertThat(gitHub.pullRequests()).isEmpty();
         assertThat(stopComments(ISSUE)).hasSize(1);
     }
 
     @Test
-    void stepResultAfterTheLossDoesNotChangeTheStatusLabel() throws InterruptedException {
+    void actionResultAfterTheLossDoesNotChangeTheColumnLabel() throws InterruptedException {
         CountDownLatch pollSawTheNewAssignee = new CountDownLatch(1);
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(() -> {
             reassignToAlice();
-            gitHub.setStatus(gitHub.issue(ISSUE), IssueStatus.WAITS_FOR_YOU);
+            gitHub.setColumn(gitHub.issue(ISSUE), "waits-for-you");
             awaitQuietly(pollSawTheNewAssignee);
         });
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
         waitUntil(() -> gitHub.assigneesOf(ISSUE).contains(ALICE));
-        Set<String> statusLabelsOfTheNewOwner = gitHub.statusLabelsOf(ISSUE);
+        Set<String> columnLabelsOfTheNewOwner = gitHub.columnLabelsOf(ISSUE);
 
         worker.pollOnce();
         pollSawTheNewAssignee.countDown();
         waitForTheLoops();
 
         assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
-        assertThat(gitHub.statusLabelsOf(ISSUE)).isEqualTo(statusLabelsOfTheNewOwner);
+        assertThat(gitHub.columnLabelsOf(ISSUE)).isEqualTo(columnLabelsOfTheNewOwner);
     }
 
     @Test
     void losingBuildDoesNotRemoveTheApprovalOfTheNewOwner() throws InterruptedException, IOException {
         Path buildStarted = temporaryDirectory.resolve("build-started");
         Path buildMayEnd = temporaryDirectory.resolve("build-may-end");
-        String buildCommand = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
-        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
-                createConfiguration(2, Duration.ofSeconds(60), buildCommand));
+        String waitingBuild = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
+        Worker worker = createWorkerWithBuild(new FakeAgentRunner().thenChangeFile(), waitingBuild);
         worker.pollOnce();
         waitUntil(() -> Files.exists(buildStarted));
 
@@ -1765,7 +2138,7 @@ class WorkerTest {
 
         assertThat(liveSessions.isOpen(ISSUE)).isTrue();
         assertThat(liveSessions.closeCalls()).isEmpty();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
         assertThat(stopComments(ISSUE)).hasSize(1);
     }
 
@@ -1773,7 +2146,7 @@ class WorkerTest {
     void newOwnerContinuesFromThePushedBranch() throws InterruptedException {
         String pushedCommit = pushTheBranchOfAlice();
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review")
                 .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
@@ -1783,8 +2156,7 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
-        assertThat(record.phase()).isNotIn(Phase.PREPARE, Phase.IMPLEMENT, Phase.BUILD);
-        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(record.state()).isEqualTo("waits-for-approval");
     }
 
     @Test
@@ -1792,7 +2164,7 @@ class WorkerTest {
         pushTheBranchOfAlice();
         recordAnEarlierAssignmentOfAlice();
         String acceptedTextHash = IssueText.computeHash(gitHub.issue(ISSUE));
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review")
                 .withIssueTextHash(acceptedTextHash));
         gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
@@ -1803,14 +2175,14 @@ class WorkerTest {
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(agent.requests()).isEmpty();
-        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
-        assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+        assertThat(record.column()).isEqualTo("waits-for-you");
+        assertThat(record.state()).isEqualTo("text-changed");
     }
 
     @Test
     void newOwnerWaitsForTheOwnerWhenTheEarlierRecordHasNoTextHash() throws InterruptedException {
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review"));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
 
@@ -1818,14 +2190,14 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(agent.requests()).isEmpty();
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("text-changed");
     }
 
     @Test
     void newOwnerKeepsABlock() throws InterruptedException {
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withStatus(IssueStatus.BLOCKED)
-                .withWaitReason(WaitReason.BLOCKED_BY_OWNER));
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "blocked")
+                .withNewestNote("The owner blocked the issue."));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         FakeAgentRunner agent = new FakeAgentRunner();
 
@@ -1833,8 +2205,8 @@ class WorkerTest {
         waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
-        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.column()).isEqualTo("blocked");
         assertThat(agent.requests()).isEmpty();
     }
 
@@ -1860,7 +2232,7 @@ class WorkerTest {
         assertThat(readRecord(ISSUE).orElseThrow().handOver()).isEmpty();
         reassignToAlice();
         String pushedCommit = pushTheBranchOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review")
                 .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
         reassignToTheWorker();
 
@@ -1870,13 +2242,13 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
-        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
     }
 
     @Test
     void secondPollAfterTheTakeOverDoesNotTakeOverAgain() {
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "review"));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         createWorker(new FakeAgentRunner(), 0).pollOnce();
         IssueRecord afterTheTakeOver = readRecord(ISSUE).orElseThrow();
@@ -1890,23 +2262,24 @@ class WorkerTest {
 
     @Test
     void strangerStatusCommentDoesNotStartATakeOver() {
-        gitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(IssueRecord.queued(ISSUE)
-                .withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER), 2));
+        gitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(
+                RecordStates.move(RecordStates.queued(ISSUE), "blocked"), LIMITS, RecordStates.REVIEW_NAMES));
 
         createWorker(new FakeAgentRunner(), 0).pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
-        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.column()).isEqualTo("queued");
+        assertThat(record.state()).isEqualTo("prepare");
         assertThat(record.handOver()).isEmpty();
         assertThat(record.notes()).noneMatch(note -> note.contains("earlier owner"));
     }
 
     @Test
-    void noStepStartsAfterTheAssigneeChangesBetweenPolls() throws InterruptedException {
+    void noActionStartsAfterTheAssigneeChangesBetweenPolls() throws InterruptedException {
         Path buildStarted = temporaryDirectory.resolve("build-started");
-        gitHub.whenACommentEditContains("\"phase\":\"BUILD\"", this::reassignToAlice);
+        gitHub.whenACommentEditContains("\"state\":\"build\"", this::reassignToAlice);
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
-        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60), "touch " + buildStarted));
+        Worker worker = createWorkerWithBuild(agent, "touch " + buildStarted);
 
         worker.pollOnce();
         waitForTheLoops();
@@ -1948,3 +2321,4 @@ class WorkerTest {
         waitForTheLoops();
     }
 }
+

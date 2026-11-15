@@ -3,17 +3,19 @@ package com.meterian.factory.worker;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.BoardUpdates;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeGitHubClient;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.workflow.StatusPublisher;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,14 +39,15 @@ class OwnershipReleaseTest {
         gitHub.setAuthenticatedLogin(WORKER_LOGIN);
         gitHub.addIssue(ISSUE_NUMBER, "Title", "Body");
         issue = gitHub.issue(ISSUE_NUMBER);
-        StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, 3, BoardUpdates.IGNORED,
+        StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), BoardUpdates.IGNORED,
                 new LostIssues());
         release = new OwnershipRelease(gitHub, statusPublisher, WORKER_LOGIN);
     }
 
     @Test
     void releaseMarksTheRecordAndWritesTheStopComment() {
-        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(IssueRecord.queued(ISSUE_NUMBER), 3));
+        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(RecordStates.queued(ISSUE_NUMBER), Map.of(), List.of()));
 
         release.release(ISSUE_NUMBER);
 
@@ -55,20 +58,20 @@ class OwnershipReleaseTest {
     }
 
     @Test
-    void releaseDoesNotChangeTheStatusLabel() {
-        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(IssueRecord.queued(ISSUE_NUMBER), 3));
-        gitHub.setStatus(issue, IssueStatus.IN_REVIEW);
-        Set<String> statusLabelsOfTheNewOwner = gitHub.statusLabelsOf(ISSUE_NUMBER);
+    void releaseDoesNotChangeTheColumnLabel() {
+        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(RecordStates.queued(ISSUE_NUMBER), Map.of(), List.of()));
+        gitHub.setColumn(issue, "in-review");
+        Set<String> columnLabelsOfTheNewOwner = gitHub.columnLabelsOf(ISSUE_NUMBER);
 
         release.release(ISSUE_NUMBER);
 
-        assertThat(gitHub.statusLabelsOf(ISSUE_NUMBER)).isEqualTo(statusLabelsOfTheNewOwner);
+        assertThat(gitHub.columnLabelsOf(ISSUE_NUMBER)).isEqualTo(columnLabelsOfTheNewOwner);
         assertThat(findOwnRecord().orElseThrow().handOver()).contains(HandOver.RELEASED);
     }
 
     @Test
     void releaseWritesTheStopCommentOnce() {
-        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(IssueRecord.queued(ISSUE_NUMBER), 3));
+        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(RecordStates.queued(ISSUE_NUMBER), Map.of(), List.of()));
 
         release.release(ISSUE_NUMBER);
         release.release(ISSUE_NUMBER);
@@ -85,8 +88,8 @@ class OwnershipReleaseTest {
 
     @Test
     void releaseLeavesADoneRecord() {
-        IssueRecord done = IssueRecord.queued(ISSUE_NUMBER).withPhase(Phase.DONE);
-        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(done, 3));
+        IssueRecord done = RecordStates.move(RecordStates.queued(ISSUE_NUMBER), "done");
+        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(done, Map.of(), List.of()));
 
         release.release(ISSUE_NUMBER);
 

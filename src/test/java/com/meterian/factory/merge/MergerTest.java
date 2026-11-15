@@ -1,5 +1,6 @@
 package com.meterian.factory.merge;
 
+import java.util.List;
 import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
@@ -8,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.build.BuildRunner;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.build.BuildSettings;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
@@ -18,7 +19,7 @@ import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.ReviewKind;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -65,9 +66,7 @@ class MergerTest {
         worktree = temporaryDirectory.resolve("worktree");
         git.addWorktree(clone, worktree, BRANCH, "origin/main");
         buildLog = temporaryDirectory.resolve("builds.txt");
-        TargetRepository target = new TargetRepository("owner", "name", clone, "echo ran >> " + buildLog,
-                Map.of());
-        merger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper, Duration.ZERO, OwnershipGuard.none());
+        merger = createMerger("echo ran >> " + buildLog, Map.of());
         pullRequest = gitHub.createPullRequest(BRANCH, "main", "Title", "Body");
         gitHub.squashMergeInto(clone);
         gitHub.readPullRequestHeadsFrom(github);
@@ -78,13 +77,13 @@ class MergerTest {
     }
 
     private IssueRecord reviewedRecord(int issueNumber, Path issueWorktree, PullRequest issuePullRequest) {
-        IssueRecord record = IssueRecord.queued(issueNumber).withPullRequest(issuePullRequest.number())
-                .withRisk(RiskLevel.LOW, true)
+        IssueRecord record = RecordStates.queued(issueNumber).withPullRequest(issuePullRequest.number())
+                .withRisk(RiskLevel.LOW, true, List.of())
                 .withReviewedTree(git.treeHash(issueWorktree), git.patchId(issueWorktree, "origin/main"))
                 .withReviewedHeadCommit(git.headCommit(issueWorktree))
                 .withBuiltTree(git.treeHash(issueWorktree));
-        for (ReviewKind kind : ReviewKind.values()) {
-            record = record.withReview(kind, Verdict.APPROVE);
+        for (String reviewName : RecordStates.REVIEW_NAMES) {
+            record = record.withReview(reviewName, Verdict.APPROVE);
         }
         return record;
     }
@@ -106,9 +105,7 @@ class MergerTest {
         String command = "echo ran >> " + buildLog + "; "
                 + (onlyOnce ? "if [ ! -e " + marker + " ]; then touch " + marker + "; " + movesTheBase + "; fi"
                         : movesTheBase);
-        TargetRepository moving = new TargetRepository("owner", "name", clone, command,
-                Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
-        return new Merger(git, gitHub, new BuildRunner(), moving, "main", gatekeeper, Duration.ZERO, OwnershipGuard.none());
+        return createMerger(command, Map.of("GIT_CONFIG_GLOBAL", "/dev/null", "GIT_CONFIG_NOSYSTEM", "1"));
     }
 
     private static void waitUntilBlockedOrEnded(Thread thread) {
@@ -154,9 +151,7 @@ class MergerTest {
         OwnershipGuard anotherAccountOwnsTheIssue = issueNumber -> {
             throw new OwnershipLostException(issueNumber);
         };
-        TargetRepository target = new TargetRepository("owner", "name", clone, "true", Map.of());
-        Merger refusedMerger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper,
-                Duration.ZERO, anotherAccountOwnsTheIssue);
+        Merger refusedMerger = createMerger("true", Map.of(), anotherAccountOwnsTheIssue);
 
         assertThatThrownBy(() -> refusedMerger.merge(worktree, record)).isInstanceOf(OwnershipLostException.class);
 
@@ -173,9 +168,7 @@ class MergerTest {
                 throw new OwnershipLostException(issueNumber);
             }
         };
-        TargetRepository target = new TargetRepository("owner", "name", clone, "true", Map.of());
-        Merger refusedMerger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper,
-                Duration.ZERO, ownerChangesAfterThePush);
+        Merger refusedMerger = createMerger("true", Map.of(), ownerChangesAfterThePush);
 
         assertThatThrownBy(() -> refusedMerger.merge(worktree, record)).isInstanceOf(OwnershipLostException.class);
 
@@ -227,8 +220,7 @@ class MergerTest {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
-        TargetRepository failing = new TargetRepository("owner", "name", clone, "echo broken; exit 1", Map.of());
-        Merger failingMerger = new Merger(git, gitHub, new BuildRunner(), failing, "main", gatekeeper, Duration.ZERO, OwnershipGuard.none());
+        Merger failingMerger = createMerger("echo broken; exit 1", Map.of());
 
         MergeResult result = failingMerger.merge(worktree, record);
 
@@ -263,7 +255,7 @@ class MergerTest {
 
     @Test
     void failsWhenTheIssueHasNoPullRequest() {
-        IssueRecord record = IssueRecord.queued(7);
+        IssueRecord record = RecordStates.queued(7);
 
         MergeResult result = merger.merge(worktree, record);
 
@@ -321,7 +313,7 @@ class MergerTest {
     @Test
     void failsWithoutABuiltTreeWhenTheBaseDidNotMove() {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
-        IssueRecord record = IssueRecord.queued(7).withPullRequest(pullRequest.number());
+        IssueRecord record = RecordStates.queued(7).withPullRequest(pullRequest.number());
 
         MergeResult result = merger.merge(worktree, record);
 
@@ -467,8 +459,7 @@ class MergerTest {
         commitFile(worktree, "b.txt", "feature\n", "Feature");
         IssueRecord record = reviewedRecord();
         moveTheBase("c.txt", "base\n");
-        TargetRepository dirtying = new TargetRepository("owner", "name", clone, "echo x > junk.txt", Map.of());
-        Merger dirtyingMerger = new Merger(git, gitHub, new BuildRunner(), dirtying, "main", gatekeeper, Duration.ZERO, OwnershipGuard.none());
+        Merger dirtyingMerger = createMerger("echo x > junk.txt", Map.of());
 
         MergeResult result = dirtyingMerger.merge(worktree, record);
 
@@ -559,5 +550,15 @@ class MergerTest {
 
         assertThat(result).isInstanceOf(MergeResult.NeedsNewReviews.class);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    private Merger createMerger(String buildCommand, Map<String, String> buildEnvironment) {
+        return createMerger(buildCommand, buildEnvironment, OwnershipGuard.none());
+    }
+
+    private Merger createMerger(String buildCommand, Map<String, String> buildEnvironment,
+                                OwnershipGuard ownershipGuard) {
+        return new Merger(git, gitHub, new BuildRunner(), clone, "main",
+                new BuildSettings(buildCommand, buildEnvironment), gatekeeper, Duration.ZERO, ownershipGuard);
     }
 }

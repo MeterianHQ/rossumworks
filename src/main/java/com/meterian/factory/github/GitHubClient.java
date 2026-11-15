@@ -1,6 +1,5 @@
 package com.meterian.factory.github;
 
-import com.meterian.factory.state.IssueStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +19,10 @@ public interface GitHubClient {
 
     void editComment(long commentId, String body);
 
-    /** GitHub does nothing for a login that has no access to the repository. */
+    /**
+     * Adds the login to the assignees. A pull request is an issue for this call. GitHub does nothing for a login
+     * that has no access to the repository.
+     */
     void addAssignee(int issueNumber, String login);
 
     /** Does nothing when the login is not an assignee of the issue. */
@@ -36,20 +38,13 @@ public interface GitHubClient {
         ensureLabel(label, color, "");
     }
 
-    /** Creates the six status labels when they do not exist. */
-    default void ensureStatusLabels() {
-        for (IssueStatus status : IssueStatus.values()) {
-            ensureLabel(status.labelName(), status.labelColor(), status.labelDescription());
-        }
-    }
-
     void addLabel(int issueNumber, String label);
 
     /** Does nothing when the label is not on the issue. */
     void removeLabel(int issueNumber, String label);
 
-    /** Makes the status label of the status the only status label on the issue. */
-    void setStatus(Issue issue, IssueStatus status);
+    /** Makes the label of the column the only column label on the issue. */
+    void setColumn(Issue issue, String column);
 
     Optional<PullRequest> openPullRequest(String headBranch);
 

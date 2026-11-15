@@ -2,7 +2,7 @@ package com.meterian.factory.merge;
 
 import com.meterian.factory.build.BuildOutcome;
 import com.meterian.factory.build.BuildRunner;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.build.BuildSettings;
 import com.meterian.factory.git.CloneLock;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -32,25 +32,33 @@ public final class Merger {
     private final Git git;
     private final GitHubClient gitHub;
     private final BuildRunner buildRunner;
-    private final TargetRepository target;
+    private final Path clone;
     private final String mergeTargetBranch;
+    private final BuildSettings build;
     private final Duration retryDelay;
     private final PushedCommitCheck pushedCommitCheck;
     private final ReviewedCommit reviewedCommit;
     private final OwnershipGuard ownershipGuard;
 
-    public Merger(Git git, GitHubClient gitHub, BuildRunner buildRunner, TargetRepository target,
-                  String mergeTargetBranch, Path gatekeeperDirectory, Duration retryDelay,
+    /**
+     * @param clone             the clone of the repository, whose lock the merges share
+     * @param mergeTargetBranch the merge target of the definition of the issues
+     * @param build             the build of the definition of the issues, with the variables of the machine
+     * @param ownershipGuard    the check that this factory still owns the issue before the push and the merge
+     */
+    public Merger(Git git, GitHubClient gitHub, BuildRunner buildRunner, Path clone, String mergeTargetBranch,
+                  BuildSettings build, Path gatekeeperDirectory, Duration retryDelay,
                   OwnershipGuard ownershipGuard) {
         this.ownershipGuard = ownershipGuard;
         this.git = git;
         this.gitHub = gitHub;
         this.buildRunner = buildRunner;
-        this.target = target;
+        this.clone = clone;
         this.mergeTargetBranch = mergeTargetBranch;
+        this.build = build;
         this.retryDelay = retryDelay;
         this.pushedCommitCheck = new PushedCommitCheck(git, gitHub, gatekeeperDirectory);
-        this.reviewedCommit = new ReviewedCommit(git, target.cloneDirectory(), mergeTargetBranch);
+        this.reviewedCommit = new ReviewedCommit(git, clone, mergeTargetBranch);
     }
 
     public MergeResult merge(Path worktree, IssueRecord record) {
@@ -58,7 +66,7 @@ public final class Merger {
             return new MergeResult.Failed("The issue has no pull request.");
         }
         int pullRequestNumber = record.pullRequestNumber().get();
-        return MergeLock.run(target.cloneDirectory(), () -> mergeOrRestore(worktree, record, pullRequestNumber));
+        return MergeLock.run(clone, () -> mergeOrRestore(worktree, record, pullRequestNumber));
     }
 
     /** A result that is not final, or a transient failure, leaves the worktree on the reviewed commit. */
@@ -112,7 +120,7 @@ public final class Merger {
 
     /** The fetch writes refs/remotes/origin of the clone, which all worktrees share. */
     private String fetchUpstreamCommit(Path worktree) {
-        return perform("The fetch of " + mergeTargetBranch, () -> CloneLock.run(target.cloneDirectory(), () -> {
+        return perform("The fetch of " + mergeTargetBranch, () -> CloneLock.run(clone, () -> {
             git.fetch(worktree, ORIGIN, mergeTargetBranch);
             return git.commitOf(worktree, ORIGIN + "/" + mergeTargetBranch);
         }));
@@ -129,12 +137,12 @@ public final class Merger {
         }
         String headCommit = perform("The read of the head commit", () -> git.headCommit(worktree));
         String treeHash = perform("The read of the tree hash", () -> git.treeHashOf(worktree, headCommit));
-        BuildOutcome build = buildRunner.run(worktree, target);
-        if (build.stopped()) {
-            return new MergeResult.Postponed(build.outputTail());
+        BuildOutcome outcome = buildRunner.run(worktree, build);
+        if (outcome.stopped()) {
+            return new MergeResult.Postponed(outcome.outputTail());
         }
-        if (!build.passed()) {
-            return new MergeResult.NeedsFix(build.outputTail());
+        if (!outcome.passed()) {
+            return new MergeResult.NeedsFix(outcome.outputTail());
         }
         Optional<MergeResult> dirtyAfterBuild = refuseUncommittedChanges(worktree);
         if (dirtyAfterBuild.isPresent()) {
@@ -225,7 +233,7 @@ public final class Merger {
         }
     }
 
-    /** A GitHubException is transient and leaves: the next poll runs the merge step again. */
+    /** A GitHubException is transient and leaves: the next poll runs the merge-gate action again. */
     private <T> T perform(String stepName, Supplier<T> step) {
         try {
             return step.get();

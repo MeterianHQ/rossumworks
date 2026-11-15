@@ -9,19 +9,19 @@ import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.login.PasswordHash;
@@ -120,38 +120,36 @@ class WebServerTest {
 
     private PageModelSource createModelSource() {
         Path workDirectory = temporaryDirectory.resolve("work");
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), IsolationMode.SAME_USER,
-                ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
-                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"),
+                workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, factorySwitch, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
-                new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                new WorkspaceLayout(workDirectory), configuration,
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
+    }
+
+    private static IssueRecord afterTheImplementation() {
+        return RecordStates.move(RecordStates.queued(ISSUE_NUMBER).withAgentSessionStarted(), "implement");
     }
 
     private static IssueRecord mergeWaitsForApproval() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.MERGE).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        return RecordStates.move(afterTheImplementation(), "waits-for-approval");
     }
 
-    private static IssueRecord waitsForAnAnswer() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.QUESTION);
+    /** A blocked issue: Enter is possible, Approve is not. */
+    private static IssueRecord waitsInTheBlockTarget() {
+        return RecordStates.move(afterTheImplementation(), "blocked");
     }
 
     private static IssueRecord liveConversation() {
-        return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
-                        LivePlace.GITHUB_COMMENT));
+        return RecordStates.move(afterTheImplementation(), "live")
+                .withLive(new LiveSession("abc", Optional.empty(), LivePlace.GITHUB_COMMENT));
     }
 
     private static IssueRecord liveConversationWithLink() {
-        return liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of(LINK), LivePlace.GITHUB_COMMENT));
+        return liveConversation().withLive(new LiveSession("abc", Optional.of(LINK), LivePlace.GITHUB_COMMENT));
     }
 
     private static Issue issue() {
@@ -404,7 +402,7 @@ class WebServerTest {
 
     @Test
     void anActionThatIsNotPossibleAsksForNoEarlyPoll() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         postAction("/issues/12/approve", logIn());
 
@@ -413,7 +411,7 @@ class WebServerTest {
 
     @Test
     void anActionThatIsNoLongerPossibleGives409() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
@@ -583,10 +581,10 @@ class WebServerTest {
     }
 
     @Test
-    void anApproveFromAPageBeforeANewWaitReasonGives409() {
+    void anApproveFromAPageBeforeANewApprovalStateGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(mergeWaitsForApproval().withPhase(Phase.PREPARE).withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
+        recordCard(RecordStates.move(mergeWaitsForApproval(), "text-changed"));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 
@@ -596,10 +594,10 @@ class WebServerTest {
     }
 
     @Test
-    void anApproveFromAPageBeforeANewFixLoopGives409() {
+    void anApproveFromAPageBeforeANewEntryGives409() {
         recordCard(mergeWaitsForApproval());
         String oldFingerprint = currentFingerprint();
-        recordCard(mergeWaitsForApproval().withFixLoop());
+        recordCard(mergeWaitsForApproval().withEntryCounted("implement"));
 
         HttpResponse<String> answer = postForm("/issues/12/approve", logIn(), "state=" + oldFingerprint);
 
@@ -666,7 +664,7 @@ class WebServerTest {
 
     @Test
     void aTerminalActionFromAnotherDeviceIsNotPossible() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         PageActions.ActionResult result = createPageActions()
                 .perform(ISSUE_NUMBER, PageAction.ENTER_TERMINAL, Optional.of(currentFingerprint()), false);
@@ -690,7 +688,7 @@ class WebServerTest {
 
     @Test
     void anEnterInTheBrowserRedirectsToTheWaitPage() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/enter-browser", logIn());
 
@@ -702,7 +700,7 @@ class WebServerTest {
 
     @Test
     void anEnterInTheTerminalRemembersThePlace() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
 
         HttpResponse<String> answer = postAction("/issues/12/enter-terminal", logIn());
 
@@ -714,7 +712,7 @@ class WebServerTest {
 
     @Test
     void aRefusedEnterForgetsThePlace() {
-        recordCard(waitsForAnAnswer());
+        recordCard(waitsInTheBlockTarget());
         labelFailure = Optional.of(new GitHubException("no rights"));
 
         postAction("/issues/12/enter-terminal", logIn());
@@ -749,7 +747,7 @@ class WebServerTest {
 
     private PageActions createPageActions() {
         return new PageActions(createLabelWriter(), pageRequests, liveSessions, board,
-                factorySwitch, earlyPollRequests::incrementAndGet);
+                factorySwitch, earlyPollRequests::incrementAndGet, DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 
     @Test
@@ -812,8 +810,7 @@ class WebServerTest {
 
     @Test
     void aLinkThatIsNotRemoteControlIsNeverGiven() {
-        recordCard(liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of("javascript:alert(1)"), LivePlace.GITHUB_COMMENT)));
+        recordCard(liveConversation().withLive(new LiveSession("abc", Optional.of("javascript:alert(1)"), LivePlace.GITHUB_COMMENT)));
 
         assertThat(get("/live/12/link", logIn()).statusCode()).isEqualTo(204);
     }

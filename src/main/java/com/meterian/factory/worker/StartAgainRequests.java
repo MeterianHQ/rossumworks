@@ -1,9 +1,13 @@
 package com.meterian.factory.worker;
 
+import com.meterian.factory.definition.DefinitionVersion;
+import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.StateDefinition;
+import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.Phase;
+import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.StartAgainCheck;
 import com.meterian.factory.workflow.StatusPublisher;
@@ -17,15 +21,24 @@ final class StartAgainRequests {
             "Start again has no effect: it works only on a Blocked issue without a live conversation.";
     private static final String MERGED_NOTE =
             "GitHub already merged the pull request, so the issue does not start again.";
+    private static final String DEFINITION_NOTE =
+            "Start again has no effect: the workflow definition of the issue does not load.";
+    private static final String NO_CURRENT_VERSION_NOTE =
+            "Start again has no effect: no version of .factory on the default branch loads.";
 
     private final GitHubClient gitHub;
     private final StatusPublisher statusPublisher;
+    private final DefinitionVersions definitions;
+    private final IssueDefinitionFacts facts;
 
-    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher) {
+    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionVersions definitions) {
         this.gitHub = gitHub;
         this.statusPublisher = statusPublisher;
+        this.definitions = definitions;
+        this.facts = new IssueDefinitionFacts(definitions);
     }
 
+    /** The label counts from any account: the GitHub permissions control who can add a label. */
     static boolean isRequested(Issue issue) {
         return issue.labels().contains(START_AGAIN_LABEL);
     }
@@ -37,22 +50,42 @@ final class StartAgainRequests {
         return published;
     }
 
-    /** A pull request that GitHub merged makes the issue go to DONE, so the change never gets made again. */
+    /**
+     * A pull request that GitHub merged makes the issue go to the finish state, so the change never gets made again.
+     * A record whose definition does not load stays as it is.
+     */
     private IssueRecord createNextRecord(Issue issue, IssueRecord record) {
-        if (!StartAgainCheck.isPossible(record)) {
+        WorkflowDefinition workflow;
+        try {
+            workflow = definitions.definitionOf(record).workflow();
+        } catch (IllegalStateException exception) {
+            return record.withNote(DEFINITION_NOTE);
+        }
+        if (!StartAgainCheck.isPossible(record, facts.isInBlockTarget(record))) {
             return record.withNote(NO_EFFECT_NOTE);
         }
         if (record.pullRequestNumber().map(gitHub::isMerged).orElse(false)) {
-            return record.withPhase(Phase.DONE).withNote(MERGED_NOTE);
+            return moveTo(record, workflow.finishState()).withNote(MERGED_NOTE);
         }
-        return createQueuedRecord(issue, record);
+        return definitions.current()
+                .map(current -> createQueuedRecord(issue, record, current))
+                .orElseGet(() -> record.withNote(NO_CURRENT_VERSION_NOTE));
     }
 
-    /** The phase PREPARE removes the old worktree and resets the branch, so nothing of the earlier work stays. */
-    private static IssueRecord createQueuedRecord(Issue issue, IssueRecord record) {
-        IssueRecord queued = IssueRecord.queued(issue.number())
+    /**
+     * The start state has the action prepare. It removes the old worktree and resets the branch, so nothing of the
+     * earlier work stays. The issue takes the current version of the definition, so a correction of .factory
+     * reaches it. All the counts of the limits are 0.
+     */
+    private static IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
+        IssueRecord queued = IssueRecord.queued(issue.number(), current.definition().workflow().start())
+                .withDefinitionCommit(current.commit())
                 .withIssueTextHash(IssueText.computeHash(issue))
                 .withNote(STARTED_AGAIN_NOTE);
         return record.statusCommentId().map(queued::withStatusComment).orElse(queued);
+    }
+
+    private static IssueRecord moveTo(IssueRecord record, StateDefinition state) {
+        return record.withMove(state.name(), state.actionType(), state.column());
     }
 }

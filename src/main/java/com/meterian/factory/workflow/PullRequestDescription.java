@@ -7,13 +7,12 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** Builds the body of a pull request from the description that the agent wrote in .factory/description.md. */
+/** Builds the body of a pull request from the description that the agent wrote in the scratch folder. */
 final class PullRequestDescription {
 
     static final int MAXIMUM_CHARACTERS = 20_000;
@@ -42,7 +41,7 @@ final class PullRequestDescription {
 
     /** The body, or empty when the agent wrote no usable description. */
     static Optional<String> bodyIfDescribed(int issueNumber, Path worktree) {
-        String text = readFile(worktree.resolve(".factory").resolve("description.md")).strip();
+        String text = readFile(worktree.resolve(ScratchFolder.NAME).resolve("description.md")).strip();
         if (text.isEmpty()) {
             return Optional.empty();
         }
@@ -74,10 +73,10 @@ final class PullRequestDescription {
     }
 
     private static String renderNoteLine(ReviewNote reviewNote) {
-        String kind = reviewNote.kind().name().toLowerCase(Locale.ROOT);
+        String reviewName = reviewNote.reviewName();
         String text = reviewNote.note().title() + ": " + reviewNote.note().detail();
         String oneLine = LINE_BREAKS.matcher(text.strip()).replaceAll(" ");
-        return "- " + kind + ": " + neutralizeClosingKeywords(cutNoteToMaximum(oneLine));
+        return "- " + reviewName + ": " + neutralizeClosingKeywords(cutNoteToMaximum(oneLine));
     }
 
     private static String cutNoteToMaximum(String line) {
