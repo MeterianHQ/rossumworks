@@ -39,6 +39,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private final List<String> squashMergeShas = new ArrayList<>();
     private final Map<Integer, String> baseBranches = new TreeMap<>();
     private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
+    private final Map<String, String> branchHeads = new TreeMap<>();
     private SquashMergeSimulation squashMergeSimulation;
     private Path pullRequestRepository;
     private boolean failsTheNextSquashMergeAfterTheMerge;
@@ -383,7 +384,18 @@ public final class FakeGitHubClient implements GitHubClient {
         }
     }
 
+    /** A branch that GitHub has, without a repository. */
+    public synchronized void addBranchHead(String branch, String commit) {
+        branchHeads.put(branch, commit);
+    }
+
     private Optional<String> readBranchHead(String branch) {
+        if (branchHeads.containsKey(branch)) {
+            return Optional.of(branchHeads.get(branch));
+        }
+        if (pullRequestRepository == null) {
+            return Optional.empty();
+        }
         try {
             return Optional.of(TemporaryRepository.run(pullRequestRepository, "rev-parse", "--verify",
                     "refs/heads/" + branch));
