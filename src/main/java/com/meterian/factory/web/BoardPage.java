@@ -92,7 +92,6 @@ public final class BoardPage {
     private void appendFactoryState(StringBuilder html, FactoryState state) {
         boolean running = state == FactoryState.RUNNING;
         html.append("<div class=\"factory-state state-").append(toClassName(state)).append("\">")
-                .append("<span class=\"tile-label\">Factory</span>")
                 .append("<span class=\"factory-state-value\">").append(state.displayName()).append("</span>")
                 .append("<form method=\"post\" action=\"/factory/").append(running ? "stop" : "start")
                 .append("\"><button>").append(running ? "Stop" : "Start").append("</button></form></div>");
@@ -108,15 +107,18 @@ public final class BoardPage {
         };
     }
 
-    /** The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. */
+    /**
+     * The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. The time of
+     * the report is in the tooltip of the tile.
+     */
     private void appendUsageTile(StringBuilder html, UsageWindow window) {
         long percent = Math.clamp(Math.round(window.utilization() * 100), 0, 100);
-        html.append("<div class=\"tile usage\"><span class=\"tile-label\">")
-                .append(Html.escape(describeWindowName(window.name())))
+        html.append("<div class=\"tile usage\" title=\"")
+                .append(Html.escape("Read at " + formatTime(window.reportedAt())))
+                .append("\"><span class=\"tile-label\">").append(Html.escape(describeWindowName(window.name())))
                 .append("</span><span class=\"tile-value\"><meter min=\"0\" max=\"100\" low=\"70\" high=\"90\" ")
                 .append("optimum=\"0\" value=\"").append(percent).append("\"></meter> ").append(percent)
-                .append("%</span><span class=\"tile-note\">at ").append(formatTime(window.reportedAt()))
-                .append("</span></div>");
+                .append("%</span></div>");
     }
 
     private String describeWindowName(String windowName) {

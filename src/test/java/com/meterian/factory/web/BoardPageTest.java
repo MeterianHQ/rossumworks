@@ -414,7 +414,7 @@ class BoardPageTest {
     void aRunningFactoryShowsItsStateAndAStopButtonAtTheEndOfTheHeader() {
         String html = page.renderBoard(model(List.of()));
 
-        assertThat(html).contains("<div class=\"factory-state state-running\"><span class=\"tile-label\">Factory</span>"
+        assertThat(html).contains("<div class=\"factory-state state-running\">"
                         + "<span class=\"factory-state-value\">Running</span>"
                         + "<form method=\"post\" action=\"/factory/stop\"><button>Stop</button></form></div>"
                         + "</header>");
@@ -582,11 +582,12 @@ class BoardPageTest {
 
         String html = page.renderBoard(model);
 
-        assertThat(html).containsSubsequence("<span class=\"tile-label\">Weekly usage</span>",
-                "<meter min=\"0\" max=\"100\" low=\"70\" high=\"90\" optimum=\"0\" value=\"37\"></meter> 37%",
-                "<span class=\"tile-note\">at 2026-11-02 10:50</span>");
-        assertThat(html).containsSubsequence("<span class=\"tile-label\">5-hour usage</span>", "value=\"95\"",
-                "<span class=\"tile-note\">at 2026-11-02 11:00</span>");
+        assertThat(html).containsSubsequence("<div class=\"tile usage\" title=\"Read at 2026-11-02 10:50\">"
+                        + "<span class=\"tile-label\">Weekly usage</span>",
+                "<meter min=\"0\" max=\"100\" low=\"70\" high=\"90\" optimum=\"0\" value=\"37\"></meter> 37%");
+        assertThat(html).containsSubsequence("<div class=\"tile usage\" title=\"Read at 2026-11-02 11:00\">"
+                        + "<span class=\"tile-label\">5-hour usage</span>", "value=\"95\"");
+        assertThat(html).doesNotContain("tile-note");
         assertThat(html).contains("New phases start again at 2026-11-02 12:00.");
         assertThat(html).doesNotContain("$");
     }
