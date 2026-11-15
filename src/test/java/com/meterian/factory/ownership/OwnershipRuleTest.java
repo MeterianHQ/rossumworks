@@ -79,4 +79,15 @@ class OwnershipRuleTest {
         assertEquals(Ownership.OWNED_BY_ANOTHER,
                 decide(issueAssignedTo("worker", "alice"), new AssignmentEvent(1, "worker", TEN)));
     }
+
+    @Test
+    void workerWithoutEventGivesWay() {
+        assertEquals(Ownership.OWNED_BY_ANOTHER,
+                decide(issueAssignedTo("worker", "alice"), new AssignmentEvent(1, "alice", TEN)));
+    }
+
+    @Test
+    void twoAssigneesWithoutEventsGiveWay() {
+        assertEquals(Ownership.OWNED_BY_ANOTHER, decide(issueAssignedTo("worker", "alice")));
+    }
 }

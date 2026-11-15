@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -159,6 +160,26 @@ class MergerTest {
 
         assertThatThrownBy(() -> refusedMerger.merge(worktree, record)).isInstanceOf(OwnershipLostException.class);
 
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+    }
+
+    @Test
+    void mergerDoesNotSquashMergeWhenTheOwnerChangesAfterThePush() {
+        commitFile(worktree, "b.txt", "feature\n", "Feature");
+        IssueRecord record = reviewedRecord();
+        AtomicInteger ownershipChecks = new AtomicInteger();
+        OwnershipGuard ownerChangesAfterThePush = issueNumber -> {
+            if (ownershipChecks.incrementAndGet() > 1) {
+                throw new OwnershipLostException(issueNumber);
+            }
+        };
+        TargetRepository target = new TargetRepository("owner", "name", clone, "true", Map.of());
+        Merger refusedMerger = new Merger(git, gitHub, new BuildRunner(), target, "main", gatekeeper,
+                Duration.ZERO, ownerChangesAfterThePush);
+
+        assertThatThrownBy(() -> refusedMerger.merge(worktree, record)).isInstanceOf(OwnershipLostException.class);
+
+        assertThat(ownershipChecks).hasValue(2);
         assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
