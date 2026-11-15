@@ -90,6 +90,28 @@ class GatekeeperTest {
     }
 
     @Test
+    void forwardMakesTheBranchAgainWhenGitHubDeletedIt() {
+        git.push(clone, "gatekeeper", BRANCH);
+        run(github, "update-ref", "-d", "refs/heads/" + BRANCH);
+        commitFile(clone, "b.txt", "factory\n", "Change of the factory");
+
+        git.push(clone, "gatekeeper", BRANCH);
+
+        assertThat(headOnGitHub()).isEqualTo(run(clone, "rev-parse", "HEAD"));
+    }
+
+    @Test
+    void newForwardMakesTheBranchAgainWhenGitHubDeletedIt() {
+        git.push(clone, "gatekeeper", BRANCH);
+        run(github, "update-ref", "-d", "refs/heads/" + BRANCH);
+        String factoryCommit = run(clone, "rev-parse", "HEAD").trim();
+
+        git.forwardCommit(gatekeeper, "github", factoryCommit, BRANCH);
+
+        assertThat(headOnGitHub().trim()).isEqualTo(factoryCommit);
+    }
+
+    @Test
     void forwardReplacesTheOwnEarlierPush() {
         git.push(clone, "gatekeeper", BRANCH);
         run(clone, "commit", "-q", "--amend", "-m", "Rewritten commit");

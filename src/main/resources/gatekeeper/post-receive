@@ -1,8 +1,14 @@
 #!/bin/sh
 # Forward each accepted factory branch to GitHub. The lease refuses the
 # forward when the branch on GitHub is not at the commit of the
-# remote-tracking branch, so a commit of another factory stays. A forward
-# failure surfaces later: the check of the pushed commit fails.
+# remote-tracking branch, so a commit of another factory stays. When the
+# branch is gone from GitHub, no commit needs protection: the second push
+# expects a missing branch. A forward failure surfaces later: the check of
+# the pushed commit fails.
 while read -r old_sha new_sha reference; do
-    git push --force-with-lease="$reference" github "$new_sha:$reference"
+    git push --force-with-lease="$reference" github "$new_sha:$reference" && continue
+    git ls-remote --exit-code github "$reference" >/dev/null
+    if [ "$?" -eq 2 ]; then
+        git push --force-with-lease="$reference:" github "$new_sha:$reference"
+    fi
 done
