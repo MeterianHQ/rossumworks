@@ -92,8 +92,7 @@ public final class Worker {
     private final Set<Integer> issuesOfAnotherOwner = new HashSet<>();
     /** The issues with a release in progress. The poll neither releases nor starts them again. */
     private final Set<Integer> releasesInProgress = new HashSet<>();
-    /** The issues with an open live session at the last poll. Each one holds a slot, as an issue in work. */
-    private final Set<Integer> issuesInLiveSession = new HashSet<>();
+    private final LiveSessionSlots liveSessionSlots = new LiveSessionSlots();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -146,11 +145,12 @@ public final class Worker {
             List<IssueRecord> startable = new ArrayList<>();
             List<Issue> ownedIssues = claimOwnedIssues(readLabeledIssues());
             board.recordPoll(ownedIssues);
-            Set<Integer> earlierLiveIssues = forgetLiveSessions();
+            Set<Integer> earlierLiveIssues = liveSessionSlots.startPoll();
             for (Issue issue : ownedIssues) {
                 verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
+            liveSessionSlots.finishPoll(earlierLiveIssues, liveSessions::isOpen);
             for (IssueRecord record : orderForTheSlots(startable, earlierLiveIssues)) {
                 verifyEnoughRequestsRemain();
                 if (!factorySwitch.isStopRequested()) {
@@ -232,27 +232,12 @@ public final class Worker {
 
     /** The issues in work and the open live sessions share the parallel limit. */
     public synchronized int countUsedSlots() {
-        return issuesInWork.size() + countLiveSessionsOutsideWork(Optional.empty());
+        return issuesInWork.size() + liveSessionSlots.countOutsideWork(issuesInWork, Optional.empty());
     }
 
-    /** An issue back from its live session takes over the slot of its own session. */
-    private synchronized int countLiveSessionsOutsideWork(Optional<Integer> excludedIssueNumber) {
-        return (int) issuesInLiveSession.stream()
-                .filter(issueNumber -> !issuesInWork.contains(issueNumber))
-                .filter(issueNumber -> excludedIssueNumber.filter(issueNumber::equals).isEmpty())
-                .count();
-    }
-
-    /** Each poll finds the open live sessions again, so a session that ended gives back its slot. */
-    private synchronized Set<Integer> forgetLiveSessions() {
-        Set<Integer> earlierLiveIssues = Set.copyOf(issuesInLiveSession);
-        issuesInLiveSession.clear();
-        return earlierLiveIssues;
-    }
-
-    private synchronized void rememberLiveSession(IssueRecord record) {
+    private void rememberLiveSession(IssueRecord record) {
         if (record.live().isPresent()) {
-            issuesInLiveSession.add(record.issueNumber());
+            liveSessionSlots.remember(record.issueNumber());
         }
     }
 
@@ -522,7 +507,8 @@ public final class Worker {
     }
 
     private synchronized boolean reserveSlot(int issueNumber) {
-        int usedSlots = issuesInWork.size() + countLiveSessionsOutsideWork(Optional.of(issueNumber));
+        int usedSlots = issuesInWork.size()
+                + liveSessionSlots.countOutsideWork(issuesInWork, Optional.of(issueNumber));
         boolean hasFreeSlot = usedSlots < configuration.limits().parallelIssues();
         return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber)
                 && !releasesInProgress.contains(issueNumber) && issuesInWork.add(issueNumber);
@@ -663,6 +649,10 @@ public final class Worker {
             enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
             isOwnedByAnother = issuesOfAnotherOwner.remove(kept.issueNumber()) && !isBlocked;
+            if (!isBlocked) {
+                // A session that the loop opened holds the slot of the loop at once, before the next poll.
+                rememberLiveSession(kept);
+            }
             if (isOwnedByAnother) {
                 // The poll sees no gap between the end of the work and the start of the release.
                 releasesInProgress.add(kept.issueNumber());

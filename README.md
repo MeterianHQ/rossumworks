@@ -280,10 +280,11 @@ The worker sees a label that the page adds in about 2 seconds. It sees a label f
 The factory uses its own tmux server, never your default tmux server. So the token of the worker never goes
 into the environment of your tmux server. To see a session, run
 `tmux -L claude-ai-factory attach -t factory-issue-<n>`. The factory turns on the mouse of each session, so
-the mouse wheel scrolls the history.
+the mouse wheel scrolls the history. Hold Shift to select text for the clipboard.
 
 An open live session holds its slot of `parallel-issues`. Thus the factory takes no new issue while you talk to
-the agent. After `/factory:continue`, the issue gets its slot again before any other issue.
+the agent. A question of the agent also opens a live session, so an open question holds a slot until you answer
+it. After `/factory:continue`, the issue gets its slot again before any other issue.
 
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no other action for the issue.

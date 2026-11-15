@@ -1218,6 +1218,61 @@ class WorkerTest {
     }
 
     @Test
+    void aSessionThatTheLoopOpensHoldsItsSlotBeforeTheNextPoll() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void anOpenSessionKeepsItsSlotWhenThePollDoesNotFindItsIssue() throws InterruptedException {
+        enterTheWaitingIssue();
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        gitHub.removeLabel(ISSUE, FACTORY_LABEL);
+        addLabeledIssue(OTHER_ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void anIssueBackFromItsLiveSessionStartsBeforeAStartedIssueWithALowerNumber() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
+        Worker worker = createWorker(agent, 1);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        addLabeledIssue(3);
+        worker.pollOnce();
+        IssueRecord started = RecordStates.move(readRecord(3).orElseThrow().withAgentSessionStarted(), "implement");
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, LIMITS, RecordStates.REVIEW_NAMES));
+        liveSessions.requestContinue(ISSUE);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).doesNotContain(3);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
+    }
+
+    @Test
     void anIssueBackFromItsLiveSessionStartsBeforeANewIssue() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);

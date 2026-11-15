@@ -140,7 +140,7 @@ public final class TmuxLiveSessions implements LiveSessions {
         setSessionOption(issueNumber, "remain-on-exit", "off");
     }
 
-    /** Without the mouse, the wheel and PgUp/PgDn do not scroll the history of the terminal. */
+    /** Without the mouse, the wheel does not scroll the history of the terminal. */
     private void turnOnTheMouse(int issueNumber) throws LiveSessionException {
         setSessionOption(issueNumber, "mouse", "on");
     }
