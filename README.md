@@ -39,7 +39,8 @@ ignores the assignee, and the factory does not work on the issue. The factory wr
 
 Note: the comments of the worker mention nobody. If the token belongs to the owner, GitHub sends the owner no
 notification for these comments. With a separate worker account, the owner gets a notification only for the
-issues that the owner watches.
+issues that the owner watches. With a separate worker account, assign the issues to the worker account or to
+nobody. An issue that is assigned to a human gets no work.
 
 The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
 before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
@@ -58,7 +59,7 @@ token.
 - The factory assigns the issue to itself. Then it reads the issue again.
 - When the issue has more than one assignee, the earliest "assigned" event among the current assignees wins.
   The factory that loses removes its own assignee.
-- An assignee with no event wins over the others. The factory gives way.
+- When an assignee has no event, the factory gives way.
 - An issue of another account gets no work and no comment. It gets no card on the board of this factory.
 
 ### Stop
@@ -81,7 +82,22 @@ DONE) gets no stop.
 - A wait for the merge approval stays only when the pushed branch exists. After the approval, the factory builds
   and reviews again. Then it asks for the approval a second time. Without the branch, the issue starts from the
   beginning.
-- A factory that gets an issue back continues as a new owner.
+- A wait for an answer to a question, or for the end of a live conversation, does not pass on. The new owner
+  continues the work and writes a note: the question stays on the machine of the earlier owner.
+- A status comment of an account that was never an assignee of the issue never sets the state.
+- A factory that gets an issue back continues as a new owner. This is also true when the factory was off
+  while the issue had another owner.
+
+### Give an issue to another person
+
+Add the new assignee and remove the old assignee in one edit. Or add the new assignee first, and then remove
+the old assignee. If you remove the old assignee first, a factory can pick up the issue without assignee.
+
+### Upgrade
+
+An older factory ignores the assignees. Thus upgrade all the factories of a repository together. Before the
+upgrade, look at the issues with the label `factory`. Remove their human assignees, or assign them to the
+account of the token.
 
 The labels are always orders. They keep the rule of `accounts.allowed`. An assignee change from any account
 counts.
