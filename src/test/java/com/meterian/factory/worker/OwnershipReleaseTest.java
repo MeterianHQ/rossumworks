@@ -7,6 +7,7 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.workflow.StatusPublisher;
@@ -64,6 +65,17 @@ class OwnershipReleaseTest {
         release.release(issue);
 
         assertThat(gitHub.commentsOf(ISSUE_NUMBER)).isEmpty();
+    }
+
+    @Test
+    void releaseLeavesADoneRecord() {
+        IssueRecord done = IssueRecord.queued(ISSUE_NUMBER).withPhase(Phase.DONE);
+        gitHub.createComment(ISSUE_NUMBER, StatusComment.render(done, 3));
+
+        release.release(issue);
+
+        assertThat(findOwnRecord().orElseThrow().handOver()).isEmpty();
+        assertThat(findStopComments()).isEmpty();
     }
 
     private Optional<IssueRecord> findOwnRecord() {

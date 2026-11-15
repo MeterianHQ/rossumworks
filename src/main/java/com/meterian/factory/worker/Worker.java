@@ -80,6 +80,8 @@ public final class Worker {
     private final Set<Integer> enterRequestedIssues = new HashSet<>();
     /** The issues in work that another account owns now. The loop starts no next step, and then releases it. */
     private final Set<Integer> issuesOfAnotherOwner = new HashSet<>();
+    /** The issues with a release in progress. The poll neither releases nor starts them again. */
+    private final Set<Integer> releasesInProgress = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -237,11 +239,23 @@ public final class Worker {
     }
 
     private Optional<Issue> claimIssue(Issue issue) {
+        if (isNewIssueOfAStoppedFactory(issue)) {
+            return Optional.empty();
+        }
         Ownership ownership = issueClaim.claim(issue);
         if (ownership == Ownership.OWNED_BY_ANOTHER) {
             leaveIssueOfAnotherOwner(issue);
         }
         return Optional.of(issue).filter(claimed -> ownership == Ownership.OWNED);
+    }
+
+    /**
+     * A stopped factory leaves a new issue untouched, so that another factory can take it. It does not assign
+     * itself to an issue without assignee, unless the factory works on it or has a record on it.
+     */
+    private boolean isNewIssueOfAStoppedFactory(Issue issue) {
+        return factorySwitch.isStopRequested() && issue.assignees().isEmpty() && !isInWork(issue.number())
+                && readRecord(issue.number()).isEmpty();
     }
 
     /**
@@ -254,11 +268,11 @@ public final class Worker {
                 issuesOfAnotherOwner.add(issue.number());
                 return;
             }
-            if (blockedIssues.contains(issue.number())) {
+            if (blockedIssues.contains(issue.number()) || !releasesInProgress.add(issue.number())) {
                 return;
             }
         }
-        ownershipRelease.release(issue);
+        writeRelease(issue.number());
     }
 
     private Optional<IssueRecord> checkIssue(Issue issue) {
@@ -284,7 +298,7 @@ public final class Worker {
     /** The factory does not check who added a request label, so each request label counts. See the README. */
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
         int issueNumber = issue.number();
-        if (isBlockInProgress(issueNumber)) {
+        if (isBlockInProgress(issueNumber) || isReleaseInProgress(issueNumber)) {
             return Optional.empty();
         }
         showAcceptedRequests(issue);
@@ -424,7 +438,8 @@ public final class Worker {
 
     private synchronized boolean reserveSlot(int issueNumber) {
         boolean hasFreeSlot = issuesInWork.size() < configuration.limits().parallelIssues();
-        return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber) && issuesInWork.add(issueNumber);
+        return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber)
+                && !releasesInProgress.contains(issueNumber) && issuesInWork.add(issueNumber);
     }
 
     private synchronized boolean isInWork(int issueNumber) {
@@ -433,6 +448,10 @@ public final class Worker {
 
     private synchronized boolean isBlockInProgress(int issueNumber) {
         return blockedIssues.contains(issueNumber);
+    }
+
+    private synchronized boolean isReleaseInProgress(int issueNumber) {
+        return releasesInProgress.contains(issueNumber);
     }
 
     /**
@@ -446,6 +465,9 @@ public final class Worker {
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
             while (mayContinue(issueNumber) && !isEnterRequested(issueNumber) && !factorySwitch.isStopRequested()) {
+                if (!isOwnedBeforeTheStep(issueNumber)) {
+                    break;
+                }
                 IssueRecord next = workflow.advance(kept);
                 if (!mayContinue(issueNumber) && !FinalStepResult.isFinal(kept, next)) {
                     interruptedResult = Optional.of(next);
@@ -481,6 +503,15 @@ public final class Worker {
 
     private synchronized boolean mayContinue(int issueNumber) {
         return !isStopped() && !blockedIssues.contains(issueNumber) && !issuesOfAnotherOwner.contains(issueNumber);
+    }
+
+    /** The assignee can change between two polls, so each step checks the owner first. */
+    private boolean isOwnedBeforeTheStep(int issueNumber) {
+        Ownership ownership = issueClaim.claim(gitHub.issue(issueNumber));
+        if (ownership == Ownership.OWNED_BY_ANOTHER) {
+            rememberIssueOfAnotherOwner(issueNumber);
+        }
+        return ownership == Ownership.OWNED;
     }
 
     /** The guard refused a change on GitHub. This is not a failure, so the issue gets no block. */
@@ -531,6 +562,10 @@ public final class Worker {
             enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
             isOwnedByAnother = issuesOfAnotherOwner.remove(kept.issueNumber()) && !isBlocked;
+            if (isOwnedByAnother) {
+                // The poll sees no gap between the end of the work and the start of the release.
+                releasesInProgress.add(kept.issueNumber());
+            }
         }
         if (factorySwitch.isStopRequested()) {
             board.recordRequestChange();
@@ -540,7 +575,7 @@ public final class Worker {
             phaseStopper.closeLiveSession(kept.issueNumber());
             finishBlock(kept.issueNumber(), Optional.of(kept), interruptedResult);
         } else if (isOwnedByAnother) {
-            releaseToAnotherOwner(kept.issueNumber());
+            writeRelease(kept.issueNumber());
         } else if (interruptedResult.isPresent()) {
             restoreKeptRecord(kept, interruptedResult.get());
         }
@@ -593,12 +628,19 @@ public final class Worker {
         return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
     }
 
-    /** The release writes over the record on GitHub, so the interrupted result needs no restore. */
-    private void releaseToAnotherOwner(int issueNumber) {
+    /**
+     * The caller marks the release in progress first, so the loop and the poll write one release for one change
+     * of owner. The release writes over the record on GitHub, so an interrupted result needs no restore.
+     */
+    private void writeRelease(int issueNumber) {
         try {
             ownershipRelease.release(gitHub.issue(issueNumber));
         } catch (GitHubException exception) {
             logGitHubFailure("The release of the issue #" + issueNumber, exception);
+        } finally {
+            synchronized (this) {
+                releasesInProgress.remove(issueNumber);
+            }
         }
     }
 

@@ -1727,4 +1727,51 @@ class WorkerTest {
         assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
         assertThat(record.pullRequestNumber()).contains(gitHub.pullRequests().getFirst().number());
     }
+
+    @Test
+    void noStepStartsAfterTheAssigneeChangesBetweenPolls() throws InterruptedException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        gitHub.whenACommentEditContains("\"phase\":\"BUILD\"", this::reassignToAlice);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
+        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60), "touch " + buildStarted));
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(buildStarted).doesNotExist();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void aPollDuringTheReleaseWritesTheReleaseOnce() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(this::reassignToAlice);
+        Worker worker = createWorker(agent, 2);
+        gitHub.whenACommentEditContains("\"handOver\":\"RELEASED\"", worker::pollOnce);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void claimFailureSkipsOnlyThatIssue() throws InterruptedException {
+        addLabeledIssue(3);
+        gitHub.whenAssigning(() -> {
+            throw new GitHubException("GitHub answered 502 for POST /issues/3/assignees");
+        });
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+
+        worker.pollOnce();
+
+        assertThat(worker.issuesInWork()).containsExactly(ISSUE);
+        assertThat(readRecord(3)).isEmpty();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        agent.stopPhase(ISSUE);
+        waitForTheLoops();
+    }
 }

@@ -4,6 +4,7 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.workflow.StatusPublisher;
 import java.util.Optional;
@@ -21,15 +22,19 @@ final class OwnershipRelease {
         this.workerLogin = workerLogin;
     }
 
-    /** Does nothing when the factory has no record or already released the issue. */
+    /** Does nothing when the factory has no record, already released the issue, or merged the change. */
     void release(Issue issue) {
         Optional<IssueRecord> ownRecord = StatusComment.findRecord(gitHub.comments(issue.number()), workerLogin);
-        if (ownRecord.isEmpty() || ownRecord.get().handOver().equals(Optional.of(HandOver.RELEASED))) {
+        if (ownRecord.isEmpty() || isReleased(ownRecord.get()) || ownRecord.get().phase() == Phase.DONE) {
             return;
         }
         IssueRecord released = ownRecord.get().withHandOver(HandOver.RELEASED).withNote(createStopNote());
         statusPublisher.publish(issue, ownRecord.get(), released);
         gitHub.createComment(issue.number(), createStopComment());
+    }
+
+    private static boolean isReleased(IssueRecord record) {
+        return record.handOver().equals(Optional.of(HandOver.RELEASED));
     }
 
     private String createStopNote() {
