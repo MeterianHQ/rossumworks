@@ -71,6 +71,12 @@ The gatekeeper forwards a push to GitHub only when the branch on GitHub is at th
 expects: the commit that it forwarded last, or the commit that its continuation starts from. Thus a factory never
 removes a commit of another factory. When GitHub refuses the forward and another account owns the issue, the
 factory stops as for a new assignee. Otherwise the refused forward counts as a failed forward check.
+When the branch is gone from GitHub, the factory makes the branch again: there is no commit to protect.
+
+GitHub can refuse the forward for good: the branch on GitHub has commits that the factory does not know. For
+example, another person pushes to the branch, or the gatekeeper folder moves. After three failed forward
+checks, the factory blocks the issue and writes a note. Check the branch on GitHub. To let the factory replace
+the branch, delete the branch on GitHub, and then add the label `factory:start-again`.
 
 When another account becomes the owner, the factory starts no new step. It writes one comment: "The factory of
 `<login>` stops work on this issue, because the issue has a new assignee. The branch and the pull request stay.

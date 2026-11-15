@@ -67,6 +67,9 @@ class IssueWorkflowTest {
     private static final String REVIEW_RETRY_NOTE = "A review session failed; the factory runs the reviews again.";
     private static final String TEXT_CHANGED_SENTENCE = "The issue text changed after the label factory."
             + " Add the label factory:approve to accept the new text.";
+    private static final String UNKNOWN_COMMITS_NOTE = "The forward can fail when the branch on GitHub has"
+            + " commits that the factory does not know. Check the branch on GitHub. To let the factory replace the"
+            + " branch, delete the branch on GitHub, and then add the label factory:start-again.";
 
     @TempDir
     Path temporaryDirectory;
@@ -880,6 +883,23 @@ class IssueWorkflowTest {
         assertThat(run(githubRepository, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(commitOfAnotherFactory);
         assertThat(readRecordFromGitHub().failedForwardChecks()).isZero();
         assertThat(readRecordFromGitHub().status()).isNotEqualTo(IssueStatus.BLOCKED);
+    }
+
+    @Test
+    void blockAfterAForwardOverUnknownCommitsTellsWhatToDo() throws ApiKeyDetectedException {
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        run(clone, "push", "-q", githubRepository.toString(), "main:refs/heads/factory/issue-7");
+        String commitOfAnotherFactory = run(githubRepository, "rev-parse", "refs/heads/factory/issue-7");
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
+
+        IssueRecord record = workflow.advance(readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.notes()).contains(UNKNOWN_COMMITS_NOTE);
+        assertThat(run(githubRepository, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(commitOfAnotherFactory);
     }
 
     @Test
