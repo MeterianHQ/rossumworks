@@ -24,6 +24,8 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.OwnershipGuard;
+import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
@@ -107,6 +109,10 @@ class IssueWorkflowTest {
     }
 
     private IssueWorkflow createWorkflow(String buildCommand) {
+        return createWorkflow(buildCommand, OwnershipGuard.none());
+    }
+
+    private IssueWorkflow createWorkflow(String buildCommand, OwnershipGuard ownershipGuard) {
         TargetRepository target = createTarget(buildCommand);
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
@@ -115,11 +121,12 @@ class IssueWorkflowTest {
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
-                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
+                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO, OwnershipGuard.none());
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
                 buildRunner, merger, usage,
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
-                BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
+                BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()),
+                ownershipGuard);
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {
@@ -261,7 +268,7 @@ class IssueWorkflowTest {
         IssueRecord waiting =
                 waitForApprovalOfAMediumRisk(workflow).withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
         run(worktree(), "push", "-q", origin.toString(), "HEAD:refs/heads/factory/issue-7");
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord approved = workflow.advance(waiting);
         IssueRecord prepared = workflow.advance(approved);
@@ -833,6 +840,22 @@ class IssueWorkflowTest {
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(2);
         assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
+    void buildDoesNotPushWhenAnotherAccountOwnsTheIssue() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        OwnershipGuard anotherAccountOwnsTheIssue = issueNumber -> {
+            throw new OwnershipLostException(issueNumber);
+        };
+        IssueWorkflow workflow = createWorkflow("true", anotherAccountOwnsTheIssue);
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(OwnershipLostException.class);
+
+        assertThat(run(temporaryDirectory.resolve("gatekeeper.git"), "branch", "--list")).isEmpty();
+        assertThat(run(githubRepository, "branch", "--list")).isEmpty();
+        assertThat(gitHub.pullRequests()).isEmpty();
     }
 
     @Test

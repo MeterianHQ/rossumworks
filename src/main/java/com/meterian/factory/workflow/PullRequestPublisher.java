@@ -5,6 +5,7 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.merge.PushedCommitCheck;
+import com.meterian.factory.ownership.OwnershipGuard;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -16,11 +17,14 @@ final class PullRequestPublisher {
     private final Git git;
     private final String mergeTargetBranch;
     private final PushedCommitCheck pushedCommitCheck;
+    private final OwnershipGuard ownershipGuard;
 
-    PullRequestPublisher(GitHubClient gitHub, Git git, String mergeTargetBranch, Path gatekeeperDirectory) {
+    PullRequestPublisher(GitHubClient gitHub, Git git, String mergeTargetBranch, Path gatekeeperDirectory,
+                         OwnershipGuard ownershipGuard) {
         this.gitHub = gitHub;
         this.git = git;
         this.mergeTargetBranch = mergeTargetBranch;
+        this.ownershipGuard = ownershipGuard;
         this.pushedCommitCheck = new PushedCommitCheck(git, gitHub, gatekeeperDirectory);
     }
 
@@ -30,6 +34,7 @@ final class PullRequestPublisher {
 
     PublishedBranch publish(Issue issue, Path worktree, String headCommit) {
         String branch = WorkspaceLayout.branch(issue.number());
+        ownershipGuard.verifyStillOwner(issue.number());
         git.pushCommit(worktree, IssueWorkspace.GATEKEEPER_REMOTE, headCommit, branch);
         Optional<PullRequest> open = gitHub.openPullRequest(branch);
         if (open.isEmpty() && !pushedCommitCheck.isBranchOnGitHub(headCommit, branch)) {
@@ -47,6 +52,7 @@ final class PullRequestPublisher {
         gitHub.openPullRequest(WorkspaceLayout.branch(issue.number())).ifPresent(pullRequest -> {
             String body = PullRequestDescription.withReviewNotes(pullRequest.body(), notes);
             if (!body.equals(pullRequest.body())) {
+                ownershipGuard.verifyStillOwner(issue.number());
                 gitHub.editPullRequestBody(pullRequest.number(), body);
             }
         });
@@ -63,6 +69,7 @@ final class PullRequestPublisher {
         if (pullRequest.body().equals(body)) {
             return pullRequest;
         }
+        ownershipGuard.verifyStillOwner(issue.number());
         gitHub.editPullRequestBody(pullRequest.number(), body);
         return new PullRequest(pullRequest.number(), pullRequest.url(), pullRequest.headBranch(), body);
     }

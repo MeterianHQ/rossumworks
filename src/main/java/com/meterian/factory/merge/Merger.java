@@ -10,6 +10,7 @@ import com.meterian.factory.git.RebaseOutcome;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.MergeOutcome;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -36,9 +37,12 @@ public final class Merger {
     private final Duration retryDelay;
     private final PushedCommitCheck pushedCommitCheck;
     private final ReviewedCommit reviewedCommit;
+    private final OwnershipGuard ownershipGuard;
 
     public Merger(Git git, GitHubClient gitHub, BuildRunner buildRunner, TargetRepository target,
-                  String mergeTargetBranch, Path gatekeeperDirectory, Duration retryDelay) {
+                  String mergeTargetBranch, Path gatekeeperDirectory, Duration retryDelay,
+                  OwnershipGuard ownershipGuard) {
+        this.ownershipGuard = ownershipGuard;
         this.git = git;
         this.gitHub = gitHub;
         this.buildRunner = buildRunner;
@@ -172,6 +176,7 @@ public final class Merger {
     private MergeResult pushAndSquashMerge(Path worktree, IssueRecord record, int pullRequestNumber,
                                            String headCommit, String builtTreeHash, String upstreamCommit) {
         String branch = "factory/issue-" + record.issueNumber();
+        ownershipGuard.verifyStillOwner(record.issueNumber());
         perform("The push to the gatekeeper", () -> {
             git.pushCommit(worktree, GATEKEEPER, headCommit, branch);
             return null;
@@ -181,6 +186,7 @@ public final class Merger {
         }
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);
+            ownershipGuard.verifyStillOwner(record.issueNumber());
             MergeOutcome outcome = gitHub.squashMerge(pullRequestNumber, headCommit);
             if (outcome == MergeOutcome.MERGED) {
                 return new MergeResult.Merged(builtTreeHash, describeMergedTree(pullRequestNumber, builtTreeHash));

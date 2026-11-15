@@ -16,6 +16,7 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.FakeGitHubClient;
 import java.nio.file.Path;
@@ -59,7 +60,7 @@ class IssueWorkspaceTest {
         Path mergeWorktree = temporaryDirectory.resolve("work").resolve("issue-2");
         workspace.create(2, mergeWorktree);
         Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), target, "main",
-                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
+                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO, OwnershipGuard.none());
         IssueRecord record = IssueRecord.queued(2).withPullRequest(500);
         List<MergeResult> mergeResults = new CopyOnWriteArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -99,7 +100,7 @@ class IssueWorkspaceTest {
         String pushedCommit = run(pusher, "rev-parse", "HEAD").trim();
         TargetRepository target = new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);

@@ -21,6 +21,7 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
@@ -470,11 +471,11 @@ public final class Main {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
-                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
+                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY, OwnershipGuard.none());
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
                 shared.usage(), layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
-                shared.pageRequests());
+                shared.pageRequests(), OwnershipGuard.none());
     }
 }

@@ -22,6 +22,7 @@ import com.meterian.factory.merge.MergeGate;
 import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.merge.ReviewedCommit;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.RiskResult;
@@ -79,7 +80,7 @@ public final class IssueWorkflow {
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
                          WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
-                         PageRequests pageRequests) {
+                         PageRequests pageRequests, OwnershipGuard ownershipGuard) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.git = git;
@@ -90,7 +91,7 @@ public final class IssueWorkflow {
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
         this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch(),
-                configuration.gatekeeperDirectory().toAbsolutePath());
+                configuration.gatekeeperDirectory().toAbsolutePath(), ownershipGuard);
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
         this.forwardCheckFailure = new ForwardCheckFailure(statusPublisher);
         this.fixLoop = new FixLoop(prompts, ownerApproval, conflictResolution, configuration.limits().fixLoops());

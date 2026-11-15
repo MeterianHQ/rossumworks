@@ -18,6 +18,7 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.Phase;
@@ -160,12 +161,12 @@ class GitHubRequestBudgetTest {
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
+                configuration.gatekeeperDirectory(), Duration.ZERO, OwnershipGuard.none());
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests);
+                board, new ContextTracker(), pageRequests, OwnershipGuard.none());
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
