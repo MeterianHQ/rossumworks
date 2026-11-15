@@ -1,5 +1,6 @@
 package com.meterian.factory.git;
 
+import com.meterian.factory.workflow.ScratchFolder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,11 +17,12 @@ import java.util.Optional;
 
 public final class ProcessGit implements Git {
 
-    private static final String FACTORY_FOLDER_PATTERN = ".factory/";
+    private static final String FACTORY_FOLDER_PATTERN = ScratchFolder.NAME + "/";
 
     private static final String FACTORY_BRANCH_PREFIX = "factory/";
     /** The exit code of git ls-remote --exit-code when the remote has no matching reference. */
     private static final int LS_REMOTE_NO_MATCHING_REFERENCE = 2;
+    private static final String ORIGIN_HEAD = "refs/remotes/origin/HEAD";
     private static final List<String> FIXED_IDENTITY = List.of(
             "-c", "user.name=claude-ai-factory",
             "-c", "user.email=claude-ai-factory@users.noreply.github.com");
@@ -47,6 +49,12 @@ public final class ProcessGit implements Git {
     @Override
     public void fetch(Path repository, String remote, String branch) {
         runOverTheNetwork(repository, "fetch", remote, branch);
+    }
+
+    @Override
+    public void cloneRepository(String url, Path directory) {
+        Path absoluteDirectory = directory.toAbsolutePath();
+        runOverTheNetwork(absoluteDirectory.getParent(), "clone", url, absoluteDirectory.toString());
     }
 
     @Override
@@ -107,8 +115,54 @@ public final class ProcessGit implements Git {
     }
 
     @Override
+    public String resolveCommit(Path repository, String reference) {
+        return run(repository, "rev-parse", "--verify", reference + "^{commit}").trim();
+    }
+
+    @Override
+    public List<String> commitsOfPath(Path repository, String reference, String path, int limit) {
+        String output = run(repository, "log", "--format=%H", "-n", String.valueOf(limit), reference, "--", path);
+        return output.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+    }
+
+    /** The blob is read raw with cat-file: a textconv or a filter of the repository never runs. */
+    @Override
+    public Optional<String> showFile(Path repository, String commit, String path) {
+        String object = resolveCommit(repository, commit) + ":" + path;
+        if (execute(repository, "cat-file", "-e", object).exitCode() != 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new String(runForBytes(repository, "cat-file", "blob", object), StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public boolean hasPath(Path repository, String commit, String path) {
+        String object = resolveCommit(repository, commit) + ":" + path;
+        return execute(repository, "cat-file", "-e", object).exitCode() == 0;
+    }
+
+    /** A clone without origin/HEAD asks the remote once, and keeps the answer in the clone. */
+    @Override
+    public String defaultBranch(Path clone) {
+        if (execute(clone, "symbolic-ref", "-q", ORIGIN_HEAD).exitCode() != 0) {
+            runOverTheNetwork(clone, "remote", "set-head", "origin", "--auto");
+        }
+        String reference = run(clone, "symbolic-ref", "--short", ORIGIN_HEAD).trim();
+        return reference.substring(reference.indexOf('/') + 1);
+    }
+
+    @Override
     public String headCommit(Path worktree) {
         return run(worktree, "rev-parse", "HEAD").trim();
+    }
+
+    @Override
+    public boolean changesPath(Path worktree, String baseReference, String path) {
+        GitProcess.Result result = execute(worktree, "diff", "--quiet", baseReference + "...HEAD", "--", path);
+        if (result.exitCode() > 1) {
+            throw createFailure(List.of("diff", "--quiet", baseReference + "...HEAD", "--", path), result);
+        }
+        return result.exitCode() == 1;
     }
 
     @Override
@@ -189,13 +243,21 @@ public final class ProcessGit implements Git {
     }
 
     @Override
-    public void pushCommit(Path worktree, String remote, String commit, String branch) {
+    public String pushAndReadOutput(Path worktree, String remote, String branch) {
         verifyFactoryBranch(branch);
-        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
+        GitProcess.Result result = requireSuccess(pushArguments(remote, "HEAD", branch),
+                process.execute(worktree, Optional.of(networkTimeout), List.of(pushArguments(remote, "HEAD", branch))));
+        return (result.outputText() + result.errorOutput()).strip();
     }
 
     @Override
+    public void pushCommit(Path worktree, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        runOverTheNetwork(worktree, pushArguments(remote, commit, branch));
+    }
+
     /** A branch that is gone from the remote has no commit to protect, so the push then expects a missing branch. */
+    @Override
     public void forwardCommit(Path repository, String remote, String commit, String branch) {
         verifyFactoryBranch(branch);
         String reference = "refs/heads/" + branch;
@@ -214,6 +276,10 @@ public final class ProcessGit implements Git {
     private boolean isMissingOnTheRemote(Path repository, String remote, String reference) {
         return executeOverTheNetwork(repository, "ls-remote", "--exit-code", remote, reference).exitCode()
                 == LS_REMOTE_NO_MATCHING_REFERENCE;
+    }
+
+    private static String[] pushArguments(String remote, String commit, String branch) {
+        return new String[] {"push", "--force", remote, commit + ":refs/heads/" + branch};
     }
 
     private static void verifyFactoryBranch(String branch) {

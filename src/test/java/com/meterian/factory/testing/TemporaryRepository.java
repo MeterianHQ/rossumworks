@@ -14,6 +14,14 @@ public final class TemporaryRepository {
     private TemporaryRepository() {
     }
 
+    private static void createParentDirectory(Path directory) {
+        try {
+            Files.createDirectories(directory.getParent());
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     public static Path createBare(Path directory) {
         run(directory.getParent(), "init", "-q", "--bare", "-b", "main", directory.toString());
         return directory;
@@ -21,6 +29,7 @@ public final class TemporaryRepository {
 
     /** Clones the bare repository and pushes one commit to the branch main. */
     public static Path createClone(Path bareRepository, Path directory) {
+        createParentDirectory(directory);
         run(directory.getParent(), "clone", "-q", bareRepository.toString(), directory.toString());
         run(directory, "config", "user.name", "Factory Test");
         run(directory, "config", "user.email", "factory-test@example.com");
@@ -32,7 +41,9 @@ public final class TemporaryRepository {
 
     public static void commitFile(Path repository, String fileName, String content, String message) {
         try {
-            Files.writeString(repository.resolve(fileName), content);
+            Path file = repository.resolve(fileName);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, content);
         } catch (IOException exception) {
             throw new IllegalStateException(exception);
         }

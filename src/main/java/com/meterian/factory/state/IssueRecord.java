@@ -1,25 +1,44 @@
 package com.meterian.factory.state;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
+/**
+ * The record of one issue in the status comment of the worker.
+ *
+ * @param state         the name of the current state of the workflow
+ * @param action        the action type of the state; empty for a state without an action
+ * @param column        the column of the board of the state
+ * @param previousState the value of previous: the last state with an action that does not wait for you
+ * @param entries       the count of the entries of each state with a limit
+ * @param pendingPrompt the prompt of the next coding action
+ * @param actionStarted true when the action of the current state started, so its entry counts already
+ * @param approvedTree  the tree that the owner approved for the merge; empty when no approval counts
+ * @param handOver      the reason why the record passes to another factory or to a later action
+ */
 public record IssueRecord(
         int issueNumber,
         UUID sessionId,
-        IssueStatus status,
-        Phase phase,
-        Map<ReviewKind, Verdict> reviews,
-        int fixLoops,
+        String state,
+        Optional<ActionType> action,
+        String column,
+        Optional<String> previousState,
+        Map<String, Integer> entries,
+        Optional<PendingPrompt> pendingPrompt,
+        boolean actionStarted,
+        Map<String, Verdict> reviews,
         Optional<RiskLevel> risk,
         boolean small,
+        List<String> riskReasons,
         Optional<String> reviewedTreeHash,
         Optional<String> reviewedPatchId,
         Optional<String> builtTreeHash,
-        Optional<WaitReason> waitReason,
         Optional<Integer> pullRequestNumber,
         Optional<Long> statusCommentId,
         List<String> notes,
@@ -32,55 +51,101 @@ public record IssueRecord(
         Optional<String> failedForwardTree,
         Optional<LiveSession> live,
         boolean afterConversation,
+        Optional<String> definitionCommit,
+        Optional<String> approvedTree,
         Optional<HandOver> handOver) {
+
+    private static final String QUEUED_COLUMN = "queued";
 
     /** A record from before a new field reads the field as empty. */
     public IssueRecord {
-        reviews = Map.copyOf(reviews);
+        action = action == null ? Optional.empty() : action;
+        previousState = previousState == null ? Optional.empty() : previousState;
+        entries = entries == null ? Map.of() : Map.copyOf(entries);
+        pendingPrompt = pendingPrompt == null ? Optional.empty() : pendingPrompt;
+        reviews = Collections.unmodifiableMap(new LinkedHashMap<>(reviews));
+        riskReasons = riskReasons == null ? List.of() : List.copyOf(riskReasons);
         notes = List.copyOf(notes);
         conflictedPaths = conflictedPaths == null ? List.of() : List.copyOf(conflictedPaths);
         issueTextHash = issueTextHash == null ? Optional.empty() : issueTextHash;
         reviewedHeadCommit = reviewedHeadCommit == null ? Optional.empty() : reviewedHeadCommit;
         failedForwardTree = failedForwardTree == null ? Optional.empty() : failedForwardTree;
         live = live == null ? Optional.empty() : live;
+        definitionCommit = definitionCommit == null ? Optional.empty() : definitionCommit;
+        approvedTree = approvedTree == null ? Optional.empty() : approvedTree;
         handOver = handOver == null ? Optional.empty() : handOver;
     }
 
-    public static IssueRecord queued(int issueNumber) {
-        return new IssueRecord(issueNumber, UUID.randomUUID(), IssueStatus.QUEUED, Phase.PREPARE,
-                Map.of(), 0, Optional.empty(), false, Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), List.of(), false, 0, List.of(),
-                Optional.empty(), Optional.empty(), 0, Optional.empty(), Optional.empty(), false, Optional.empty());
+    /** A new issue in the start state, whose action is always prepare. previous is the start state. */
+    public static IssueRecord queued(int issueNumber, String startState) {
+        return new IssueRecord(issueNumber, UUID.randomUUID(), startState, Optional.of(ActionType.PREPARE),
+                QUEUED_COLUMN, Optional.of(startState), Map.of(), Optional.empty(), false, Map.of(),
+                Optional.empty(), false, List.of(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), List.of(), false, 0, List.of(), Optional.empty(), Optional.empty(), 0,
+                Optional.empty(), Optional.empty(), false, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    /** The count of the entries into the state, 0 when the issue did not enter it yet. */
+    public int entriesOf(String stateName) {
+        return entries.getOrDefault(stateName, 0);
+    }
+
+    /** The newest note, which the card shows. */
+    public Optional<String> newestNote() {
+        return notes.isEmpty() ? Optional.empty() : Optional.of(notes.get(notes.size() - 1));
+    }
+
+    /** The action of the new state did not start yet. */
+    public IssueRecord withMove(String newState, Optional<ActionType> newAction, String newColumn) {
+        return copy(fields -> {
+            fields.state = newState;
+            fields.action = newAction;
+            fields.column = newColumn;
+            fields.actionStarted = false;
+        });
+    }
+
+    public IssueRecord withPreviousState(String newPreviousState) {
+        return copy(fields -> fields.previousState = Optional.of(newPreviousState));
+    }
+
+    public IssueRecord withEntryCounted(String stateName) {
+        Map<String, Integer> newEntries = new LinkedHashMap<>(entries);
+        newEntries.merge(stateName, 1, Integer::sum);
+        return copy(fields -> fields.entries = newEntries);
+    }
+
+    public IssueRecord withoutEntries() {
+        return copy(fields -> fields.entries = Map.of());
+    }
+
+    public IssueRecord withPendingPrompt(PendingPrompt newPendingPrompt) {
+        return copy(fields -> fields.pendingPrompt = Optional.of(newPendingPrompt));
+    }
+
+    public IssueRecord withActionStarted() {
+        return copy(fields -> fields.actionStarted = true);
     }
 
     /** A new session has not started yet, so the next agent run starts it. */
     public IssueRecord withSessionId(UUID newSessionId) {
-        return new IssueRecord(issueNumber, newSessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, false, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.sessionId = newSessionId;
+            fields.agentSessionStarted = false;
+        });
     }
 
     public IssueRecord withFailedReviewRound() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds + 1, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.failedReviewRounds = failedReviewRounds + 1);
     }
 
     public IssueRecord withoutFailedReviewRounds() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, 0, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.failedReviewRounds = 0);
     }
 
     /** Keeps the paths with a conflict while the merge is open. The check of the markers reads them. */
     public IssueRecord withConflictedPaths(List<String> newConflictedPaths) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, newConflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.conflictedPaths = newConflictedPaths);
     }
 
     public IssueRecord withoutConflictedPaths() {
@@ -88,131 +153,86 @@ public record IssueRecord(
     }
 
     public IssueRecord withAgentSessionStarted() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, true, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.agentSessionStarted = true);
     }
 
-    public IssueRecord withStatus(IssueStatus newStatus) {
-        return new IssueRecord(issueNumber, sessionId, newStatus, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+    public IssueRecord withDefinitionCommit(String commit) {
+        return copy(fields -> fields.definitionCommit = Optional.of(commit));
     }
 
-    /** The continue prompt is only for the next implement step: another phase clears the flag. */
-    public IssueRecord withPhase(Phase newPhase) {
-        return new IssueRecord(issueNumber, sessionId, status, newPhase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live,
-                afterConversation && newPhase == Phase.IMPLEMENT, handOver);
-    }
-
-    public IssueRecord withReview(ReviewKind kind, Verdict verdict) {
-        Map<ReviewKind, Verdict> newReviews = new LinkedHashMap<>(reviews);
-        newReviews.put(kind, verdict);
-        return new IssueRecord(issueNumber, sessionId, status, phase, newReviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+    /** The reviews keep the order of their first verdict, which is the order of the definition. */
+    public IssueRecord withReview(String reviewName, Verdict verdict) {
+        Map<String, Verdict> newReviews = new LinkedHashMap<>(reviews);
+        newReviews.put(reviewName, verdict);
+        return copy(fields -> fields.reviews = newReviews);
     }
 
     public IssueRecord withoutReviews() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, Map.of(), fixLoops, risk, small,
-                Optional.empty(), Optional.empty(), builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, Optional.empty(), failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.reviews = Map.of();
+            fields.reviewedTreeHash = Optional.empty();
+            fields.reviewedPatchId = Optional.empty();
+            fields.reviewedHeadCommit = Optional.empty();
+        });
     }
 
-    public IssueRecord withFixLoop() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops + 1, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
-    }
-
-    public IssueRecord withRisk(RiskLevel newRisk, boolean newSmall) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops,
-                Optional.of(newRisk), newSmall, reviewedTreeHash, reviewedPatchId, builtTreeHash,
-                waitReason, pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds,
-                conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+    /** Each new risk result replaces the reasons of the old one. */
+    public IssueRecord withRisk(RiskLevel newRisk, boolean newSmall, List<String> newReasons) {
+        return copy(fields -> {
+            fields.risk = Optional.of(newRisk);
+            fields.small = newSmall;
+            fields.riskReasons = newReasons;
+        });
     }
 
     public IssueRecord withoutRisk() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, Optional.empty(), false,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.risk = Optional.empty();
+            fields.small = false;
+            fields.riskReasons = List.of();
+        });
     }
 
     public IssueRecord withoutBuiltTree() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, Optional.empty(), waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.builtTreeHash = Optional.empty());
     }
 
     public IssueRecord withReviewedTree(String treeHash, String patchId) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                Optional.of(treeHash), Optional.of(patchId), builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.reviewedTreeHash = Optional.of(treeHash);
+            fields.reviewedPatchId = Optional.of(patchId);
+        });
+    }
+
+    /** The merge is approved for the files of this tree. A change of the code removes the approval. */
+    public IssueRecord withApprovedTree(String treeHash) {
+        return copy(fields -> fields.approvedTree = Optional.of(treeHash));
+    }
+
+    public IssueRecord withoutApprovedTree() {
+        return copy(fields -> fields.approvedTree = Optional.empty());
     }
 
     public IssueRecord withBuiltTree(String treeHash) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, Optional.of(treeHash), waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
-    }
-
-    public IssueRecord withWaitReason(WaitReason newWaitReason) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.of(newWaitReason),
-                pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit,
-                failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
-    }
-
-    public IssueRecord withoutWaitReason() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, Optional.empty(),
-                pullRequestNumber, statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit,
-                failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.builtTreeHash = Optional.of(treeHash));
     }
 
     public IssueRecord withPullRequest(int number) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, Optional.of(number),
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.pullRequestNumber = Optional.of(number));
     }
 
     public IssueRecord withStatusComment(long commentId) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                Optional.of(commentId), notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.statusCommentId = Optional.of(commentId));
     }
 
     /** The hash of the issue text that the owner accepted: at the intake, or with the label factory:approve. */
     public IssueRecord withIssueTextHash(String newIssueTextHash) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                Optional.of(newIssueTextHash), reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.issueTextHash = Optional.of(newIssueTextHash));
     }
 
-    /** The commit that the four reviews approved. A merge step that does not end goes back to it. */
+    /** The commit that the reviews approved. A merge action that does not end goes back to it. */
     public IssueRecord withReviewedHeadCommit(String commit) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths, issueTextHash,
-                Optional.of(commit), failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.reviewedHeadCommit = Optional.of(commit));
     }
 
     /**
@@ -221,17 +241,17 @@ public record IssueRecord(
      */
     public IssueRecord withFailedForwardCheck(String pushedTree) {
         boolean isSameTree = failedForwardTree.equals(Optional.of(pushedTree));
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths, issueTextHash,
-                reviewedHeadCommit, isSameTree ? failedForwardChecks + 1 : 1, Optional.of(pushedTree), live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.failedForwardChecks = isSameTree ? failedForwardChecks + 1 : 1;
+            fields.failedForwardTree = Optional.of(pushedTree);
+        });
     }
 
     public IssueRecord withoutFailedForwardChecks() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths, issueTextHash,
-                reviewedHeadCommit, 0, Optional.empty(), live, afterConversation, handOver);
+        return copy(fields -> {
+            fields.failedForwardChecks = 0;
+            fields.failedForwardTree = Optional.empty();
+        });
     }
 
     /** Moves the note to the end when the list has it already, so that the card shows it as the newest note. */
@@ -239,10 +259,7 @@ public record IssueRecord(
         List<String> newNotes = new ArrayList<>(notes);
         newNotes.remove(note);
         newNotes.add(note);
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, newNotes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.notes = newNotes);
     }
 
     public IssueRecord withNote(String note) {
@@ -251,26 +268,15 @@ public record IssueRecord(
         }
         List<String> newNotes = new ArrayList<>(notes);
         newNotes.add(note);
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, newNotes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree, live, afterConversation, handOver);
+        return copy(fields -> fields.notes = newNotes);
     }
 
     public IssueRecord withLive(LiveSession newLive) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree,
-                Optional.of(newLive), afterConversation, handOver);
+        return copy(fields -> fields.live = Optional.of(newLive));
     }
 
     public IssueRecord withoutLive() {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree,
-                Optional.empty(), afterConversation, handOver);
+        return copy(fields -> fields.live = Optional.empty());
     }
 
     /** Sets the link of the live conversation. Does nothing when the issue is not live. */
@@ -282,35 +288,103 @@ public record IssueRecord(
         return live.map(session -> withLive(session.withoutLink())).orElse(this);
     }
 
-    public IssueRecord withHandOver(HandOver newHandOver) {
-        return withHandOverOption(Optional.of(newHandOver));
-    }
-
-    public IssueRecord withoutHandOver() {
-        return withHandOverOption(Optional.empty());
-    }
-
     public IssueRecord withAfterConversation() {
-        return withAfterConversation(true);
+        return copy(fields -> fields.afterConversation = true);
     }
 
     public IssueRecord withoutAfterConversation() {
-        return withAfterConversation(false);
+        return copy(fields -> fields.afterConversation = false);
     }
 
-    private IssueRecord withAfterConversation(boolean newAfterConversation) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree,
-                live, newAfterConversation, handOver);
+    public IssueRecord withHandOver(HandOver newHandOver) {
+        return copy(fields -> fields.handOver = Optional.of(newHandOver));
     }
 
-    private IssueRecord withHandOverOption(Optional<HandOver> newHandOver) {
-        return new IssueRecord(issueNumber, sessionId, status, phase, reviews, fixLoops, risk, small,
-                reviewedTreeHash, reviewedPatchId, builtTreeHash, waitReason, pullRequestNumber,
-                statusCommentId, notes, agentSessionStarted, failedReviewRounds, conflictedPaths,
-                issueTextHash, reviewedHeadCommit, failedForwardChecks, failedForwardTree,
-                live, afterConversation, newHandOver);
+    public IssueRecord withoutHandOver() {
+        return copy(fields -> fields.handOver = Optional.empty());
+    }
+
+    private IssueRecord copy(Consumer<Fields> change) {
+        Fields fields = new Fields(this);
+        change.accept(fields);
+        return fields.toRecord();
+    }
+
+    /** The fields of a record. A with method changes some of them, and the copy becomes a new record. */
+    private static final class Fields {
+
+        private final int issueNumber;
+        private UUID sessionId;
+        private String state;
+        private Optional<ActionType> action;
+        private String column;
+        private Optional<String> previousState;
+        private Map<String, Integer> entries;
+        private Optional<PendingPrompt> pendingPrompt;
+        private boolean actionStarted;
+        private Map<String, Verdict> reviews;
+        private Optional<RiskLevel> risk;
+        private boolean small;
+        private List<String> riskReasons;
+        private Optional<String> reviewedTreeHash;
+        private Optional<String> reviewedPatchId;
+        private Optional<String> builtTreeHash;
+        private Optional<Integer> pullRequestNumber;
+        private Optional<Long> statusCommentId;
+        private List<String> notes;
+        private boolean agentSessionStarted;
+        private int failedReviewRounds;
+        private List<String> conflictedPaths;
+        private Optional<String> issueTextHash;
+        private Optional<String> reviewedHeadCommit;
+        private int failedForwardChecks;
+        private Optional<String> failedForwardTree;
+        private Optional<LiveSession> live;
+        private boolean afterConversation;
+        private Optional<String> definitionCommit;
+        private Optional<String> approvedTree;
+        private Optional<HandOver> handOver;
+
+        private Fields(IssueRecord record) {
+            issueNumber = record.issueNumber;
+            sessionId = record.sessionId;
+            state = record.state;
+            action = record.action;
+            column = record.column;
+            previousState = record.previousState;
+            entries = record.entries;
+            pendingPrompt = record.pendingPrompt;
+            actionStarted = record.actionStarted;
+            reviews = record.reviews;
+            risk = record.risk;
+            small = record.small;
+            riskReasons = record.riskReasons;
+            reviewedTreeHash = record.reviewedTreeHash;
+            reviewedPatchId = record.reviewedPatchId;
+            builtTreeHash = record.builtTreeHash;
+            pullRequestNumber = record.pullRequestNumber;
+            statusCommentId = record.statusCommentId;
+            notes = record.notes;
+            agentSessionStarted = record.agentSessionStarted;
+            failedReviewRounds = record.failedReviewRounds;
+            conflictedPaths = record.conflictedPaths;
+            issueTextHash = record.issueTextHash;
+            reviewedHeadCommit = record.reviewedHeadCommit;
+            failedForwardChecks = record.failedForwardChecks;
+            failedForwardTree = record.failedForwardTree;
+            live = record.live;
+            afterConversation = record.afterConversation;
+            definitionCommit = record.definitionCommit;
+            approvedTree = record.approvedTree;
+            handOver = record.handOver;
+        }
+
+        private IssueRecord toRecord() {
+            return new IssueRecord(issueNumber, sessionId, state, action, column, previousState, entries,
+                    pendingPrompt, actionStarted, reviews, risk, small, riskReasons, reviewedTreeHash, reviewedPatchId,
+                    builtTreeHash, pullRequestNumber, statusCommentId, notes, agentSessionStarted,
+                    failedReviewRounds, conflictedPaths, issueTextHash, reviewedHeadCommit, failedForwardChecks,
+                    failedForwardTree, live, afterConversation, definitionCommit, approvedTree, handOver);
+        }
     }
 }

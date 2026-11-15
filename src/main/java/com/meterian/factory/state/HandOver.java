@@ -6,6 +6,6 @@ public enum HandOver {
     /** This factory stopped because another account owns the issue. */
     RELEASED,
 
-    /** The next PREPARE makes the worktree from the branch on GitHub. */
+    /** The next action prepare makes the worktree from the branch on GitHub. */
     CONTINUES_PUSHED_BRANCH
 }

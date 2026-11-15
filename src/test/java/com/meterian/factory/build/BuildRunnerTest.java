@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.definition.BuildDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -138,7 +138,18 @@ class BuildRunnerTest {
         assertEquals(10_000, outcome.outputTail().length());
     }
 
-    private TargetRepository target(String buildCommand, Map<String, String> buildEnvironment) {
-        return new TargetRepository("owner", "name", worktree, buildCommand, buildEnvironment);
+    @Test
+    void letsTheMachineReplaceAVariableOfTheDefinition() {
+        BuildDefinition build = new BuildDefinition("test \"$LANG\" = C.utf8 && test \"$JAVA_HOME\" = /opt/jdk",
+                Map.of("LANG", "en_US.UTF-8", "JAVA_HOME", "/opt/jdk"));
+
+        BuildOutcome outcome = new BuildRunner().run(worktree,
+                BuildSettings.combine(build, Map.of("LANG", "C.utf8")));
+
+        assertTrue(outcome.passed());
+    }
+
+    private BuildSettings target(String buildCommand, Map<String, String> buildEnvironment) {
+        return new BuildSettings(buildCommand, buildEnvironment);
     }
 }

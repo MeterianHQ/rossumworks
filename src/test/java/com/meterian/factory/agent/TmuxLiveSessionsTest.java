@@ -3,6 +3,7 @@ package com.meterian.factory.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.meterian.factory.testing.TestTools;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import java.io.IOException;
@@ -63,7 +64,7 @@ class TmuxLiveSessionsTest {
     @Test
     void openAnswersTheTrustPromptAndReturnsTheLink() throws Exception {
         String link = sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT)
-                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(link).isEqualTo(FAKE_LINK);
     }
@@ -72,7 +73,7 @@ class TmuxLiveSessionsTest {
     void openResumesTheSameSessionWithTheFactoryFiles() throws Exception {
         UUID sessionId = UUID.randomUUID();
 
-        sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT).open(ISSUE_NUMBER, sessionId, worktree);
+        sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT).open(ISSUE_NUMBER, sessionId, worktree, TestTools.ALLOWED_TOOLS);
 
         List<String> arguments = Files.readAllLines(directory.resolve("arguments.txt"));
         assertThat(arguments).containsSubsequence("--resume", sessionId.toString());
@@ -87,7 +88,7 @@ class TmuxLiveSessionsTest {
 
     @Test
     void openStartsTheSessionInTheWorktree() throws Exception {
-        sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(Files.readString(directory.resolve("directory.txt")).strip())
                 .isEqualTo(worktree.toRealPath().toString());
@@ -101,7 +102,7 @@ class TmuxLiveSessionsTest {
         runTmux("new-session", "-d", "-s", "keeper", "sleep 60");
         runTmux("set-environment", "-g", "ANTHROPIC_API_KEY", "x");
 
-        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(Files.readString(directory.resolve("environment.txt")))
                 .contains("PATH=")
@@ -113,7 +114,7 @@ class TmuxLiveSessionsTest {
         Map<String, String> parent = new HashMap<>(System.getenv());
         parent.put("FACTORY_TEST_VALUE", "it's a 'test' $HOME");
 
-        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(Files.readAllLines(directory.resolve("environment.txt")))
                 .contains("FACTORY_TEST_VALUE=it's a 'test' $HOME");
@@ -124,7 +125,7 @@ class TmuxLiveSessionsTest {
         TmuxLiveSessions sessions = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_NO_LINK", "1"), System.getenv(),
                 FAILURE_TIMEOUT);
 
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
+        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
                 .isInstanceOf(LiveSessionException.class)
                 .hasMessage("The live session did not show a Remote Control link in 3 seconds.");
 
@@ -136,7 +137,7 @@ class TmuxLiveSessionsTest {
         TmuxLiveSessions sessions = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_EXIT", "1"), System.getenv(),
                 FAILURE_TIMEOUT);
 
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
+        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
                 .isInstanceOf(LiveSessionException.class)
                 .hasMessage("The live session ended before it showed a link.");
 
@@ -146,10 +147,10 @@ class TmuxLiveSessionsTest {
     @Test
     void openReplacesAnOldSessionOfTheIssue() throws Exception {
         TmuxLiveSessions sessions = sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT);
-        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
         String oldProcessId = runTmux("display-message", "-p", "-t", "=factory-issue-7:", "#{pane_pid}");
 
-        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         String newProcessId = runTmux("display-message", "-p", "-t", "=factory-issue-7:", "#{pane_pid}");
         assertThat(newProcessId).isNotEqualTo(oldProcessId);
@@ -161,7 +162,7 @@ class TmuxLiveSessionsTest {
         Files.writeString(liveFiles.continueMarker(ISSUE_NUMBER), "old");
         TmuxLiveSessions sessions = sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT);
 
-        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(sessions.isContinueRequested(ISSUE_NUMBER)).isFalse();
     }
@@ -169,7 +170,7 @@ class TmuxLiveSessionsTest {
     @Test
     void closeEndsTheSession() throws Exception {
         TmuxLiveSessions sessions = sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT);
-        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         sessions.close(ISSUE_NUMBER);
 
@@ -181,7 +182,7 @@ class TmuxLiveSessionsTest {
     @Test
     void isOpenDoesNotMatchTheSessionOfAnotherIssue() throws Exception {
         TmuxLiveSessions sessions = sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT);
-        sessions.open(12, UUID.randomUUID(), worktree);
+        sessions.open(12, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(sessions.isOpen(1)).isFalse();
         assertThat(sessions.isOpen(12)).isTrue();
@@ -193,7 +194,7 @@ class TmuxLiveSessionsTest {
                 SUCCESS_TIMEOUT, new TmuxCommand(tmuxThatFailsOnCapture().toString(), socketName),
                 new TerminalWindow(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND, socketName, System.getenv()));
 
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
+        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
                 .isInstanceOf(LiveSessionException.class)
                 .hasMessageContaining("tmux capture-pane");
 
@@ -208,7 +209,7 @@ class TmuxLiveSessionsTest {
         AtomicBoolean stillInterrupted = new AtomicBoolean();
         Thread opener = new Thread(() -> {
             try {
-                sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+                sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
             } catch (Throwable exception) {
                 failure.set(exception);
             }
@@ -226,9 +227,17 @@ class TmuxLiveSessionsTest {
     }
 
     @Test
+    void openAnswersTheTrustPromptAgainWhenClaudeLosesTheFirstAnswer() throws Exception {
+        String link = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_DEAF_SECONDS", "2"), System.getenv(), SUCCESS_TIMEOUT)
+                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
+
+        assertThat(link).isEqualTo(FAKE_LINK);
+    }
+
+    @Test
     void openTakesTheLinkOfTheStatusLineAndNotAnOldLink() throws Exception {
         String link = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_OLD_LINK", "1"), System.getenv(), SUCCESS_TIMEOUT)
-                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(link).isEqualTo(FAKE_LINK);
     }
@@ -238,7 +247,7 @@ class TmuxLiveSessionsTest {
         TmuxLiveSessions sessions = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_OLD_TRUST", "1"), System.getenv(),
                 FAILURE_TIMEOUT);
 
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
+        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
                 .isInstanceOf(LiveSessionException.class);
 
         assertThat(directory.resolve("answer.txt")).doesNotExist();
@@ -251,7 +260,7 @@ class TmuxLiveSessionsTest {
             parent.put("FACTORY_TEST_LARGE_" + index, "x".repeat(1000));
         }
 
-        String link = sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        String link = sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(link).isEqualTo(FAKE_LINK);
         assertThat(Files.readAllLines(directory.resolve("environment.txt")))
@@ -263,7 +272,7 @@ class TmuxLiveSessionsTest {
         Map<String, String> parent = new HashMap<>(System.getenv());
         parent.put("TERM", "dumb");
 
-        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         assertThat(Files.readAllLines(directory.resolve("environment.txt")))
                 .contains("TERM=tmux-256color")
@@ -277,7 +286,7 @@ class TmuxLiveSessionsTest {
         TmuxLiveSessions sessions = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_EXIT", "1"), System.getenv(),
                 SUCCESS_TIMEOUT);
 
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree))
+        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
                 .isInstanceOf(LiveSessionException.class)
                 .hasMessage("The live session ended before it showed a link.");
     }
@@ -310,7 +319,7 @@ class TmuxLiveSessionsTest {
     void openTerminalAttachesTheTerminalToTheSessionOfTheIssue() throws Exception {
         Path arguments = directory.resolve("terminal-arguments.txt");
         TmuxLiveSessions sessions = sessionsWithTerminal(writeFakeTerminal(arguments));
-        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree);
+        sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
 
         sessions.openTerminal(ISSUE_NUMBER);
 
@@ -350,8 +359,7 @@ class TmuxLiveSessionsTest {
         script.append("exec /bin/bash '").append(fake).append("' \"$@\"\n");
         Files.writeString(wrapper, script);
         Files.setPosixFilePermissions(wrapper, PosixFilePermissions.fromString("rwxr-xr-x"));
-        return new ClaudeSettings(wrapper.toString(), ClaudeSettings.DEFAULT_ALLOWED_TOOLS,
-                ClaudeSettings.DEFAULT_DISALLOWED_TOOLS);
+        return new ClaudeSettings(wrapper.toString(), ClaudeSettings.DEFAULT_DISALLOWED_TOOLS);
     }
 
     /** A tmux that fails on capture-pane and runs the real tmux for the other commands. */

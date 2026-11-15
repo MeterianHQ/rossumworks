@@ -3,10 +3,11 @@ package com.meterian.factory.worker;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.testing.FakeGitHubClient;
+import com.meterian.factory.testing.RecordStates;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,7 @@ class EarlierOwnerRecordTest {
 
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final EarlierOwnerRecord earlierOwnerRecord = new EarlierOwnerRecord(gitHub, WORKER_LOGIN);
-    private final IssueRecord record = IssueRecord.queued(ISSUE_NUMBER);
+    private final IssueRecord record = RecordStates.queued(ISSUE_NUMBER);
 
     @BeforeEach
     void createIssue() {
@@ -30,33 +31,33 @@ class EarlierOwnerRecordTest {
     void findsTheNewestRecordOfAnAssignedAuthor() {
         assignEarlier("alice");
         assignEarlier("bob");
-        addRecordBy("alice", record.withPhase(Phase.BUILD));
-        addRecordBy("bob", record.withPhase(Phase.MERGE));
+        addRecordBy("alice", RecordStates.move(record, "build"));
+        addRecordBy("bob", RecordStates.move(record, "merge"));
 
-        assertThat(findRecord()).contains(record.withPhase(Phase.MERGE));
+        assertThat(findRecord()).contains(RecordStates.move(record, "merge"));
     }
 
     @Test
     void ignoresTheRecordOfAnAuthorWithoutAssignment() {
         assignEarlier("alice");
-        addRecordBy("alice", record.withPhase(Phase.BUILD));
-        addRecordBy("mallory", record.withStatus(IssueStatus.BLOCKED));
+        addRecordBy("alice", RecordStates.move(record, "build"));
+        addRecordBy("mallory", RecordStates.move(record, "blocked"));
 
-        assertThat(findRecord()).contains(record.withPhase(Phase.BUILD));
+        assertThat(findRecord()).contains(RecordStates.move(record, "build"));
     }
 
     @Test
     void comparesTheAuthorWithTheAssigneeWithoutCase() {
         assignEarlier("Alice");
-        addRecordBy("alice", record.withPhase(Phase.BUILD));
+        addRecordBy("alice", RecordStates.move(record, "build"));
 
-        assertThat(findRecord()).contains(record.withPhase(Phase.BUILD));
+        assertThat(findRecord()).contains(RecordStates.move(record, "build"));
     }
 
     @Test
     void ignoresARecordOfAnotherAuthorThatIsOlderThanTheOwnRecord() {
         assignEarlier("alice");
-        addRecordBy("alice", record.withPhase(Phase.BUILD));
+        addRecordBy("alice", RecordStates.move(record, "build"));
         addRecordBy(WORKER_LOGIN, record);
 
         assertThat(findRecord()).isEmpty();
@@ -66,9 +67,9 @@ class EarlierOwnerRecordTest {
     void findsARecordOfAnotherAuthorThatIsNewerThanTheOwnRecord() {
         assignEarlier("alice");
         addRecordBy(WORKER_LOGIN, record);
-        addRecordBy("alice", record.withPhase(Phase.BUILD));
+        addRecordBy("alice", RecordStates.move(record, "build"));
 
-        assertThat(findRecord()).contains(record.withPhase(Phase.BUILD));
+        assertThat(findRecord()).contains(RecordStates.move(record, "build"));
     }
 
     @Test
@@ -86,7 +87,7 @@ class EarlierOwnerRecordTest {
     }
 
     private void addRecordBy(String author, IssueRecord authoredRecord) {
-        gitHub.addCommentBy(ISSUE_NUMBER, author, StatusComment.render(authoredRecord, 3));
+        gitHub.addCommentBy(ISSUE_NUMBER, author, StatusComment.render(authoredRecord, Map.of(), List.of()));
     }
 
     private Optional<IssueRecord> findRecord() {

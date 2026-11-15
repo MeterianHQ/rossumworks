@@ -9,21 +9,20 @@ import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
-import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class BoardPageTest {
@@ -43,12 +42,23 @@ class BoardPageTest {
         return new IssueCard(record.issueNumber(), title, Set.of("factory"), record, Optional.empty());
     }
 
-    private static IssueRecord record(int number, IssueStatus status) {
-        return IssueRecord.queued(number).withAgentSessionStarted().withStatus(status).withPhase(Phase.IMPLEMENT);
+    private static final String NEEDS_APPROVAL_NOTE = "The merge needs approval.";
+
+    /** A record in the state of the built-in workflow, after the state implement. The start state stays queued. */
+    private static IssueRecord record(int number, String stateName) {
+        IssueRecord queued = RecordStates.queued(number).withAgentSessionStarted();
+        if (stateName.equals(queued.state())) {
+            return queued;
+        }
+        return RecordStates.move(RecordStates.move(queued, "implement"), stateName);
     }
 
-    private static IssueRecord waitingRecord(int number, WaitReason reason) {
-        return record(number, IssueStatus.WAITS_FOR_YOU).withWaitReason(reason);
+    private static IssueRecord waitingRecord(int number, String stateName, String note) {
+        return record(number, stateName).withNewestNote(note);
+    }
+
+    private static IssueRecord waitsForApproval(int number) {
+        return waitingRecord(number, "waits-for-approval", NEEDS_APPROVAL_NOTE);
     }
 
     private static IssueRecord liveRecord(int number, String link) {
@@ -56,8 +66,8 @@ class BoardPageTest {
     }
 
     private static IssueRecord liveRecord(int number, String link, LivePlace place) {
-        LiveSession live = new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.of(link), place);
-        return waitingRecord(number, WaitReason.LIVE_CONVERSATION).withLive(live);
+        LiveSession live = new LiveSession("abc", Optional.of(link), place);
+        return waitingRecord(number, "live", "The agent has a question.").withLive(live);
     }
 
     private static PageModel model(List<IssueCard> cards) {
@@ -93,6 +103,11 @@ class BoardPageTest {
                 Map.of(), true);
     }
 
+    private static PageModel modelWithWarning(List<IssueCard> cards, String definitionWarning) {
+        return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(), Map.of(),
+                Set.of(), Map.of(), true, Optional.of(definitionWarning));
+    }
+
     private static PageModel modelWithEnterPlaces(List<IssueCard> cards, Map<Integer, LivePlace> enterPlaces) {
         return model(cards, Optional.of(NOW.minusSeconds(30)), List.of(), Optional.empty(), Map.of(),
                 Map.of(12, Set.of("factory:enter")), Set.of(), enterPlaces, true);
@@ -107,17 +122,62 @@ class BoardPageTest {
             List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
             Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine) {
+        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+                enterPlaces, viewerOnThisMachine, Optional.empty());
+    }
+
+    private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
+            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
+            Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine, Optional<String> definitionWarning) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
-        return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
-                usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
-                viewerOnThisMachine, FactoryState.RUNNING);
+        Map<Integer, Map<String, Integer>> limits = cards.stream()
+                .collect(Collectors.toMap(IssueCard::issueNumber, card -> LIMITS, (first, second) -> first));
+        Map<Integer, List<String>> reviewNames = cards.stream().collect(
+                Collectors.toMap(IssueCard::issueNumber, card -> REVIEW_NAMES, (first, second) -> first));
+        Set<Integer> inBlockTarget = cards.stream().filter(card -> card.record().state().equals("blocked"))
+                .map(IssueCard::issueNumber).collect(Collectors.toSet());
+        return new PageModel(snapshot, NOW, 2, 2, limits, reviewNames, inBlockTarget, IsolationMode.SAME_USER, POLL_INTERVAL,
+                usageWindows, usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces,
+                "MeterianHQ/target", viewerOnThisMachine, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
+    }
+
+    private static PageModel withColumns(PageModel model, List<String> columns) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
+                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.definitionWarning(), model.factoryState(), columns);
+    }
+
+    private static PageModel withReviewNames(PageModel model, List<String> reviewNames) {
+        Map<Integer, List<String>> namesByIssue = model.board().cards().stream()
+                .collect(Collectors.toMap(IssueCard::issueNumber, card -> reviewNames));
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), namesByIssue, model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
+                model.usageWindows(), model.usageResumesAt(), model.contexts(), model.continueRequested(),
+                model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
+                model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     private static PageModel withFactoryState(PageModel model, FactoryState factoryState) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
-                model.fixLoopLimit(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
                 model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), factoryState);
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.definitionWarning(), factoryState, model.columns());
+    }
+
+    private static final List<String> REVIEW_NAMES = List.of("correctness", "security", "architecture", "quality");
+    private static final List<String> DEFAULT_COLUMNS =
+            List.of("queued", "in-progress", "in-review", "waits-for-you", "blocked", "done");
+    private static final Map<String, Integer> LIMITS = createLimits();
+
+    private static Map<String, Integer> createLimits() {
+        Map<String, Integer> limits = new LinkedHashMap<>();
+        limits.put("implement", 3);
+        limits.put("review", 10);
+        return limits;
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -138,15 +198,31 @@ class BoardPageTest {
     }
 
     @Test
+    void showsTheWarningOfTheDefinition() {
+        String warning = "The .factory of 1234567 does not load: factory.yaml: <bad> key. "
+                + "The factory keeps the version 89abcde.";
+
+        String html = page.renderBoard(modelWithWarning(List.of(), warning));
+
+        assertThat(html).contains("<p class=\"warning\">" + Html.escape(warning) + "</p>");
+        assertThat(html).doesNotContain("<bad>");
+    }
+
+    @Test
+    void showsNoDefinitionWarningWithoutAWarning() {
+        assertThat(page.renderBoard(model(List.of()))).doesNotContain("class=\"warning\"");
+    }
+
+    @Test
     void escapesTheTitleTheNoteAndTheReason() {
-        IssueRecord record = waitingRecord(12, WaitReason.QUESTION).withNote("\"><img src=x onerror=alert(1)>");
+        IssueRecord record = waitsForApproval(12)
+                .withNewestNote("\"><img src=x onerror=alert(1)>");
 
         String html = page.renderBoard(model(List.of(card(record, "<script>alert(1)</script>"))));
 
         assertThat(html).doesNotContain("<script").doesNotContain("<img");
         assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
-        assertThat(html).contains("&quot;&gt;&lt;img src=x onerror=alert(1)&gt;");
-        assertThat(html).contains("The agent has a question.");
+        assertThat(html).contains("<p class=\"reason\">&quot;&gt;&lt;img src=x onerror=alert(1)&gt;</p>");
     }
 
     @Test
@@ -170,14 +246,14 @@ class BoardPageTest {
         String html = page.renderBoard(model(List.of(card(liveRecord(12, LINK)))));
 
         assertThat(html).contains("class=\"card waits\"");
-        assertThat(html).contains(WaitReason.LIVE_CONVERSATION.sentence());
+        assertThat(html).contains("<p class=\"reason\">The agent has a question.</p>");
         assertThat(html).contains("<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p>");
         assertThat(html).contains("<a href=\"" + LINK + "\" target=\"_blank\" rel=\"noopener noreferrer\"");
     }
 
     @Test
     void theEnterButtonsAreOneGroupWithTooltips() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -194,7 +270,7 @@ class BoardPageTest {
 
     @Test
     void anotherDeviceHasNoTerminalButton() {
-        IssueRecord waiting = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord waiting = waitsForApproval(12);
 
         String html = page.renderBoard(modelForAnotherDevice(List.of(card(waiting), card(liveRecord(13, LINK)))));
 
@@ -235,7 +311,7 @@ class BoardPageTest {
 
     @Test
     void anEnterShowsOnlyTheLineOfTheChosenPlace() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
         List<IssueCard> cards = List.of(cardWithLabel(record, "factory:enter"));
 
         String chosen = page.renderBoard(modelWithEnterPlaces(cards, Map.of(12, LivePlace.TERMINAL)));
@@ -247,11 +323,24 @@ class BoardPageTest {
     }
 
     @Test
+    void marksOnlyTheCardsThatWaitForYou() {
+        List<IssueCard> cards = List.of(card(waitsForApproval(3)), card(liveRecord(4, LINK)),
+                card(record(5, "blocked")), card(record(6, "done")), card(record(7, "implement")));
+
+        String html = page.renderBoard(model(cards));
+
+        assertThat(html.split("class=\"card waits\"", -1)).hasSize(3);
+        assertThat(html).containsSubsequence("class=\"card waits\"", "#3 ", "class=\"card waits\"", "#4 ");
+        assertThat(html).containsSubsequence("<article class=\"card\">", "#5 ");
+        assertThat(html).containsSubsequence("<article class=\"card\">", "#6 ");
+    }
+
+    @Test
     void theColumnsFollowTheProgressInTime() {
         List<IssueCard> cards = List.of(
-                card(record(3, IssueStatus.DONE)), card(record(4, IssueStatus.BLOCKED)),
-                card(record(5, IssueStatus.QUEUED)), card(record(6, IssueStatus.IN_REVIEW)),
-                card(record(7, IssueStatus.IN_PROGRESS)), card(waitingRecord(8, WaitReason.QUESTION)));
+                card(record(3, "done")), card(record(4, "blocked")),
+                card(record(5, "prepare")), card(record(6, "review")),
+                card(record(7, "implement")), card(waitsForApproval(8)));
 
         String html = page.renderBoard(model(cards));
 
@@ -261,8 +350,31 @@ class BoardPageTest {
     }
 
     @Test
+    void showsTheColumnsInTheOrderOfTheDefinition() {
+        PageModel model = withColumns(model(List.of(card(record(5, "prepare")))),
+                List.of("queued", "doing", "needs-me", "done"));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).containsSubsequence(columnName("Queued"), columnName("Doing"), columnName("Needs me"),
+                columnName("Done"));
+        assertThat(html).contains("class=\"column status-needs-me\"").doesNotContain("In progress");
+    }
+
+    @Test
+    void showsACardOfAnUnknownColumnInAnExtraColumn() {
+        IssueCard later = card(record(9, "prepare").withMove("oldstate", Optional.empty(), "old-column"));
+        PageModel model = withColumns(model(List.of(later, card(record(4, "prepare")))),
+                List.of("queued", "done"));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).containsSubsequence(columnName("Queued"), columnName("Done"), columnName("Old column"));
+    }
+
+    @Test
     void eachColumnShowsItsStatusAndTheNumberOfCards() {
-        List<IssueCard> cards = List.of(card(record(5, IssueStatus.QUEUED)), card(record(6, IssueStatus.QUEUED)));
+        List<IssueCard> cards = List.of(card(record(5, "prepare")), card(record(6, "prepare")));
 
         String html = page.renderBoard(model(cards));
 
@@ -274,11 +386,11 @@ class BoardPageTest {
 
     @Test
     void sortsTheCardsByNumberAndTheDoneCardsNewestFirst() {
-        IssueCard olderDone = new IssueCard(20, "Older", Set.of(), record(20, IssueStatus.DONE),
+        IssueCard olderDone = new IssueCard(20, "Older", Set.of(), record(20, "done"),
                 Optional.of(NOW.minus(Duration.ofDays(2))));
-        IssueCard newerDone = new IssueCard(10, "Newer", Set.of(), record(10, IssueStatus.DONE),
+        IssueCard newerDone = new IssueCard(10, "Newer", Set.of(), record(10, "done"),
                 Optional.of(NOW.minus(Duration.ofDays(1))));
-        List<IssueCard> cards = List.of(card(record(9, IssueStatus.QUEUED)), card(record(2, IssueStatus.QUEUED)),
+        List<IssueCard> cards = List.of(card(record(9, "prepare")), card(record(2, "prepare")),
                 olderDone, newerDone);
 
         String html = page.renderBoard(model(cards));
@@ -288,7 +400,7 @@ class BoardPageTest {
 
     @Test
     void showsTheContextAsAPercent() {
-        PageModel model = model(List.of(card(record(12, IssueStatus.IN_PROGRESS))), Optional.of(NOW), List.of(),
+        PageModel model = model(List.of(card(record(12, "implement"))), Optional.of(NOW), List.of(),
                 Optional.empty(), Map.of(12, new ContextUsage(620_000, 1_000_000)));
 
         String html = page.renderBoard(model);
@@ -299,12 +411,24 @@ class BoardPageTest {
     }
 
     @Test
+    void rendersTheReviewNamesOfTheDefinition() {
+        IssueRecord record = record(12, "review").withReview("style", Verdict.APPROVE);
+        PageModel model = model(List.of(card(record, "Fix the parser")));
+
+        String html = page.renderBoard(withReviewNames(model, List.of("style", "code-quality")));
+
+        assertThat(html).contains("<li class=\"review positive\" title=\"Style: positive\">Style</li>",
+                "<li class=\"review none\" title=\"Code-quality: —\">Code-quality</li>");
+        assertThat(html).doesNotContain(">Correctness</li>");
+    }
+
+    @Test
     void showsTheCardDetails() {
-        IssueRecord record = record(12, IssueStatus.IN_REVIEW)
-                .withReview(ReviewKind.CORRECTNESS, Verdict.APPROVE)
-                .withReview(ReviewKind.SECURITY, Verdict.REJECT)
-                .withFixLoop()
-                .withRisk(RiskLevel.LOW, true)
+        IssueRecord record = record(12, "review")
+                .withReview("correctness", Verdict.APPROVE)
+                .withReview("security", Verdict.REJECT)
+                .withEntryCounted("implement")
+                .withRisk(RiskLevel.LOW, true, List.of("It <changes> the login."))
                 .withPullRequest(40)
                 .withNote("First note.")
                 .withNote("Newest note.");
@@ -313,20 +437,40 @@ class BoardPageTest {
 
         assertThat(html).contains(
                 "<a href=\"https://github.com/MeterianHQ/target/issues/12" + NEW_TAB + "#12 Fix the parser</a>");
-        assertThat(html).contains("<span class=\"phase\">implement</span>");
+        assertThat(html).contains("<span class=\"phase\">review</span>");
         assertThat(html).contains("<li class=\"review positive\" title=\"Correctness: positive\">Correctness</li>",
                 "<li class=\"review negative\" title=\"Security: negative\">Security</li>",
                 "<li class=\"review none\" title=\"Architecture: —\">Architecture</li>",
                 "<li class=\"review none\" title=\"Quality: —\">Quality</li>");
-        assertThat(html).contains("<dt>Fix loops</dt><dd>1 of 2</dd>", "<dt>Risk</dt><dd class=\"risk-low\">low</dd>");
+        assertThat(html).contains("<p class=\"entries\" title=\"Entries into each state with a limit\">implement 1/3, review 0/10</p>")
+                .doesNotContain("<dt>Entries</dt>", "<dt>Risk</dt>");
         assertThat(html).contains(
                 "<a href=\"https://github.com/MeterianHQ/target/pull/40" + NEW_TAB + "Pull request #40</a>");
         assertThat(html).contains("Newest note.").doesNotContain("First note.");
+        assertThat(html).contains("<p class=\"risk-line risk-low\">Risk: low, small</p>");
+    }
+
+    @Test
+    void showsTheRiskLineWithoutTheReasonsOfTheRiskCheck() {
+        IssueRecord record = record(12, "merge").withRisk(RiskLevel.LOW, false,
+                List.of("Size: 3 files, 122 insertions and 13 deletions.", "Tests: new tests cover the delete."));
+
+        String html = page.renderBoard(model(List.of(card(record, "Fix the parser"))));
+
+        assertThat(html).contains("<p class=\"risk-line risk-low\">Risk: low, not small</p>")
+                .doesNotContain("risk-reasons", "Size: 3 files", "Tests: new tests cover the delete.");
+    }
+
+    @Test
+    void showsNoRiskLineBeforeTheRiskCheck() {
+        String html = page.renderBoard(model(List.of(card(record(12, "review"), "Fix the parser"))));
+
+        assertThat(html).contains("<p class=\"entries\"").doesNotContain("risk-line");
     }
 
     @Test
     void showsOnlyThePossibleButtons() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(model(List.of(card(record))));
 
@@ -341,7 +485,7 @@ class BoardPageTest {
 
     @Test
     void aLabelThatThePageDidNotRequestShowsTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(model(List.of(card)));
@@ -351,18 +495,39 @@ class BoardPageTest {
 
     @Test
     void anApproveRequestReplacesTheReasonOfTheWait() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
 
         assertThat(html).contains(requestLine("Approval sent. The worker takes it in a few seconds."))
-                .doesNotContain(WaitReason.MERGE_NEEDS_APPROVAL.sentence());
+                .doesNotContain("class=\"reason\"");
+    }
+
+    @Test
+    void aCardWithASentRequestIsSuspendedWithAllButtonsDisabled() {
+        IssueRecord record = waitsForApproval(12);
+
+        String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
+                Map.of(12, Set.of("factory:approve"))));
+
+        String cardHtml = html.substring(html.indexOf("<article"), html.indexOf("</article>"));
+        assertThat(cardHtml).startsWith("<article class=\"card waits pending\">")
+                .contains("<button disabled>Block</button>", "action=\"/issues/12/enter-terminal\"")
+                .doesNotContainPattern("<button(?![^>]*disabled)[^>]*>");
+    }
+
+    @Test
+    void aCardWithoutASentRequestHasActiveButtons() {
+        String html = page.renderBoard(model(List.of(card(waitsForApproval(12)))));
+
+        assertThat(html).contains("<article class=\"card waits\">", "<button>Approve</button>")
+                .doesNotContain("pending", "disabled");
     }
 
     @Test
     void anApproveRequestEndsWhenTheIssueNoLongerWaitsForTheApproval() {
-        IssueRecord record = record(12, IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
+        IssueRecord record = record(12, "merge");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:approve")),
                 Map.of(12, Set.of("factory:approve"))));
@@ -372,24 +537,24 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestShowsThatTheConversationOpensSoon() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, LivePlace.BROWSER)));
 
-        assertThat(html).contains(requestLine("Enter sent. The worker stops the current step, and the new tab opens"
+        assertThat(html).contains(requestLine("Enter sent. The worker stops the current action, and the new tab opens"
                 + " the conversation in a few seconds."));
     }
 
     @Test
     void anEnterFromGitHubShowsThatTheLinkGoesToAComment() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, LivePlace.GITHUB_COMMENT)));
 
         assertThat(html).containsOnlyOnce("class=\"request\"").contains(requestLine("Enter received. The worker stops"
-                + " the current step, and the link goes to a comment of the issue in a few seconds."));
+                + " the current action, and the link goes to a comment of the issue in a few seconds."));
     }
 
     @Test
@@ -402,7 +567,7 @@ class BoardPageTest {
 
     @Test
     void aBlockRequestShowsThatTheWorkerStopsTheIssueSoon() {
-        IssueRecord record = record(12, IssueStatus.IN_PROGRESS);
+        IssueRecord record = record(12, "implement");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
                 Map.of(12, Set.of("factory:block"))));
@@ -428,8 +593,8 @@ class BoardPageTest {
         assertThat(html).contains("<span class=\"factory-state-value\">Stopping</span>")
                 .contains("<div class=\"factory-state state-stopping\">")
                 .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
-                .contains("<p class=\"notice\">The factory is stopping. Each issue in work ends its current step, "
-                        + "moves to the next phase, and stops. No issue starts. "
+                .contains("<p class=\"notice\">The factory is stopping. Each issue in work ends its current action, "
+                        + "moves to the next state, and stops. No issue starts. "
                         + "New issues stay free for other factories.</p>");
         assertThat(html).doesNotContain("/factory/stop");
     }
@@ -447,7 +612,7 @@ class BoardPageTest {
 
     @Test
     void aBlockedCardHasAStartAgainButtonThatAsksForAConfirm() {
-        String html = page.renderBoard(model(List.of(card(record(12, IssueStatus.BLOCKED)))));
+        String html = page.renderBoard(model(List.of(card(record(12, "blocked")))));
 
         assertThat(html).contains(
                 "<form method=\"post\" action=\"/issues/12/start-again\" class=\"confirm-start-again\" data-issue=\"12\">")
@@ -456,14 +621,14 @@ class BoardPageTest {
 
     @Test
     void aCardThatIsNotBlockedHasNoStartAgainButton() {
-        String html = page.renderBoard(model(List.of(card(record(12, IssueStatus.IN_PROGRESS)))));
+        String html = page.renderBoard(model(List.of(card(record(12, "implement")))));
 
         assertThat(html).doesNotContain("/start-again");
     }
 
     @Test
     void aStartAgainRequestShowsItsLineAndHidesItsButton() {
-        IssueRecord record = record(12, IssueStatus.BLOCKED);
+        IssueRecord record = record(12, "blocked");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:start-again")),
                 Map.of(12, Set.of("factory:start-again"))));
@@ -474,7 +639,7 @@ class BoardPageTest {
 
     @Test
     void aStartAgainRequestEndsWhenTheIssueLeavesBlocked() {
-        IssueRecord record = record(12, IssueStatus.QUEUED);
+        IssueRecord record = record(12, "prepare");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:start-again")),
                 Map.of(12, Set.of("factory:start-again"))));
@@ -484,7 +649,7 @@ class BoardPageTest {
 
     @Test
     void aBlockRequestEndsWhenTheIssueIsBlocked() {
-        IssueRecord record = record(12, IssueStatus.BLOCKED);
+        IssueRecord record = record(12, "blocked");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
                 Map.of(12, Set.of("factory:block"))));
@@ -494,7 +659,7 @@ class BoardPageTest {
 
     @Test
     void aBlockRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = record(12, "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:block")),
                 Map.of(12, Set.of("factory:block"))));
@@ -504,7 +669,7 @@ class BoardPageTest {
 
     @Test
     void anEnterRequestEndsWhenTheIssueIsDone() {
-        IssueRecord record = record(12, IssueStatus.DONE).withPhase(Phase.DONE);
+        IssueRecord record = record(12, "done");
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(cardWithLabel(record, "factory:enter")),
                 Map.of(12, Set.of("factory:enter"))));
@@ -514,13 +679,13 @@ class BoardPageTest {
 
     @Test
     void aRememberedLabelThatIsNotOnTheCardShowsNoRequest() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card(record)),
                 Map.of(12, Set.of("factory:approve"))));
 
         assertThat(html).doesNotContain("class=\"request\"")
-                .contains(WaitReason.MERGE_NEEDS_APPROVAL.sentence());
+                .contains("<p class=\"reason\">" + NEEDS_APPROVAL_NOTE + "</p>");
     }
 
     @Test
@@ -528,12 +693,12 @@ class BoardPageTest {
         String html = page.renderBoard(modelWithContinueRequested(List.of(card(liveRecord(12, LINK))), Set.of(12)));
 
         assertThat(html).contains(requestLine("Continue sent. The factory takes the issue back in a few seconds."))
-                .doesNotContain(WaitReason.LIVE_CONVERSATION.sentence());
+                .doesNotContain("class=\"reason\"");
     }
 
     @Test
     void aLabelThatThePageRequestedHidesTheButton() {
-        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+        IssueRecord record = waitsForApproval(12);
         IssueCard card = new IssueCard(12, "Title", Set.of("factory", "factory:approve"), record, Optional.empty());
 
         String html = page.renderBoard(modelWithRememberedLabels(List.of(card), Map.of(12, Set.of("factory:approve"))));
@@ -543,7 +708,7 @@ class BoardPageTest {
 
     @Test
     void theBlockFormAsksForAConfirmWithoutAnInlineHandler() {
-        String html = page.renderBoard(model(List.of(card(record(12, IssueStatus.IN_PROGRESS)))));
+        String html = page.renderBoard(model(List.of(card(record(12, "implement")))));
 
         assertThat(html).contains(
                 "<form method=\"post\" action=\"/issues/12/block\" class=\"confirm-block\" data-issue=\"12\">");
@@ -594,7 +759,7 @@ class BoardPageTest {
 
     @Test
     void thePageWrapsTheBoardAndLinksOnlyItsOwnFiles() {
-        PageModel model = model(List.of(card(record(12, IssueStatus.IN_PROGRESS))));
+        PageModel model = model(List.of(card(record(12, "implement"))));
 
         String html = page.renderPage(model);
 

@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 
 /**
  * Reads the usage of the subscription with one very short claude session, so that the page shows the usage before
- * the first phase. The session has no tools, no MCP servers, and no saved session. Fails closed: a session that
+ * the first agent session. The session has no tools, no MCP servers, and no saved session. Fails closed: a session that
  * does not report the subscription as its credential source, that fails, or that does not end in time gives no
  * usage.
  */
@@ -143,7 +143,7 @@ public final class UsageProbe {
     }
 
     private static List<UsageWindow> refuse(String message) {
-        LOGGER.log(System.Logger.Level.WARNING, message + " The page shows the usage after the first phase.");
+        LOGGER.log(System.Logger.Level.WARNING, message + " The page shows the usage after the first agent session.");
         return List.of();
     }
 

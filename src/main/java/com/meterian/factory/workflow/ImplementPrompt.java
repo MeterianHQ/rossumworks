@@ -3,32 +3,47 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.state.PendingPrompt;
 import java.util.Optional;
 
-/** Chooses the prompt of an implement step: the full task, the prompt after a live conversation, or the findings. */
+/**
+ * Chooses the prompt of a coding action (spec 5.1): the full task, the prompt after a live conversation, or the
+ * pending prompt with its findings.
+ */
 final class ImplementPrompt {
 
     private ImplementPrompt() {
     }
 
-    /** Empty when the findings of the fix loop are missing. */
+    /** Empty when the findings of the pending prompt are missing. */
     static Optional<String> choose(PromptLibrary prompts, Issue issue, IssueRecord record, FactoryFolder folder) {
         // A new session (also after a restart without the worktree) gets the full task, not the findings.
         if (!record.agentSessionStarted()) {
             return Optional.of(prompts.implement(issue));
         }
+        PendingPrompt pendingPrompt = record.pendingPrompt().orElse(PendingPrompt.IMPLEMENT);
         if (record.afterConversation()) {
-            return Optional.of(continueWithThePendingFix(prompts, folder));
+            return continueWithThePendingPrompt(prompts, pendingPrompt, folder);
         }
-        if (record.fixLoops() == 0) {
+        if (pendingPrompt == PendingPrompt.IMPLEMENT) {
             return Optional.of(prompts.implement(issue));
         }
-        return folder.readFixPrompt();
+        return renderWithTheFindings(prompts, pendingPrompt, folder);
     }
 
-    /** A conversation during a fix loop must not lose the findings: the fix prompt follows the continue prompt. */
-    private static String continueWithThePendingFix(PromptLibrary prompts, FactoryFolder folder) {
+    /** A conversation in a fix must not lose the findings: the pending prompt follows the prompt continue. */
+    private static Optional<String> continueWithThePendingPrompt(PromptLibrary prompts, PendingPrompt pendingPrompt,
+            FactoryFolder folder) {
         String continuePrompt = prompts.continueAfterConversation();
-        return folder.readFixPrompt().map(fixPrompt -> continuePrompt + "\n\n" + fixPrompt).orElse(continuePrompt);
+        if (pendingPrompt == PendingPrompt.IMPLEMENT) {
+            return Optional.of(continuePrompt);
+        }
+        return renderWithTheFindings(prompts, pendingPrompt, folder).map(prompt -> continuePrompt + "\n\n" + prompt);
+    }
+
+    private static Optional<String> renderWithTheFindings(PromptLibrary prompts, PendingPrompt pendingPrompt,
+            FactoryFolder folder) {
+        return folder.readPendingFindings().map(findings -> pendingPrompt == PendingPrompt.FIX
+                ? prompts.fix(findings) : prompts.resume(findings));
     }
 }

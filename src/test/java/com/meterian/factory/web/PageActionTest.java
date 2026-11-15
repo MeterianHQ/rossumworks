@@ -4,11 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.Phase;
-import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.RecordStates;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
@@ -18,14 +16,14 @@ class PageActionTest {
 
     private static final String LINK = "https://claude.ai/code/session_abc123";
 
-    private static IssueRecord startedRecord(IssueStatus status, Phase phase) {
-        return IssueRecord.queued(12).withAgentSessionStarted().withStatus(status).withPhase(phase);
+    private static IssueRecord startedRecord(String stateName) {
+        return RecordStates.move(RecordStates.move(RecordStates.queued(12).withAgentSessionStarted(), "implement"),
+                stateName);
     }
 
     private static IssueRecord liveRecord(Optional<String> link) {
-        return startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
-                .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link, LivePlace.BROWSER));
+        return startedRecord("live")
+                .withLive(new LiveSession("abc", link, LivePlace.BROWSER));
     }
 
     private static IssueCard card(IssueRecord record) {
@@ -36,28 +34,38 @@ class PageActionTest {
         return new IssueCard(12, "Title", labels, record, Optional.empty());
     }
 
+    /** The state blocked is the block target of the built-in workflow. */
+    private static boolean isInBlockTarget(IssueCard card) {
+        return card.record().state().equals("blocked");
+    }
+
     /** The rule of the action when the page remembers no request. */
     private static boolean isPossible(PageAction action, IssueCard card, boolean continueRequested) {
-        return action.isPossible(card, continueRequested, Set.of(), true);
+        return action.isPossible(card, continueRequested, Set.of(), true, isInBlockTarget(card));
     }
 
     /** The rule of the action for a viewer on this machine, without a continue request. */
     private static boolean isPossibleOnThisMachine(PageAction action, IssueCard card, Set<String> rememberedLabels) {
-        return action.isPossible(card, false, rememberedLabels, true);
+        return action.isPossible(card, false, rememberedLabels, true, isInBlockTarget(card));
+    }
+
+    /** The rule of the action for a viewer on another device. */
+    private static boolean isPossibleFromAnotherDevice(PageAction action, IssueCard card) {
+        return action.isPossible(card, false, Set.of(), false, isInBlockTarget(card));
     }
 
     @Test
     void enterNeedsAStartedSession() {
-        IssueRecord notStarted = IssueRecord.queued(12).withStatus(IssueStatus.IN_PROGRESS);
-        IssueRecord started = startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT);
+        IssueRecord notStarted = RecordStates.move(RecordStates.queued(12), "implement");
+        IssueRecord started = startedRecord("implement");
 
         assertThat(isPossible(PageAction.ENTER_BROWSER, card(notStarted), false)).isFalse();
         assertThat(isPossible(PageAction.ENTER_BROWSER, card(started), false)).isTrue();
     }
 
     @Test
-    void enterIsNotPossibleWhenThePhaseIsDone() {
-        IssueRecord done = startedRecord(IssueStatus.DONE, Phase.DONE);
+    void enterIsNotPossibleInTheFinishState() {
+        IssueRecord done = startedRecord("done");
 
         assertThat(isPossible(PageAction.ENTER_BROWSER, card(done), false)).isFalse();
     }
@@ -73,13 +81,10 @@ class PageActionTest {
     }
 
     @Test
-    void approveNeedsAnApprovableReason() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
-                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
-        IssueRecord textChanged = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.PREPARE)
-                .withWaitReason(WaitReason.ISSUE_TEXT_CHANGED);
-        IssueRecord question = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
-                .withWaitReason(WaitReason.QUESTION);
+    void approveNeedsAnApprovalState() {
+        IssueRecord merge = startedRecord("waits-for-approval");
+        IssueRecord textChanged = startedRecord("text-changed");
+        IssueRecord question = liveRecord(Optional.of(LINK));
 
         assertThat(isPossible(PageAction.APPROVE, card(merge), false)).isTrue();
         assertThat(isPossible(PageAction.APPROVE, card(textChanged), false)).isTrue();
@@ -87,33 +92,39 @@ class PageActionTest {
     }
 
     @Test
-    void blockIsNotPossibleWhenTheIssueIsBlockedOrDone() {
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)), false))
-                .isTrue();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.BLOCKED, Phase.IMPLEMENT)), false))
-                .isFalse();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.DONE, Phase.MERGE)), false))
-                .isFalse();
-        assertThat(isPossible(PageAction.BLOCK, card(startedRecord(IssueStatus.IN_REVIEW, Phase.DONE)), false))
-                .isFalse();
+    void blockIsNotPossibleWithoutAnActionOrInTheFinishState() {
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord("implement")), false)).isTrue();
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord("waits-for-approval")), false)).isTrue();
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord("blocked")), false)).isFalse();
+        assertThat(isPossible(PageAction.BLOCK, card(startedRecord("done")), false)).isFalse();
     }
 
     @Test
-    void continueNeedsALiveState() {
+    void continueNeedsALiveStateOrAStateWithoutAnAction() {
         assertThat(isPossible(PageAction.CONTINUE, card(liveRecord(Optional.of(LINK))), false)).isTrue();
-        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
-                false)).isFalse();
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord("blocked")), false)).isTrue();
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord("implement")), false)).isFalse();
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord("waits-for-approval")), false)).isFalse();
     }
 
     @Test
     void continueHidesWhenTheMarkerExists() {
         assertThat(isPossible(PageAction.CONTINUE, card(liveRecord(Optional.of(LINK))), true)).isFalse();
+        assertThat(isPossible(PageAction.CONTINUE, card(startedRecord("blocked")), true)).isFalse();
+    }
+
+    @Test
+    void continueIsPendingOnABlockedIssueUntilTheIssueMoves() {
+        IssueCard blocked = card(startedRecord("blocked"));
+
+        assertThat(PageAction.CONTINUE.isRequestPending(blocked, true, Set.of(), true)).isTrue();
+        assertThat(PageAction.CONTINUE.isRequestPending(card(startedRecord("implement")), true, Set.of(), false))
+                .isFalse();
     }
 
     @Test
     void aRememberedLabelOnTheCardHidesItsButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
-                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        IssueRecord merge = startedRecord("waits-for-approval");
         Set<String> remembered = Set.of("factory:approve", "factory:block", "factory:enter");
 
         assertThat(isPossibleOnThisMachine(PageAction.APPROVE, card(merge, Set.of("factory", "factory:approve")),
@@ -128,8 +139,7 @@ class PageActionTest {
 
     @Test
     void aLabelThatThePageDidNotRequestKeepsItsButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
-                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        IssueRecord merge = startedRecord("waits-for-approval");
 
         assertThat(isPossible(PageAction.APPROVE, card(merge, Set.of("factory", "factory:approve")), false)).isTrue();
         assertThat(isPossible(PageAction.BLOCK, card(merge, Set.of("factory", "factory:block")), false)).isTrue();
@@ -138,8 +148,7 @@ class PageActionTest {
 
     @Test
     void aRememberedRequestWithoutTheLabelKeepsTheButton() {
-        IssueRecord merge = startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.MERGE)
-                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+        IssueRecord merge = startedRecord("waits-for-approval");
 
         assertThat(isPossibleOnThisMachine(PageAction.APPROVE, card(merge), Set.of("factory:approve"))).isTrue();
     }
@@ -153,14 +162,14 @@ class PageActionTest {
     }
 
     @Test
-    void startAgainIsPossibleOnlyOnABlockedIssueWithoutALiveConversation() {
+    void startAgainIsPossibleOnlyInTheBlockTargetWithoutALiveConversation() {
         PageAction startAgain = PageAction.findByPathName("start-again").orElseThrow();
 
         assertThat(startAgain.label()).contains("factory:start-again");
-        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.BLOCKED, Phase.BUILD)), false)).isTrue();
-        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.BUILD)), false)).isFalse();
-        assertThat(isPossible(startAgain, card(startedRecord(IssueStatus.BLOCKED, Phase.DONE)), false)).isFalse();
-        assertThat(isPossible(startAgain, card(liveRecord(Optional.empty()).withStatus(IssueStatus.BLOCKED)), false))
+        assertThat(isPossible(startAgain, card(startedRecord("blocked")), false)).isTrue();
+        assertThat(isPossible(startAgain, card(startedRecord("build")), false)).isFalse();
+        assertThat(isPossible(startAgain, card(startedRecord("done")), false)).isFalse();
+        assertThat(isPossible(startAgain, card(RecordStates.move(liveRecord(Optional.empty()), "blocked")), false))
                 .isFalse();
     }
 
@@ -180,17 +189,17 @@ class PageActionTest {
 
     @Test
     void aTerminalActionIsNotPossibleFromAnotherDevice() {
-        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT));
+        IssueCard started = card(startedRecord("implement"));
         IssueCard live = card(liveRecord(Optional.of(LINK)));
 
-        assertThat(PageAction.ENTER_TERMINAL.isPossible(started, false, Set.of(), false)).isFalse();
-        assertThat(PageAction.OPEN_TERMINAL.isPossible(live, false, Set.of(), false)).isFalse();
-        assertThat(PageAction.ENTER_BROWSER.isPossible(started, false, Set.of(), false)).isTrue();
+        assertThat(isPossibleFromAnotherDevice(PageAction.ENTER_TERMINAL, started)).isFalse();
+        assertThat(isPossibleFromAnotherDevice(PageAction.OPEN_TERMINAL, live)).isFalse();
+        assertThat(isPossibleFromAnotherDevice(PageAction.ENTER_BROWSER, started)).isTrue();
     }
 
     @Test
     void theTwoEnterActionsHaveTheSameRule() {
-        IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT));
+        IssueCard started = card(startedRecord("implement"));
         IssueCard live = card(liveRecord(Optional.of(LINK)));
 
         assertThat(isPossible(PageAction.ENTER_TERMINAL, started, false)).isTrue();
@@ -203,7 +212,7 @@ class PageActionTest {
     void openTerminalNeedsALiveLink() {
         assertThat(isPossible(PageAction.OPEN_TERMINAL, card(liveRecord(Optional.of(LINK))), false)).isTrue();
         assertThat(isPossible(PageAction.OPEN_TERMINAL, card(liveRecord(Optional.empty())), false)).isFalse();
-        assertThat(isPossible(PageAction.OPEN_TERMINAL, card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT)),
+        assertThat(isPossible(PageAction.OPEN_TERMINAL, card(startedRecord("implement")),
                 false)).isFalse();
     }
 
@@ -225,7 +234,7 @@ class PageActionTest {
         assertThat(PageAction.OPEN_TERMINAL.label()).isEmpty();
         assertThat(PageAction.OPEN_TERMINAL.requestSentence()).isEmpty();
         assertThat(PageAction.ENTER_BROWSER.requestSentence()).contains(
-                "Enter sent. The worker stops the current step, and the new tab opens the conversation in a few seconds.");
+                "Enter sent. The worker stops the current action, and the new tab opens the conversation in a few seconds.");
     }
 
     @Test

@@ -22,7 +22,7 @@ import java.util.function.IntConsumer;
 public final class ClaudeAgentRunner implements AgentRunner {
 
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
-    private static final String STOPPED_TEXT = "The phase was stopped.";
+    private static final String STOPPED_TEXT = "The action was stopped.";
     private static final String STOPPING_TEXT = "The factory is stopping.";
     private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
@@ -52,7 +52,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
     public SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
         Run run = new Run();
         if (runs.putIfAbsent(request.issueNumber(), run) != null) {
-            throw new AgentException("A phase already runs for the issue " + request.issueNumber() + ".");
+            throw new AgentException("An agent session already runs for the issue " + request.issueNumber() + ".");
         }
         try {
             // The check after the registration: a stopPhase after refuseNewPhases always sees this run.

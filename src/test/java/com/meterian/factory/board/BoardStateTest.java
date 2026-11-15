@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.testing.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
@@ -23,8 +23,10 @@ class BoardStateTest {
         return new Issue(number, title, "body", Set.of("factory"));
     }
 
-    private static IssueRecord record(int number, IssueStatus status) {
-        return IssueRecord.queued(number).withStatus(status);
+    /** A record in the state of the built-in workflow; the start state keeps the column queued. */
+    private static IssueRecord record(int number, String stateName) {
+        IssueRecord queued = RecordStates.queued(number);
+        return stateName.equals(queued.state()) ? queued : RecordStates.move(queued, stateName);
     }
 
     @Test
@@ -38,7 +40,7 @@ class BoardStateTest {
 
     @Test
     void aPollSetsTheCheckTimeAndTheTitles() {
-        board.recordIssue(issue(7, "Old title"), record(7, IssueStatus.QUEUED));
+        board.recordIssue(issue(7, "Old title"), record(7, "prepare"));
         clock.advance(Duration.ofMinutes(1));
 
         board.recordPoll(List.of(new Issue(7, "New title", "body", Set.of("factory", "bug"))));
@@ -53,7 +55,7 @@ class BoardStateTest {
 
     @Test
     void aRecordMakesACard() {
-        IssueRecord record = record(7, IssueStatus.IN_PROGRESS);
+        IssueRecord record = record(7, "implement");
 
         board.recordIssue(issue(7, "Title"), record);
 
@@ -66,8 +68,8 @@ class BoardStateTest {
 
     @Test
     void anIssueThatLeavesTheListGoesAwayUnlessItIsDone() {
-        board.recordIssue(issue(1, "Open"), record(1, IssueStatus.IN_PROGRESS));
-        board.recordIssue(issue(2, "Finished"), record(2, IssueStatus.DONE));
+        board.recordIssue(issue(1, "Open"), record(1, "implement"));
+        board.recordIssue(issue(2, "Finished"), record(2, "done"));
 
         board.recordPoll(List.of());
 
@@ -77,9 +79,9 @@ class BoardStateTest {
     @Test
     void theDoneTimeIsTheFirstTimeTheWorkerSawDone() {
         Instant firstTime = clock.instant();
-        board.recordIssue(issue(5, "Title"), record(5, IssueStatus.DONE));
+        board.recordIssue(issue(5, "Title"), record(5, "done"));
         clock.advance(Duration.ofHours(1));
-        board.recordIssue(issue(5, "Title"), record(5, IssueStatus.DONE));
+        board.recordIssue(issue(5, "Title"), record(5, "done"));
 
         assertThat(board.snapshot().cards().get(0).doneAt()).contains(firstTime);
     }
@@ -87,7 +89,7 @@ class BoardStateTest {
     @Test
     void onlyTheNewest20DoneCardsStay() {
         for (int number = 1; number <= 25; number++) {
-            board.recordIssue(issue(number, "Issue " + number), record(number, IssueStatus.DONE));
+            board.recordIssue(issue(number, "Issue " + number), record(number, "done"));
             clock.advance(Duration.ofMinutes(1));
         }
 
@@ -100,7 +102,7 @@ class BoardStateTest {
 
     @Test
     void aLabelFromThePageShowsAtOnce() {
-        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordIssue(issue(7, "Title"), record(7, "waits-for-approval"));
         long before = board.snapshot().version();
 
         board.recordLabelAdded(7, "factory:approve");
@@ -112,7 +114,7 @@ class BoardStateTest {
 
     @Test
     void aLabelFromThePageStaysWhenThePollDoesNotShowItYet() {
-        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordIssue(issue(7, "Title"), record(7, "waits-for-approval"));
         board.recordLabelAdded(7, "factory:approve");
 
         board.recordPoll(List.of(issue(7, "Title")));
@@ -122,7 +124,7 @@ class BoardStateTest {
 
     @Test
     void aLabelFromThePageFollowsThePollsAfterAPollShowsIt() {
-        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordIssue(issue(7, "Title"), record(7, "waits-for-approval"));
         board.recordLabelAdded(7, "factory:approve");
         board.recordPoll(List.of(new Issue(7, "Title", "body", Set.of("factory", "factory:approve"))));
 
@@ -133,7 +135,7 @@ class BoardStateTest {
 
     @Test
     void aLabelFromThePageThatNoPollShowsGoesAwayAfterTwoPolls() {
-        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordIssue(issue(7, "Title"), record(7, "waits-for-approval"));
         board.recordLabelAdded(7, "factory:approve");
         board.recordPoll(List.of(issue(7, "Title")));
 
@@ -144,15 +146,15 @@ class BoardStateTest {
 
     @Test
     void aRecordKeepsTheLabelsAndTheTitleOfAnExistingCard() {
-        board.recordIssue(issue(7, "Title"), record(7, IssueStatus.WAITS_FOR_YOU));
+        board.recordIssue(issue(7, "Title"), record(7, "waits-for-approval"));
         board.recordLabelAdded(7, "factory:approve");
 
-        board.recordIssue(issue(7, "Old title"), record(7, IssueStatus.IN_REVIEW));
+        board.recordIssue(issue(7, "Old title"), record(7, "review"));
 
         IssueCard card = board.snapshot().cards().get(0);
         assertThat(card.labels()).contains("factory:approve");
         assertThat(card.title()).isEqualTo("Title");
-        assertThat(card.record().status()).isEqualTo(IssueStatus.IN_REVIEW);
+        assertThat(card.record().column()).isEqualTo("in-review");
     }
 
     @Test

@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import com.meterian.factory.prompt.Finding;
-import com.meterian.factory.state.ReviewKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,8 +19,8 @@ class PullRequestDescriptionTest {
     Path worktree;
 
     private void writeDescription(String content) throws IOException {
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.writeString(worktree.resolve(".factory/description.md"), content);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.writeString(worktree.resolve(".factory-work/description.md"), content);
     }
 
     @Test
@@ -50,8 +49,8 @@ class PullRequestDescriptionTest {
     void usesTheFallbackForASymbolicLink() throws IOException {
         Path target = worktree.resolve("secret.txt");
         Files.writeString(target, "A secret.");
-        Files.createDirectories(worktree.resolve(".factory"));
-        Files.createSymbolicLink(worktree.resolve(".factory/description.md"), target);
+        Files.createDirectories(worktree.resolve(".factory-work"));
+        Files.createSymbolicLink(worktree.resolve(".factory-work/description.md"), target);
 
         String body = PullRequestDescription.bodyFor(7, worktree);
 
@@ -129,14 +128,14 @@ class PullRequestDescriptionTest {
 
     private static final String BODY = "Fixes #7\n\n## The change\n\nThe change.\n\n" + LAST_LINE;
 
-    private static ReviewNote note(ReviewKind kind, String title, String detail) {
-        return new ReviewNote(kind, new Finding(title, detail));
+    private static ReviewNote note(String reviewName, String title, String detail) {
+        return new ReviewNote(reviewName, new Finding(title, detail));
     }
 
     @Test
     void addsTheNotesOfTheReviewsAfterTheChange() {
         String body = PullRequestDescription.withReviewNotes(BODY, List.of(
-                note(ReviewKind.SECURITY, "Info", "No secret."), note(ReviewKind.QUALITY, "Minor", "A long name.")));
+                note("security", "Info", "No secret."), note("quality", "Minor", "A long name.")));
 
         assertThat(body).isEqualTo(BODY + "\n\n## Notes of the reviews\n\n"
                 + "- security: Info: No secret.\n- quality: Minor: A long name.");
@@ -144,16 +143,16 @@ class PullRequestDescriptionTest {
 
     @Test
     void replacesTheNotesOfAnEarlierRound() {
-        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note(ReviewKind.SECURITY, "Old", "Old.")));
+        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note("security", "Old", "Old.")));
 
-        String body = PullRequestDescription.withReviewNotes(earlier, List.of(note(ReviewKind.QUALITY, "New", "New.")));
+        String body = PullRequestDescription.withReviewNotes(earlier, List.of(note("quality", "New", "New.")));
 
         assertThat(body).isEqualTo(BODY + "\n\n## Notes of the reviews\n\n- quality: New: New.");
     }
 
     @Test
     void addsNoSectionWithoutANote() {
-        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note(ReviewKind.SECURITY, "Old", "Old.")));
+        String earlier = PullRequestDescription.withReviewNotes(BODY, List.of(note("security", "Old", "Old.")));
 
         assertThat(PullRequestDescription.withReviewNotes(BODY, List.of())).isEqualTo(BODY);
         assertThat(PullRequestDescription.withReviewNotes(earlier, List.of())).isEqualTo(BODY);
@@ -162,7 +161,7 @@ class PullRequestDescriptionTest {
     @Test
     void writesEachNoteOnOneLineWithoutAClosingKeyword() {
         String body = PullRequestDescription.withReviewNotes(BODY, List.of(
-                note(ReviewKind.CORRECTNESS, "Closes #12", "First line.\n## A heading\r\nFixes o/r#13.")));
+                note("correctness", "Closes #12", "First line.\n## A heading\r\nFixes o/r#13.")));
 
         assertThat(body).endsWith("\n\n- correctness: Closes issue 12: First line. ## A heading Fixes issue 13.");
     }
@@ -170,7 +169,7 @@ class PullRequestDescriptionTest {
     @Test
     void cutsANoteOverOneThousandCharacters() {
         String body = PullRequestDescription.withReviewNotes(BODY, List.of(
-                note(ReviewKind.CORRECTNESS, "Long", "a".repeat(2_000))));
+                note("correctness", "Long", "a".repeat(2_000))));
 
         String line = body.substring(body.lastIndexOf("\n") + 1);
         assertThat(line).isEqualTo("- correctness: "
@@ -181,7 +180,7 @@ class PullRequestDescriptionTest {
     void keepsTheTextAfterANotesHeadingOfTheAgent() throws IOException {
         writeDescription("Intro.\n\n## Notes of the reviews\n\nThe agent text after the heading.");
         String body = PullRequestDescription.bodyFor(7, worktree);
-        ReviewNote note = new ReviewNote(ReviewKind.CORRECTNESS, new Finding("Info", "A note."));
+        ReviewNote note = new ReviewNote("correctness", new Finding("Info", "A note."));
 
         String withNote = PullRequestDescription.withReviewNotes(body, List.of(note));
         String afterARoundWithoutNotes = PullRequestDescription.withReviewNotes(withNote, List.of());

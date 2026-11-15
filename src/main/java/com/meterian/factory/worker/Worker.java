@@ -5,6 +5,9 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.DefinitionVersion;
+import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
@@ -14,16 +17,14 @@ import com.meterian.factory.ownership.IssueClaim;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.Ownership;
 import com.meterian.factory.ownership.OwnershipLostException;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
-import com.meterian.factory.state.WaitReason;
-import com.meterian.factory.workflow.ApprovalCheck;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
+import com.meterian.factory.workflow.OnAnyStateMoves;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -51,21 +52,25 @@ public final class Worker {
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";
+    private static final String OWNER_BLOCK_NOTE = "The owner blocked the issue.";
     private static final Duration EARLY_POLL_DELAY = Duration.ofSeconds(2);
 
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
+    private final DefinitionVersions definitions;
     private final PhaseStopper phaseStopper;
     private final PageRequests pageRequests;
     private final String workerLogin;
     private final ExecutorService executor;
     private final WorkspaceLayout layout;
     private final StatusPublisher statusPublisher;
+    private final OnAnyStateMoves onAnyStateMoves;
     private final RestartPreparation restartPreparation;
     private final EnterRequests enterRequests;
     private final StartAgainRequests startAgainRequests;
     private final LiveRecordCheck liveRecordCheck;
+    private final LiveSessions liveSessions;
     private final RateLimitWait rateLimitWait;
     private final IssueClaim issueClaim;
     private final OwnershipRelease ownershipRelease;
@@ -80,9 +85,9 @@ public final class Worker {
     private final Set<Integer> issuesInWork = new HashSet<>();
     /** The issues with a block that is requested or in progress. */
     private final Set<Integer> blockedIssues = new HashSet<>();
-    /** The issues in work with a request of factory:enter. The worker stops the step, and the loop then enters. */
+    /** The issues in work with a request of factory:enter. The worker stops the action, and the loop then enters. */
     private final Set<Integer> enterRequestedIssues = new HashSet<>();
-    /** The issues in work that another account owns now. The loop starts no next step, and then releases it. */
+    /** The issues in work that another account owns now. The loop starts no next action, and then releases it. */
     private final Set<Integer> issuesOfAnotherOwner = new HashSet<>();
     /** The issues with a release in progress. The poll neither releases nor starts them again. */
     private final Set<Integer> releasesInProgress = new HashSet<>();
@@ -90,12 +95,13 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  PhaseStopper phaseStopper, PageRequests pageRequests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock, BoardUpdates board, FactorySwitch factorySwitch,
-                  LostIssues lostIssues) {
+                  DefinitionVersions definitions, PhaseStopper phaseStopper, PageRequests pageRequests,
+                  String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
+                  BoardUpdates board, FactorySwitch factorySwitch, LostIssues lostIssues) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
+        this.definitions = definitions;
         this.phaseStopper = phaseStopper;
         this.pageRequests = pageRequests;
         this.workerLogin = workerLogin;
@@ -104,30 +110,34 @@ public final class Worker {
         this.factorySwitch = factorySwitch;
         this.lostIssues = lostIssues;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board,
-                lostIssues);
-        this.restartPreparation = new RestartPreparation(gitHub, layout);
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board, lostIssues);
+        this.onAnyStateMoves = new OnAnyStateMoves(definitions, layout);
+        this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
         this.enterRequests = new EnterRequests(gitHub, workflow);
-        this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher);
+        this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher, definitions);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
+        this.liveSessions = liveSessions;
         this.rateLimitWait = new RateLimitWait(clock);
         this.issueClaim = new IssueClaim(gitHub, workerLogin);
         this.ownershipRelease = new OwnershipRelease(gitHub, statusPublisher, workerLogin);
-        this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin);
+        this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin, definitions,
+                onAnyStateMoves);
         this.earlierOwnerRecord = new EarlierOwnerRecord(gitHub, workerLogin);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
     }
 
     /**
-     * Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. In a
-     * wait for the reset of the GitHub rate limit, the poll sends no request. A stopped factory starts no issue,
-     * and it leaves a new issue untouched, so that another factory can take it.
+     * Reads the definition of the default branch, then the labeled issues once: block requests, intake, and the
+     * start of the issues up to the limit. In a wait for the reset of the GitHub rate limit, the poll sends no
+     * request. A stopped factory starts no issue, and it leaves a new issue untouched, so that another factory can
+     * take it.
      */
     public void pollOnce() {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
         try {
+            definitions.refresh();
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
@@ -153,7 +163,7 @@ public final class Worker {
     }
 
     /**
-     * The margin of the rate limit stops only the poll: the intake and new work. A running step keeps its
+     * The margin of the rate limit stops only the poll: the intake and new work. A running action keeps its
      * requests, so that it can publish its result.
      */
     private void verifyEnoughRequestsRemain() {
@@ -191,7 +201,7 @@ public final class Worker {
 
     /**
      * Stops the worker, ends the phases in work, and waits for the loops. A loop that ends because of the stop
-     * writes back the record from before the stopped step, except when the result of the step is final. After
+     * writes back the record from before the stopped action, except when the result of the action is final. After
      * the timeout, the loops get an interrupt: an open of a live session in progress then closes its session.
      *
      * @return true when all loops ended in the timeout
@@ -226,7 +236,6 @@ public final class Worker {
         gitHub.ensureLabel(EnterRequests.ENTER_LABEL, "fbca04", "The owner enters the session of the agent.");
         gitHub.ensureLabel(StartAgainRequests.START_AGAIN_LABEL, "5319e7",
                 "The owner starts a blocked issue again and discards the earlier work.");
-        gitHub.ensureStatusLabels();
         labelsEnsured = true;
     }
 
@@ -275,7 +284,7 @@ public final class Worker {
     }
 
     /**
-     * A running step ends normally, and the loop then releases the issue. A block in progress goes first: a later
+     * A running action ends normally, and the loop then releases the issue. A block in progress goes first: a later
      * poll releases the issue. An issue that this run released costs no request.
      */
     private void leaveIssueOfAnotherOwner(Issue issue) {
@@ -326,7 +335,7 @@ public final class Worker {
         }
         if (isInWork(issueNumber)) {
             if (EnterRequests.isRequested(issue)) {
-                stopTheStepForTheEnter(issueNumber);
+                stopTheActionForTheEnter(issueNumber);
             }
             return Optional.empty();
         }
@@ -340,9 +349,13 @@ public final class Worker {
                 comments);
         IssueRecord record;
         if (isTakeOverNeeded(ownRecord, newerRecordOfAnotherOwner)) {
-            record = ownershipTakeover.takeOver(issue, newerRecordOfAnotherOwner.or(() -> ownRecord));
+            Optional<IssueRecord> takenOver = takeOver(issue, newerRecordOfAnotherOwner.or(() -> ownRecord));
+            if (takenOver.isEmpty()) {
+                return Optional.empty();
+            }
+            record = takenOver.get();
         } else if (ownRecord.isEmpty()) {
-            return factorySwitch.isStopRequested() ? Optional.empty() : Optional.of(takeIntoQueue(issue));
+            return factorySwitch.isStopRequested() ? Optional.empty() : takeIntoQueue(issue);
         } else {
             record = ownRecord.get();
         }
@@ -352,7 +365,7 @@ public final class Worker {
                 : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
-        return Optional.of(current).filter(found -> isStartable(issue, found));
+        return Optional.of(current).filter(found -> workflow.isStartable(issue, found));
     }
 
     /**
@@ -372,7 +385,16 @@ public final class Worker {
         return ownRecord.flatMap(IssueRecord::handOver).filter(handOver -> handOver == HandOver.RELEASED).isPresent();
     }
 
-    /** The card shows the waiting state of an accepted label also when the label comes from the GitHub app. */
+    /**
+     * Fail closed: without a definition version that loads, the worker does not take over the issue. The next poll
+     * tries again.
+     */
+    private Optional<IssueRecord> takeOver(Issue issue, Optional<IssueRecord> earlierRecord) {
+        return createQueuedRecord(issue.number())
+                .map(queued -> ownershipTakeover.takeOver(issue, queued, earlierRecord));
+    }
+
+    /** The card shows the waiting state of a request label also when the label comes from the GitHub app. */
     private void showAcceptedRequests(Issue issue) {
         boolean hasNewRequest = false;
         for (String label : List.of(APPROVE_LABEL, BLOCK_LABEL, EnterRequests.ENTER_LABEL,
@@ -388,9 +410,9 @@ public final class Worker {
 
     /**
      * The live conversation resumes the session of the agent, so the agent ends first. Each poll with the label
-     * stops again: a step that started just after the last stop still ends.
+     * stops again: an action that started just after the last stop still ends.
      */
-    private void stopTheStepForTheEnter(int issueNumber) {
+    private void stopTheActionForTheEnter(int issueNumber) {
         rememberEnterRequest(issueNumber);
         phaseStopper.stopRunningWork(issueNumber);
     }
@@ -403,33 +425,28 @@ public final class Worker {
     }
 
     /**
-     * A record in phase DONE that still has the label factory has a finish step that did not end. A live record
-     * starts only on /factory:continue, in any status.
+     * Fail closed: without a definition version that loads, the worker takes no new issue. The versions log the
+     * reason once for each commit, so the intake only waits.
      */
-    private boolean isStartable(Issue issue, IssueRecord record) {
-        if (IssueWorkflow.isLive(record)) {
-            return liveRecordCheck.isContinueRequested(record);
-        }
-        return !workflow.isWaiting(record) || record.phase() == Phase.DONE
-                || waitsForAGivenApprovalLabel(issue, record);
+    private Optional<IssueRecord> takeIntoQueue(Issue issue) {
+        return createQueuedRecord(issue.number())
+                .map(queued -> publishFirstRecord(issue, queued.withIssueTextHash(IssueText.computeHash(issue))));
     }
 
-    private static boolean waitsForAGivenApprovalLabel(Issue issue, IssueRecord record) {
-        return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
-    }
-
-    private IssueRecord takeIntoQueue(Issue issue) {
-        IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
-        return publishFirstRecord(issue, queued);
-    }
-
-    /** The new status comment becomes the newest record, so the broken record never counts again. */
+    /**
+     * The new status comment becomes the newest record, so the broken record never counts again. Fail closed:
+     * without a current version, the worker does nothing.
+     */
     private void blockBrokenRecord(Issue issue) {
-        IssueRecord blocked = IssueRecord.queued(issue.number())
-                .withStatus(IssueStatus.BLOCKED)
-                .withWaitReason(WaitReason.FAILURE)
-                .withNote(BROKEN_RECORD_NOTE);
-        publishFirstRecord(issue, blocked);
+        createQueuedRecord(issue.number()).ifPresent(queued ->
+                publishFirstRecord(issue, onAnyStateMoves.moveToBlockTarget(queued, BROKEN_RECORD_NOTE)));
+    }
+
+    /** A new record in the start state of the current version. Empty without a current version. */
+    private Optional<IssueRecord> createQueuedRecord(int issueNumber) {
+        Optional<DefinitionVersion> version = definitions.current();
+        return version.map(current -> IssueRecord.queued(issueNumber, current.definition().workflow().start())
+                .withDefinitionCommit(current.commit()));
     }
 
     /** There is no record before the first record, so the publisher always writes it. */
@@ -477,9 +494,10 @@ public final class Worker {
     }
 
     /**
-     * Keeps the result of a step only when no block and no stop came during the step, or when it is final. A request
-     * of factory:enter stops the current step, and the loop enters on the record that it kept. A stop of the factory
-     * interrupts no step: the loop ends after the step and the publish of its record.
+     * Keeps the result of an action only when no block and no stop came during the action, or when it is final. A
+     * request of factory:enter stops the current action: an action that did not end loses its result and its
+     * entry, and the loop enters on the record that it kept. A stop of the factory interrupts no action: the loop
+     * ends after the action and the publish of its record.
      */
     private void runIssue(IssueRecord start) {
         int issueNumber = start.issueNumber();
@@ -487,11 +505,15 @@ public final class Worker {
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
             while (mayContinue(issueNumber) && !isEnterRequested(issueNumber) && !factorySwitch.isStopRequested()) {
-                if (!isOwnedBeforeTheStep(issueNumber)) {
+                if (!isOwnedBeforeTheAction(issueNumber)) {
                     break;
                 }
                 IssueRecord next = workflow.advance(kept);
-                if (!mayContinue(issueNumber) && !FinalStepResult.isFinal(kept, next)) {
+                if (!mayContinue(issueNumber) && !FinalActionResult.isFinal(kept, next)) {
+                    interruptedResult = Optional.of(next);
+                    break;
+                }
+                if (isStoppedForTheEnter(issueNumber, kept, next)) {
                     interruptedResult = Optional.of(next);
                     break;
                 }
@@ -500,19 +522,20 @@ public final class Worker {
                 }
                 kept = next;
                 withdrawBlockOfAMergedIssue(issueNumber, kept);
-                if (workflow.isWaiting(kept)) {
+                if (IssueWorkflow.isAtRest(kept)) {
                     break;
                 }
             }
             if (mayContinue(issueNumber) && isEnterRequested(issueNumber)) {
-                kept = enterRequests.enter(kept);
+                kept = enterRequests.enter(RecordFacts.keep(kept, interruptedResult));
+                interruptedResult = Optional.empty();
             }
         } catch (ApiKeyDetectedException exception) {
             stopOnApiKey(issueNumber, exception);
         } catch (OwnershipLostException exception) {
             rememberIssueOfAnotherOwner(issueNumber);
         } catch (GitHubException exception) {
-            logGitHubFailure("The step of the issue #" + issueNumber, exception);
+            logGitHubFailure("The action of the issue #" + issueNumber, exception);
         } catch (RuntimeException exception) {
             blockOnFailure(kept, exception);
         } catch (Error error) {
@@ -527,8 +550,8 @@ public final class Worker {
         return !isStopped() && !blockedIssues.contains(issueNumber) && !issuesOfAnotherOwner.contains(issueNumber);
     }
 
-    /** The assignee can change between two polls, so each step checks the owner first. */
-    private boolean isOwnedBeforeTheStep(int issueNumber) {
+    /** The assignee can change between two polls, so each action checks the owner first. */
+    private boolean isOwnedBeforeTheAction(int issueNumber) {
         Ownership ownership = issueClaim.claim(gitHub.issue(issueNumber));
         if (ownership == Ownership.OWNED) {
             forgetEarlierLoss(issueNumber);
@@ -548,13 +571,19 @@ public final class Worker {
         return enterRequestedIssues.contains(issueNumber);
     }
 
+    /** An action that ended moves the issue: only an action that did not end stays in its state. */
+    private boolean isStoppedForTheEnter(int issueNumber, IssueRecord kept, IssueRecord next) {
+        return isEnterRequested(issueNumber) && next.state().equals(kept.state())
+                && !FinalActionResult.isFinal(kept, next);
+    }
+
     /**
-     * A DONE record is final: a merged change cannot be blocked, so the block request goes away and the issue
-     * continues to the status DONE. The caller keeps the DONE record before this call, so a GitHub failure here
-     * cannot lose it.
+     * A record in the finish state is final: a merged change cannot be blocked, so the block request goes away and
+     * the issue continues to the end of the finish action. The caller keeps the record before this call, so a
+     * GitHub failure here cannot lose it.
      */
     private void withdrawBlockOfAMergedIssue(int issueNumber, IssueRecord kept) {
-        if (kept.phase() != Phase.DONE || !isBlockInProgress(issueNumber)) {
+        if (!isInTheFinishState(kept) || !isBlockInProgress(issueNumber)) {
             return;
         }
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
@@ -607,27 +636,32 @@ public final class Worker {
     }
 
     /**
-     * Writes BLOCKED over the record. The record of a loop is the last record that the loop kept; without a
+     * Moves the record to the block target. The record of a loop is the last record that the loop kept; without a
      * loop, the record on GitHub is the last result. The block closed the live session, so the record drops it.
+     * An older continue request goes away, so only a new request of the owner continues the issue.
+     * Without a record and without a current version, the label stays for the next poll.
      */
     private void finishBlock(int issueNumber, Optional<IssueRecord> keptByLoop,
                              Optional<IssueRecord> interruptedResult) {
         try {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
-            if (onGitHub.filter(record -> record.phase() == Phase.DONE).isPresent()) {
+            if (onGitHub.filter(Worker::isInTheFinishState).isPresent()) {
                 noteBlockWithoutEffect(onGitHub.get(), onGitHub);
                 return;
             }
             Optional<IssueRecord> laterRecord = interruptedResult.or(() -> onGitHub);
-            IssueRecord base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
-                    .orElseGet(() -> onGitHub.orElseGet(() -> IssueRecord.queued(issueNumber)));
-            if (isMergedOnGitHub(base)) {
-                noteBlockWithoutEffect(base.withPhase(Phase.DONE), onGitHub);
+            Optional<IssueRecord> base = keptByLoop.map(kept -> RecordFacts.keep(kept, laterRecord))
+                    .or(() -> onGitHub).or(() -> createQueuedRecord(issueNumber));
+            if (base.isEmpty()) {
                 return;
             }
-            IssueRecord blocked = base.withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER)
-                    .withoutLive();
+            if (isMergedOnGitHub(base.get())) {
+                noteBlockWithoutEffect(moveToFinishState(base.get()), onGitHub);
+                return;
+            }
+            IssueRecord blocked = onAnyStateMoves.moveToBlockTarget(base.get(), OWNER_BLOCK_NOTE).withoutLive();
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
+            liveSessions.clearContinueRequest(issueNumber);
             gitHub.removeLabel(issueNumber, BLOCK_LABEL);
         } catch (GitHubException exception) {
             logGitHubFailure("The block of the issue #" + issueNumber, exception);
@@ -639,8 +673,8 @@ public final class Worker {
     }
 
     /**
-     * A DONE record is final. The block only gets a note, and its label goes away. A record in phase DONE
-     * that still has the label factory runs its finish step at the next poll.
+     * A record in the finish state is final. The block only gets a note, and its label goes away. A record in the
+     * finish state that still has the label factory runs its finish action at the next poll.
      */
     private void noteBlockWithoutEffect(IssueRecord done, Optional<IssueRecord> onGitHub) {
         int issueNumber = done.issueNumber();
@@ -648,9 +682,22 @@ public final class Worker {
         gitHub.removeLabel(issueNumber, BLOCK_LABEL);
     }
 
-    /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
+    private IssueRecord moveToFinishState(IssueRecord record) {
+        StateDefinition finish = finishStateOf(record);
+        return record.withMove(finish.name(), finish.actionType(), finish.column());
+    }
+
+    private StateDefinition finishStateOf(IssueRecord record) {
+        return definitions.definitionOf(record).workflow().finishState();
+    }
+
+    /** The record can miss the finish state when the publish after the merge failed. GitHub knows the truth. */
     private boolean isMergedOnGitHub(IssueRecord record) {
-        return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
+        return isInTheFinishState(record) || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
+    }
+
+    private static boolean isInTheFinishState(IssueRecord record) {
+        return record.action().equals(Optional.of(ActionType.FINISH));
     }
 
     /**
@@ -670,7 +717,7 @@ public final class Worker {
         }
     }
 
-    /** The stop came during a step, so the record from before the step goes back to GitHub. */
+    /** The stop came during an action, so the record from before the action goes back to GitHub. */
     private void restoreKeptRecord(IssueRecord kept, IssueRecord interruptedResult) {
         int issueNumber = kept.issueNumber();
         try {
@@ -682,8 +729,9 @@ public final class Worker {
     }
 
     /**
-     * Fail closed: the issue becomes BLOCKED with the cause, and the worker keeps running. A merged issue stays
-     * DONE and gets a note; the label factory stays on it, so the next poll runs the finish step again.
+     * Fail closed: the issue moves to the block target with the cause, and the worker keeps running. An older
+     * continue request goes away, so only a new request of the owner continues the issue. A merged issue goes to
+     * the finish state with a note; the label factory stays on it, so the next poll runs the finish action again.
      */
     private void blockOnFailure(IssueRecord kept, RuntimeException exception) {
         int issueNumber = kept.issueNumber();
@@ -694,18 +742,25 @@ public final class Worker {
             Optional<IssueRecord> onGitHub = readRecord(issueNumber);
             IssueRecord base = onGitHub.orElse(kept);
             if (isMergedOnGitHub(base)) {
-                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, exception);
+                IssueRecord noted = MergedIssue.noteFailureAfterTheMerge(base, finishStateOf(base), exception);
                 statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), noted);
                 return;
             }
-            IssueRecord blocked = base
-                    .withStatus(IssueStatus.BLOCKED)
-                    .withWaitReason(WaitReason.FAILURE)
-                    .withNote(note);
+            IssueRecord blocked = onAnyStateMoves.moveToBlockTarget(closeTheLiveSession(base), note);
             statusPublisher.publish(gitHub.issue(issueNumber), onGitHub.orElse(null), blocked);
+            liveSessions.clearContinueRequest(issueNumber);
         } catch (GitHubException publishException) {
             logGitHubFailure("The block of the issue #" + issueNumber, publishException);
         }
+    }
+
+    /** The block target has no conversation: the record must never know less than tmux. */
+    private IssueRecord closeTheLiveSession(IssueRecord record) {
+        if (record.live().isEmpty()) {
+            return record;
+        }
+        phaseStopper.closeLiveSession(record.issueNumber());
+        return record.withoutLive();
     }
 
     /** Fail closed: the worker stops and ends the phases that run. */
@@ -729,14 +784,14 @@ public final class Worker {
     }
 
     /**
-     * The message of a GitHubException never holds the token. The rate limit is not a failure of the step: the
-     * step runs again after the reset.
+     * The message of a GitHubException never holds the token. The rate limit is not a failure of the action:
+     * the action runs again after the reset.
      */
-    private void logGitHubFailure(String step, GitHubException exception) {
+    private void logGitHubFailure(String work, GitHubException exception) {
         if (exception instanceof GitHubRateLimitException rateLimit) {
             rateLimitWait.waitUntil(rateLimit.resetTime());
             return;
         }
-        LOGGER.log(System.Logger.Level.WARNING, "{0} failed: {1}", step, exception.getMessage());
+        LOGGER.log(System.Logger.Level.WARNING, "{0} failed: {1}", work, exception.getMessage());
     }
 }

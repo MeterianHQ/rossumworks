@@ -2,29 +2,23 @@ package com.meterian.factory.state;
 
 import java.util.Optional;
 
-/** The state of the issue just before it entered the live conversation, and the Remote Control link. */
-public record LiveSession(
-        String startHeadCommit,
-        IssueStatus statusBefore,
-        Optional<WaitReason> waitBefore,
-        Optional<String> link,
-        LivePlace place) {
+/** The head commit when the live conversation opened, the Remote Control link, and the place of the conversation. */
+public record LiveSession(String startHeadCommit, Optional<String> link, LivePlace place) {
 
     public LiveSession {
-        waitBefore = waitBefore == null ? Optional.empty() : waitBefore;
         link = link == null ? Optional.empty() : link;
         place = place == null ? LivePlace.GITHUB_COMMENT : place;
     }
 
     public LiveSession withLink(String newLink) {
-        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.of(newLink), place);
+        return new LiveSession(startHeadCommit, Optional.of(newLink), place);
     }
 
     public LiveSession withoutLink() {
-        return new LiveSession(startHeadCommit, statusBefore, waitBefore, Optional.empty(), place);
+        return new LiveSession(startHeadCommit, Optional.empty(), place);
     }
 
     public LiveSession withPlace(LivePlace newPlace) {
-        return new LiveSession(startHeadCommit, statusBefore, waitBefore, link, newPlace);
+        return new LiveSession(startHeadCommit, link, newPlace);
     }
 }

@@ -1,9 +1,9 @@
 package com.meterian.factory.worker;
 
 import com.meterian.factory.github.GitHubClient;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.workflow.StatusPublisher;
 import java.util.Optional;
@@ -22,17 +22,21 @@ final class OwnershipRelease {
     }
 
     /**
-     * Does nothing when the factory has no record, already released the issue, or merged the change. The status
+     * Does nothing when the factory has no record, already released the issue, or merged the change. The column
      * label belongs to the new owner, so the release writes only the own status comment and the stop comment.
      */
     void release(int issueNumber) {
         Optional<IssueRecord> ownRecord = StatusComment.findRecord(gitHub.comments(issueNumber), workerLogin);
-        if (ownRecord.isEmpty() || isReleased(ownRecord.get()) || ownRecord.get().phase() == Phase.DONE) {
+        if (ownRecord.isEmpty() || isReleased(ownRecord.get()) || isInTheFinishState(ownRecord.get())) {
             return;
         }
         IssueRecord released = ownRecord.get().withHandOver(HandOver.RELEASED).withNote(createStopNote());
         statusPublisher.publishToTheStatusComment(issueNumber, ownRecord.get(), released);
         gitHub.createComment(issueNumber, createStopComment());
+    }
+
+    private static boolean isInTheFinishState(IssueRecord record) {
+        return record.action().equals(Optional.of(ActionType.FINISH));
     }
 
     private static boolean isReleased(IssueRecord record) {

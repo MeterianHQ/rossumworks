@@ -9,17 +9,23 @@ import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.ColumnNames;
+import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Collects the values of the page. It reads only memory and local files, never GitHub. */
@@ -34,12 +40,16 @@ public final class PageModelSource {
     private final PageRequests pageRequests;
     private final WorkspaceLayout layout;
     private final FactoryConfiguration configuration;
+    private final DefinitionLookup definitions;
+    private final IssueDefinitionFacts facts;
+    private final Supplier<Optional<String>> definitionWarning;
     private final IntSupplier issuesInWork;
     private final Clock clock;
 
     public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, ContextTracker contexts,
             LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
-            WorkspaceLayout layout, FactoryConfiguration configuration, IntSupplier issuesInWork, Clock clock) {
+            WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
+            Supplier<Optional<String>> definitionWarning, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.usage = usage;
@@ -49,6 +59,9 @@ public final class PageModelSource {
         this.pageRequests = pageRequests;
         this.layout = layout;
         this.configuration = configuration;
+        this.definitions = definitions;
+        this.facts = new IssueDefinitionFacts(definitions);
+        this.definitionWarning = definitionWarning;
         this.issuesInWork = issuesInWork;
         this.clock = clock;
     }
@@ -62,11 +75,43 @@ public final class PageModelSource {
         BoardSnapshot snapshot = board.snapshot();
         int issuesInWorkNow = issuesInWork.getAsInt();
         return new PageModel(snapshot, clock.instant(), issuesInWorkNow,
-                configuration.limits().parallelIssues(), configuration.limits().fixLoops(),
+                configuration.limits().parallelIssues(), readLimits(snapshot), readReviewNames(snapshot),
+                readIssuesInBlockTarget(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine,
-                FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow));
+                readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
+                definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow),
+                readColumns());
+    }
+
+    private List<String> readColumns() {
+        List<String> columns = new ArrayList<>();
+        columns.add(ColumnNames.QUEUED);
+        definitions.findCurrentColumns().stream().filter(column -> !columns.contains(column)).forEach(columns::add);
+        return columns;
+    }
+
+    private Map<Integer, Map<String, Integer>> readLimits(BoardSnapshot snapshot) {
+        Map<Integer, Map<String, Integer>> limitsByIssue = new HashMap<>();
+        for (IssueCard card : snapshot.cards()) {
+            limitsByIssue.put(card.issueNumber(), facts.limitsOf(card.record()));
+        }
+        return limitsByIssue;
+    }
+
+    private Map<Integer, List<String>> readReviewNames(BoardSnapshot snapshot) {
+        Map<Integer, List<String>> reviewNamesByIssue = new HashMap<>();
+        for (IssueCard card : snapshot.cards()) {
+            reviewNamesByIssue.put(card.issueNumber(), facts.reviewNamesOf(card.record()));
+        }
+        return reviewNamesByIssue;
+    }
+
+    private Set<Integer> readIssuesInBlockTarget(BoardSnapshot snapshot) {
+        return snapshot.cards().stream()
+                .filter(card -> facts.isInBlockTarget(card.record()))
+                .map(IssueCard::issueNumber)
+                .collect(Collectors.toSet());
     }
 
     private Map<Integer, ContextUsage> readContexts(BoardSnapshot snapshot) {
@@ -108,9 +153,10 @@ public final class PageModelSource {
         return placesByIssue;
     }
 
+    /** Only a live card and a card in a state without an action can have a continue request. */
     private Set<Integer> readContinueRequests(BoardSnapshot snapshot) {
         return snapshot.cards().stream()
-                .filter(card -> card.record().live().isPresent())
+                .filter(card -> card.record().live().isPresent() || card.record().action().isEmpty())
                 .map(IssueCard::issueNumber)
                 .filter(liveSessions::isContinueRequested)
                 .collect(Collectors.toSet());

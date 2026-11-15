@@ -217,15 +217,13 @@ parallel limit.
 The worker does not wait for GitHub Actions checks. The local build
 replaces CI (owner decision).
 
-### 6.0 Who can give a request (my decision)
+### 6.0 Who can give a request (owner decision, changed on 2026-11-03)
 
-The configuration has a list of GitHub accounts that can give requests.
-The default list has only the owner. For each label `factory`,
-`factory:enter`, `factory:approve`, and `factory:block`, the worker reads the timeline
-event of the issue and checks who added the label. If the account is not
-in the list, the worker ignores the label and writes this in the status
-comment (fail closed). The reason: `factory:approve` causes a merge, and
-`factory` sends the issue text to an agent that runs commands.
+The worker obeys the labels `factory`, `factory:enter`, `factory:approve`,
+and `factory:block` from any account. It does not check who added the label.
+The reason: GitHub permissions control the labels. Only an account with
+triage access or more can add a label. The first design had a list of
+allowed accounts. The owner removed it because it added no protection.
 
 ### 6.1 Proofs before a merge
 
@@ -318,8 +316,8 @@ the Fabro experiment and from the owner:
 
 When the file exists after a phase, the worker posts the question as a
 comment, sets "Waits for you" with the reason "question", and opens live
-mode (section 8). The comment mentions the owner and contains the Remote
-Control link.
+mode (section 8). The comment contains the Remote Control link and no
+mention.
 
 ### 7.3 The four reviews
 
@@ -478,7 +476,7 @@ Enter. There are three places:
 |---|---|---|
 | Terminal | A terminal window on the machine of the worker, attached to the tmux session | The worker, with the terminal command |
 | Browser | A new tab of the browser that clicked, on the claude.ai conversation | The browser |
-| Phone | The phone of the owner, from the GitHub notification of the mention | GitHub |
+| Phone | The phone of the owner, from the GitHub notification of the comment | GitHub |
 
 The owner decided on the page as follows. The mock of 2026-11-02 shows it.
 
@@ -515,8 +513,8 @@ My decisions on the details:
   the field `place`, so that the card shows the chosen place also after
   a restart of the worker.
 - **The comment with the link is always posted**, because it is the
-  record on GitHub. Only Phone adds the mention of the owner, so only
-  Phone sends a notification.
+  record on GitHub. The comment has no mention, because the worker writes it
+  with the account of the owner and GitHub sends no notification for it.
 - **Terminal.** After the session shows its link, the worker runs the
   terminal command with the tmux attach command as its last arguments:
   `tmux -L claude-ai-factory attach -t factory-issue-<n>`. The command
@@ -535,7 +533,7 @@ My decisions on the details:
 - **The open buttons.** "Terminal" and "Phone" in the group are POST
   forms with the same login, same-origin, and fingerprint checks as the
   other actions. "Terminal" makes no GitHub request. "Phone" posts one
-  more comment with the mention. "Browser" is a plain link to the Remote
+  more comment with the link. "Browser" is a plain link to the Remote
   Control link, with `target="_blank"` and `rel="noopener noreferrer"`.
 - **Close a terminal window** with `Ctrl-b d`. `/exit` ends the session
   without a continue (section 8.3).
@@ -675,14 +673,13 @@ rule again when it gets the action. An action that is no longer possible
 adds no label. Each form sends a fingerprint of the card: the status, the
 wait reason, the phase, the fix loops, the reviewed tree, and the issue
 text. A form from an old page gets "This action is not possible now."
-A label that the worker ignored does not hide the button; the button
+A label that is already on the issue does not hide the button; the button
 removes the label and adds it again.
 
 An action costs only the requests that it needs. Enter, Approve, and
 Block add one label. Continue writes the local marker of section 8.2 and
 makes no request. A label that is already on the issue costs two requests:
-the page removes it and adds it again, so that the newest "labeled" event
-comes from the worker account. After each action, the page asks the
+the page removes it and adds it again. After each action, the page asks the
 worker for an early poll, 2 s later, so the worker acts in seconds. If
 GitHub does not show the label yet, the worker acts at the next usual
 poll, so Block stops the `claude` process after one poll interval at most.
@@ -700,13 +697,8 @@ My decisions on the feedback of an action:
   issue waits for you again." Without this note, the card looks the same
   as before Enter.
 
-My decision on the label of the worker account: the page adds the label
-with the token of the worker. Usually the worker accepts a label only
-from an account of `accounts.allowed`. A label from the worker account is
-also accepted when the page asked for this label on this issue in the
-last 24 hours. The worker keeps these page requests in memory only. After
-a restart, a page label that the poll did not read yet is ignored with
-the usual note, and the owner clicks again (fail closed).
+The page adds the label with the token of the worker. The worker obeys
+the label like a label from any other account.
 
 ### 9.5 Access
 
@@ -745,8 +737,7 @@ One file for each factory. My decision: YAML, read with Jackson. It holds:
 - The related repositories, each with its clone and its build and install
   command.
 - The merge target branch.
-- The isolation mode (section 7.1.1) and the list of accounts that can
-  give requests (section 6.0).
+- The isolation mode (section 7.1.1).
 - The parallel limit, the fix-loop limit, the poll interval, and the
   usage threshold.
 - The web page address and port, and the hash of the login password,

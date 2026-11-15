@@ -18,6 +18,11 @@ if [ "$FAKE_CLAUDE_LIVE_OLD_TRUST" = 1 ]; then
 else
   echo "Quick safety check: Is this a project you trust? > 1. No, exit  2. Yes, I trust this folder"
 fi
+if [ -n "$FAKE_CLAUDE_LIVE_DEAF_SECONDS" ]; then
+  # The real claude shows the trust prompt before it reads the keys: it loses the keys of this time.
+  sleep "$FAKE_CLAUDE_LIVE_DEAF_SECONDS"
+  while read -r -s -t 0.2 lost_key; do :; done
+fi
 read -r answer
 echo answered > "$FAKE_CLAUDE_ANSWER"
 if [ "$FAKE_CLAUDE_LIVE_NO_LINK" != 1 ]; then

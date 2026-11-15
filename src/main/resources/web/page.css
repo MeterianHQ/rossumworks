@@ -273,7 +273,8 @@ button {
 .columns {
     display: grid;
     flex: 1;
-    grid-template-columns: repeat(6, minmax(15rem, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(15rem, 1fr);
     gap: 0.8rem;
     min-height: 0;
     padding: 1rem 1.2rem;
@@ -367,6 +368,21 @@ button {
 
 .card.waits {
     box-shadow: 0 0 0 1px rgba(210, 153, 34, 0.45);
+}
+
+/* A card with a sent request waits for the worker: all of it is gray, except the sent text. */
+.card.pending {
+    border-left-color: var(--grey);
+    box-shadow: none;
+}
+
+.card.pending > :not(.request) {
+    filter: grayscale(1);
+    opacity: 0.55;
+}
+
+.card.pending button:disabled {
+    cursor: not-allowed;
 }
 
 .card-head {
@@ -571,23 +587,8 @@ button {
     content: "\2717";
 }
 
-.facts {
-    display: flex;
-    gap: 1.2rem;
+.entries {
     margin: 0.4rem 0;
-}
-
-.facts div {
-    display: flex;
-    gap: 0.35rem;
-}
-
-.facts dt {
-    color: var(--text-muted);
-}
-
-.facts dd {
-    margin: 0;
     font-weight: 600;
 }
 
@@ -838,7 +839,8 @@ button {
     }
 
     .columns {
-        grid-template-columns: 1fr;
+        grid-auto-flow: row;
+        grid-auto-columns: 1fr;
         overflow-x: visible;
     }
 

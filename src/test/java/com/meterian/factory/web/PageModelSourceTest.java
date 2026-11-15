@@ -11,14 +11,17 @@ import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
-import com.meterian.factory.configuration.Limits;
-import com.meterian.factory.configuration.TargetRepository;
+import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.configuration.WorkerLimits;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
-import com.meterian.factory.state.WaitReason;
+import com.meterian.factory.testing.DefinitionCommits;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.MutableClock;
 import com.meterian.factory.usage.ContextTracker;
@@ -51,6 +54,8 @@ class PageModelSourceTest {
     private final ContextTracker contexts = new ContextTracker();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final PageRequests pageRequests = new PageRequests(clock);
+    private DefinitionLookup definitions = DefinitionLookup.builtInOnly(DefinitionCommits.builtInWithImplementLimit(4));
+    private Optional<String> definitionWarning = Optional.empty();
 
     @Test
     void readsTheStateOfTheFactory() {
@@ -62,18 +67,25 @@ class PageModelSourceTest {
         assertThat(source.read(true).factoryState()).isEqualTo(FactoryState.STOPPING);
     }
 
+    @Test
+    void showsTheColumnsInTheOrderOfTheDefinition() {
+        definitions = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
+
+        List<String> columns = source().read(true).columns();
+
+        assertThat(columns).containsExactly("queued", "in-progress", "in-review", "waits-for-you", "blocked", "done");
+    }
+
     private PageModelSource source() {
         Path workDirectory = temporaryDirectory.resolve("work");
         factorySwitch = new FactorySwitch(workDirectory);
-        TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
-                "true", Map.of());
-        FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), IsolationMode.SAME_USER,
-                ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
-                Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
-                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        FactoryConfiguration configuration = new FactoryConfiguration(new RepositoryName("MeterianHQ", "target"),
+                workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
+                new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
+                ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, factorySwitch, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
-                pageRequests, new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
+                pageRequests, new WorkspaceLayout(workDirectory), configuration, definitions, () -> definitionWarning,
+                () -> 1, clock);
     }
 
     private Path claudeHome() {
@@ -81,9 +93,8 @@ class PageModelSourceTest {
     }
 
     private static IssueRecord liveRecord(int number) {
-        return IssueRecord.queued(number).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
+        return RecordStates.move(RecordStates.queued(number).withAgentSessionStarted(), "live")
+                .withLive(new LiveSession("abc", Optional.empty(),
                         LivePlace.GITHUB_COMMENT));
     }
 
@@ -99,13 +110,14 @@ class PageModelSourceTest {
     @Test
     void readsTheValuesOfTheWorkerAndTheConfiguration() {
         usage.record(List.of(new UsageWindow("seven_day", 0.95, NOW.plus(Duration.ofDays(1)), "allowed", null)));
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), RecordStates.queued(12));
 
         PageModel model = source().read(true);
 
         assertThat(model.renderedAt()).isEqualTo(NOW);
         assertThat(model.issuesInWork()).isEqualTo(1);
         assertThat(model.parallelLimit()).isEqualTo(3);
-        assertThat(model.fixLoopLimit()).isEqualTo(4);
+        assertThat(model.limitsOf(12)).containsExactly(Map.entry("implement", 4), Map.entry("review", 10));
         assertThat(model.pollInterval()).isEqualTo(Duration.ofSeconds(45));
         assertThat(model.isolationMode()).isEqualTo(IsolationMode.SAME_USER);
         assertThat(model.repositoryFullName()).isEqualTo("MeterianHQ/target");
@@ -114,8 +126,42 @@ class PageModelSourceTest {
     }
 
     @Test
+    void showsTheLimitsOfTheDefinitionOfTheRecord() {
+        IssueRecord record = RecordStates.queued(12).withDefinitionCommit("1234567890");
+        FactoryDefinition oneEntry = DefinitionCommits.builtInWithImplementLimit(1);
+        definitions = other -> other.definitionCommit().isPresent() ? oneEntry : BuiltInDefinition.load();
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), record);
+
+        PageModel model = source().read(true);
+
+        assertThat(model.limitsOf(12)).containsEntry("implement", 1);
+    }
+
+    @Test
+    void readsTheIssuesInTheBlockTarget() {
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")),
+                RecordStates.move(RecordStates.queued(12), "blocked"));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), RecordStates.queued(13));
+
+        PageModel model = source().read(true);
+
+        assertThat(model.isInBlockTarget(12)).isTrue();
+        assertThat(model.isInBlockTarget(13)).isFalse();
+    }
+
+    @Test
+    void readsTheWarningOfTheDefinition() {
+        definitionWarning = Optional.of("The default branch has no .factory that loads: x. "
+                + "The factory takes no new issue.");
+
+        PageModel model = source().read(true);
+
+        assertThat(model.definitionWarning()).isEqualTo(definitionWarning);
+    }
+
+    @Test
     void aCardThatIsNotLiveShowsTheTrackedContext() {
-        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), RecordStates.queued(12));
         contexts.record(12, new ContextUsage(100, 1000));
 
         PageModel model = source().read(true);
@@ -157,9 +203,23 @@ class PageModelSourceTest {
     }
 
     @Test
+    void readsTheContinueMarkerOfACardWithoutAnActionOnly() {
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")),
+                RecordStates.move(RecordStates.queued(12), "blocked"));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")),
+                RecordStates.move(RecordStates.queued(13), "implement"));
+        liveSessions.requestContinue(12);
+        liveSessions.requestContinue(13);
+
+        PageModel model = source().read(true);
+
+        assertThat(model.continueRequested()).containsExactly(12);
+    }
+
+    @Test
     void readsTheRememberedLabelsOfEachCard() {
-        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
-        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), IssueRecord.queued(13));
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), RecordStates.queued(12));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), RecordStates.queued(13));
         pageRequests.remember(12, "factory:approve");
         pageRequests.remember(12, "factory:block");
         pageRequests.remember(99, "factory:enter");
@@ -172,8 +232,8 @@ class PageModelSourceTest {
 
     @Test
     void readsTheEnterPlaceOfEachCard() {
-        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), IssueRecord.queued(12));
-        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), IssueRecord.queued(13));
+        board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), RecordStates.queued(12));
+        board.recordIssue(new Issue(13, "Title", "body", Set.of("factory")), RecordStates.queued(13));
         pageRequests.rememberEnterPlace(12, LivePlace.TERMINAL);
         pageRequests.rememberEnterPlace(99, LivePlace.BROWSER);
 

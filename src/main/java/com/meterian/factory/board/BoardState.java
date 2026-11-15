@@ -2,7 +2,7 @@ package com.meterian.factory.board;
 
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
+import com.meterian.factory.state.ActionType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,7 +20,7 @@ import java.util.stream.Stream;
 /**
  * The board in memory. Each change adds 1 to the version and wakes the threads that wait.
  * The DONE cards are lost at a restart, because a list of closed issues costs requests.
- * The merge date is the time when the worker saw DONE.
+ * The merge date is the time when the worker saw the finish state.
  */
 public final class BoardState implements BoardUpdates {
 
@@ -133,7 +133,7 @@ public final class BoardState implements BoardUpdates {
     }
 
     private Optional<Instant> findDoneTime(int issueNumber, IssueRecord record) {
-        if (record.status() != IssueStatus.DONE) {
+        if (!record.action().equals(Optional.of(ActionType.FINISH))) {
             return Optional.empty();
         }
         IssueCard existing = cardsByNumber.get(issueNumber);

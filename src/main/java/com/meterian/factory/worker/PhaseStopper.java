@@ -41,7 +41,7 @@ public final class PhaseStopper {
         buildRunner.stopAllBuilds();
     }
 
-    /** A failure of tmux never stops the block: the issue still becomes BLOCKED. */
+    /** A failure of tmux never stops the block: the issue still goes to the block target. */
     public void closeLiveSession(int issueNumber) {
         try {
             liveSessions.close(issueNumber);

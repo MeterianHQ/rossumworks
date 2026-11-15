@@ -43,15 +43,6 @@ final class ConfigurationSection {
         return child.asText();
     }
 
-    String requireNestedText(String sectionKey, String key) throws ConfigurationException {
-        Optional<ConfigurationSection> section = findSection(sectionKey);
-        if (section.isEmpty()) {
-            throw new ConfigurationException("Configuration key " + buildKeyPath(sectionKey + "." + key)
-                    + " is missing.");
-        }
-        return section.get().requireText(key);
-    }
-
     Optional<String> findText(String key) throws ConfigurationException {
         return containsKey(key) ? Optional.of(requireText(key)) : Optional.empty();
     }

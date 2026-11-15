@@ -13,6 +13,9 @@ import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
+import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -20,11 +23,12 @@ import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
-import com.meterian.factory.merge.Merger;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
-import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.setup.CreateCommand;
+import com.meterian.factory.setup.SystemSetupConsole;
+import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
@@ -35,13 +39,14 @@ import com.meterian.factory.web.PageModelSource;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.web.login.PasswordLogin;
+import com.meterian.factory.web.login.PasswordRules;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
+import com.meterian.factory.workflow.RetrySettings;
 import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.Console;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
@@ -49,50 +54,46 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
-/** The command line: run --config <file>, or hash-password. */
+/** The command line: run [--config <file>], hash-password, or create. */
 public final class Main {
 
-    static final int EXIT_SUCCESS = 0;
-    static final int EXIT_FAILURE = 1;
+    public static final int EXIT_SUCCESS = 0;
+    public static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run --config <file>\n"
-            + "       java -jar claude-ai-factory.jar hash-password";
-    private static final int MINIMUM_PASSWORD_LENGTH = 12;
-    private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
-    private static final String TOKEN_VARIABLE = "FACTORY_GITHUB_TOKEN";
+    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run [--config <file>]\n"
+            + "       java -jar claude-ai-factory.jar hash-password\n"
+            + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
+            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
+            + "[--yes]";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);
     private static final Duration LOOP_END_TIMEOUT = Duration.ofMinutes(1);
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration TOKEN_COMMAND_TIMEOUT = Duration.ofSeconds(30);
     private static final String CLAUDE_HOME_VARIABLE = "CLAUDE_CONFIG_DIR";
     private static final String LAN_WARNING = "The web page is open to the LAN with plain HTTP. "
             + "Another device on the LAN can read the password and the cookie.";
-    private static final System.Logger LOGGER = System.getLogger(Main.class.getName());
 
     /** A check before the start failed. The message tells the owner what to do. */
-    static final class StartupException extends Exception {
+    public static final class StartupException extends Exception {
 
-        StartupException(String message) {
+        public StartupException(String message) {
             super(message);
         }
     }
@@ -116,11 +117,27 @@ public final class Main {
         if (isHashPasswordCommand(arguments)) {
             System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
         }
+        if (isCreateCommand(arguments)) {
+            System.exit(create(Arrays.asList(arguments).subList(1, arguments.length), System.out, System.err));
+        }
         System.exit(run(arguments, System.getenv(), System.err));
     }
 
     static boolean isHashPasswordCommand(String[] arguments) {
         return arguments.length == 1 && arguments[0].equals("hash-password");
+    }
+
+    static boolean isCreateCommand(String[] arguments) {
+        return arguments.length >= 1 && arguments[0].equals("create");
+    }
+
+    /** Runs the command create with the console, the environment, and the folders of this process. */
+    static int create(List<String> arguments, PrintStream output, PrintStream errors) {
+        CreateCommand command = new CreateCommand(new SystemSetupConsole(), System.getenv(), output, errors,
+                StartChecks::readTokenFromGh, new ProcessGit(),
+                (repository, token) -> new HttpGitHubClient(GITHUB_API, token, repository, createHttpClient()),
+                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")));
+        return command.run(arguments);
     }
 
     /** Reads a password without echo. A test gives another source, so that it never uses the console. */
@@ -143,12 +160,9 @@ public final class Main {
         }
         char[] repeated = passwords.read("Repeat the password: ").orElse(new char[0]);
         try {
-            if (!Arrays.equals(password, repeated)) {
-                errors.println("The two passwords are not the same.");
-                return EXIT_FAILURE;
-            }
-            if (password.length < MINIMUM_PASSWORD_LENGTH) {
-                errors.println("The password must have " + MINIMUM_PASSWORD_LENGTH + " characters or more.");
+            Optional<String> problem = PasswordRules.verify(password, repeated);
+            if (problem.isPresent()) {
+                errors.println(problem.get());
                 return EXIT_FAILURE;
             }
             output.println("password-hash: " + PasswordHash.create(password).format());
@@ -162,25 +176,36 @@ public final class Main {
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
     @FunctionalInterface
     interface WorkerStarter {
-        int start(FactoryConfiguration configuration, String token, PrintStream errors)
+        int start(FactoryConfiguration configuration, RetrySettings retries, String token, PrintStream errors)
                 throws InterruptedException, StartupException;
     }
 
     static int run(String[] arguments, Map<String, String> environment, PrintStream errors) {
-        return run(arguments, environment, errors, Main::readTokenFromGh, Main::runWorker);
+        return run(arguments, environment, errors, StartChecks::readTokenFromGh, Main::runWorker, new ProcessGit());
     }
 
     /** Runs the checks in order, so that a wrong argument or environment stops the factory before any network. */
-    static int run(String[] arguments, Map<String, String> environment, PrintStream errors, TokenSource ghToken,
-                   WorkerStarter workerStarter) {
+    static int run(String[] arguments, Map<String, String> environment, PrintStream errors,
+                   StartChecks.TokenSource ghToken,
+                   WorkerStarter workerStarter, Git git) {
+        WorkerFileFinder finder = WorkerFileFinder.ofCurrentFolder(Path.of(System.getProperty("user.home")),
+                Path.of("").toAbsolutePath());
+        return run(arguments, environment, errors, ghToken, workerStarter, git, finder);
+    }
+
+    static int run(String[] arguments, Map<String, String> environment, PrintStream errors,
+                   StartChecks.TokenSource ghToken,
+                   WorkerStarter workerStarter, Git git, WorkerFileFinder finder) {
         try {
-            Path configurationFile = readConfigurationPath(arguments);
-            verifyNoApiKey(environment);
+            Path configurationFile = readConfigurationPath(arguments, finder);
+            StartChecks.verifyNoApiKey(environment);
+            RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
-            Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.target().sshUrl());
-            String token = readToken(environment, ghToken);
-            return workerStarter.start(configuration, token, errors);
+            Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.repository().sshUrl());
+            String token = StartChecks.readToken(environment, ghToken);
+            cloneRepositoryIfMissing(configuration, git);
+            return workerStarter.start(configuration, retries, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -191,7 +216,34 @@ public final class Main {
         }
     }
 
-    static Path readConfigurationPath(String[] arguments) throws StartupException {
+    /** Only a wrong system property is a startup failure. Another IllegalArgumentException is a defect. */
+    static RetrySettings readRetrySettings() throws StartupException {
+        try {
+            return RetrySettings.fromSystemProperties();
+        } catch (IllegalArgumentException exception) {
+            throw new StartupException(exception.getMessage());
+        }
+    }
+
+    /** The worker owns its clone. A clone that exists stays as it is. */
+    static void cloneRepositoryIfMissing(FactoryConfiguration configuration, Git git) {
+        Path clone = configuration.cloneDirectory();
+        if (Files.exists(clone)) {
+            return;
+        }
+        try {
+            Files.createDirectories(clone.toAbsolutePath().getParent());
+        } catch (IOException exception) {
+            throw new GitException("Cannot create the work folder " + clone.getParent(), exception);
+        }
+        git.cloneRepository(configuration.repository().sshUrl(), clone);
+    }
+
+    /** run --config <file> gives the file. run alone finds the worker.yaml of the clone in the current folder. */
+    static Path readConfigurationPath(String[] arguments, WorkerFileFinder finder) throws StartupException {
+        if (arguments.length == 1 && arguments[0].equals("run")) {
+            return finder.find();
+        }
         boolean isValid = arguments.length == 3 && arguments[0].equals("run") && arguments[1].equals("--config");
         if (!isValid) {
             throw new StartupException(USAGE);
@@ -199,105 +251,9 @@ public final class Main {
         return Path.of(arguments[2]);
     }
 
-    static void verifyNoApiKey(Map<String, String> environment) throws StartupException {
-        if (environment.containsKey(API_KEY_VARIABLE)) {
-            throw new StartupException("Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription.");
-        }
-    }
-
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
-        List<String> commands = List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq");
-        List<String> missing = findMissingCommands(commands, path);
-        if (!missing.isEmpty()) {
-            throw new StartupException("The factory needs these commands on the PATH: " + String.join(", ", missing));
-        }
-    }
-
-    /** A command with a slash is a file path. Another command must be an executable file in a PATH folder. */
-    static List<String> findMissingCommands(List<String> commands, String path) {
-        List<String> missing = new ArrayList<>();
-        for (String command : commands) {
-            if (!isExecutableCommand(command, path)) {
-                missing.add(command);
-            }
-        }
-        return missing;
-    }
-
-    private static boolean isExecutableCommand(String command, String path) {
-        if (command.contains("/")) {
-            return Files.isExecutable(Path.of(command));
-        }
-        return Arrays.stream(path.split(File.pathSeparator))
-                .filter(folder -> !folder.isBlank())
-                .map(folder -> Path.of(folder).resolve(command))
-                .anyMatch(file -> Files.isRegularFile(file) && Files.isExecutable(file));
-    }
-
-    /** A source of the token that can stop the start, for example a command that does not answer. */
-    @FunctionalInterface
-    interface TokenSource {
-        Optional<String> read() throws StartupException;
-    }
-
-    static String readToken(Map<String, String> environment, TokenSource ghToken) throws StartupException {
-        String fromEnvironment = environment.getOrDefault(TOKEN_VARIABLE, "");
-        if (!fromEnvironment.isBlank()) {
-            return fromEnvironment.strip();
-        }
-        return ghToken.read()
-                .filter(token -> !token.isBlank())
-                .orElseThrow(() -> new StartupException("Set FACTORY_GITHUB_TOKEN, or log in with gh auth login."));
-    }
-
-    private static Optional<String> readTokenFromGh() throws StartupException {
-        return readTokenFromCommand(List.of("gh", "auth", "token"), TOKEN_COMMAND_TIMEOUT);
-    }
-
-    /**
-     * Runs the command and returns its output. A missing command or a failure gives no token. A command that
-     * does not end in the timeout stops the start.
-     */
-    static Optional<String> readTokenFromCommand(List<String> command, Duration timeout) throws StartupException {
-        Path outputFile = null;
-        try {
-            outputFile = Files.createTempFile("factory-token", ".out");
-            Process process = new ProcessBuilder(command)
-                    .redirectOutput(outputFile.toFile())
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
-            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                throw new StartupException("The command " + String.join(" ", command) + " did not answer in "
-                        + describeSeconds(timeout) + " seconds. Set FACTORY_GITHUB_TOKEN.");
-            }
-            String output = Files.readString(outputFile, StandardCharsets.UTF_8).strip();
-            return process.exitValue() == 0 ? Optional.of(output) : Optional.empty();
-        } catch (IOException exception) {
-            return Optional.empty();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return Optional.empty();
-        } finally {
-            deleteQuietly(outputFile);
-        }
-    }
-
-    private static String describeSeconds(Duration duration) {
-        long millis = duration.toMillis();
-        return millis % 1000 == 0 ? Long.toString(millis / 1000) : Double.toString(millis / 1000.0);
-    }
-
-    /** The file can hold the token, so it must not stay on the disk. */
-    private static void deleteQuietly(Path file) {
-        if (file == null) {
-            return;
-        }
-        try {
-            Files.deleteIfExists(file);
-        } catch (IOException exception) {
-            LOGGER.log(System.Logger.Level.WARNING, "Cannot delete the temporary file {0}", file);
-        }
+        StartChecks.verifyCommandsOnPath(
+                List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq"), path);
     }
 
     static HttpClient createHttpClient() {
@@ -307,27 +263,31 @@ public final class Main {
                 .build();
     }
 
-    private static int runWorker(FactoryConfiguration configuration, String token, PrintStream errors)
+    private static int runWorker(FactoryConfiguration configuration, RetrySettings retries, String token,
+                                 PrintStream errors)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
-        GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.target(), createHttpClient());
+        GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
+        Git git = new ProcessGit();
+        DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, workerLogin,
-                liveSessions, shared);
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
+                workerLogin, liveSessions, shared, definitions, retries);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, shared.pageRequests(), workerLogin,
-                executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
+        Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, shared.pageRequests(),
+                workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
                 shared.lostIssues());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
+                definitions, definitions::warning,
                 () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
@@ -353,6 +313,21 @@ public final class Main {
         return EXIT_API_KEY;
     }
 
+    /**
+     * The default branch is read once, at the start. The first poll reads its definition: until a version loads,
+     * the worker takes no new issue.
+     */
+    private static DefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
+            throws StartupException {
+        Path clone = configuration.cloneDirectory();
+        try {
+            return new DefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
+        } catch (GitException exception) {
+            throw new StartupException("The factory cannot read the default branch of the clone " + clone + ": "
+                    + exception.getMessage());
+        }
+    }
+
     /** The page gets only the label request of the GitHub client. */
     static LabelWriter createLabelWriter(GitHubClient gitHub) {
         return gitHub::addLabel;
@@ -361,20 +336,25 @@ public final class Main {
     /**
      * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
      * client.
+     *
+     * @param definitions       the definition version of each record, for the limits and the block target of its card
+     * @param definitionWarning the reason why the definition of the default branch does not load
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
                                                LiveSessions liveSessions, LabelWriter labels,
+                                               DefinitionLookup definitions,
+                                               Supplier<Optional<String>> definitionWarning,
                                                IntSupplier issuesInWork, Runnable earlyPollRequest,
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
-                        new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
-                        Clock.systemUTC()),
+                        new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
+                        definitionWarning, issuesInWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(), shared.factorySwitch(),
-                        earlyPollRequest)));
+                        earlyPollRequest, definitions)));
     }
 
     /** A web server that cannot start stops the worker before its first poll. */
@@ -431,7 +411,6 @@ public final class Main {
         return configured.isBlank() ? userHome.resolve(".claude") : Path.of(configured.strip());
     }
 
-    /** The install runs before the first poll: a live folder that is not private stops the start. */
     /** Without the watch the worker still works: it sees /factory:continue at the next poll. */
     private static void startContinueMarkerWatcher(ContinueMarkerWatcher watcher, PrintStream errors) {
         try {
@@ -441,6 +420,7 @@ public final class Main {
         }
     }
 
+    /** The install runs before the first poll: a live folder that is not private stops the start. */
     private static LiveFiles installLiveFiles(FactoryConfiguration configuration) throws StartupException {
         LiveFiles liveFiles = new LiveFiles(configuration.liveDirectory());
         try {
@@ -467,19 +447,16 @@ public final class Main {
         }, "factory-shutdown");
     }
 
-    private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
+    private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 String workerLogin,
-                                                LiveSessions liveSessions, SharedState shared) {
-        Git git = new ProcessGit();
-        String mergeTargetBranch = configuration.mergeTargetBranch();
-        OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
-        Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
-                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY, ownershipGuard);
-        PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
+                                                LiveSessions liveSessions, SharedState shared,
+                                                DefinitionVersions definitions, RetrySettings retries) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
-        return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
-                shared.usage(), layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
-                shared.pageRequests(), ownershipGuard, shared.lostIssues());
+        OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
+        return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
+                buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
+                shared.board(), shared.contexts(), shared.pageRequests(), retries, ownershipGuard,
+                shared.lostIssues());
     }
 }

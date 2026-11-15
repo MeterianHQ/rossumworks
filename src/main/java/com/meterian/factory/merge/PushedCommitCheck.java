@@ -51,7 +51,7 @@ public final class PushedCommitCheck {
         return pushedCommit.equals(gitHub.pullRequestHead(pullRequestNumber));
     }
 
-    /** A failed forward is not a failure of the step: the check after it decides. */
+    /** A failed forward is not a failure of the action: the check after it decides. */
     private void forwardAgain(String pushedCommit, String branch) {
         try {
             git.forwardCommit(gatekeeperDirectory, GITHUB_REMOTE, pushedCommit, branch);

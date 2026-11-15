@@ -5,6 +5,8 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.board.FactorySwitch;
+import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.PageRequests;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
@@ -38,17 +40,22 @@ public final class PageActions {
     private final BoardState board;
     private final FactorySwitch factorySwitch;
     private final Runnable earlyPollRequest;
+    private final IssueDefinitionFacts facts;
     private final ReentrantLock actionLock = new ReentrantLock();
 
-    /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
+    /**
+     * @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll}
+     * @param definitions      the definition version of each record, for the block target of Start again
+     */
     public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board,
-            FactorySwitch factorySwitch, Runnable earlyPollRequest) {
+            FactorySwitch factorySwitch, Runnable earlyPollRequest, DefinitionLookup definitions) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.earlyPollRequest = earlyPollRequest;
+        this.facts = new IssueDefinitionFacts(definitions);
     }
 
     /**
@@ -99,7 +106,8 @@ public final class PageActions {
     private boolean isPossible(IssueCard card, PageAction action, boolean viewerOnThisMachine) {
         int issueNumber = card.issueNumber();
         return action.isPossible(card, liveSessions.isContinueRequested(issueNumber),
-                PageAction.findRememberedLabels(issueNumber, pageRequests), viewerOnThisMachine);
+                PageAction.findRememberedLabels(issueNumber, pageRequests), viewerOnThisMachine,
+                facts.isInBlockTarget(card.record()));
     }
 
     private ActionResult runAction(IssueCard card, PageAction action) {

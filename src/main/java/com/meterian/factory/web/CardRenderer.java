@@ -3,10 +3,9 @@ package com.meterian.factory.web;
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
-import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LivePlace;
-import com.meterian.factory.state.ReviewKind;
 import com.meterian.factory.state.Verdict;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -15,15 +14,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Writes the HTML of one card. All text from GitHub and from the agents goes through {@link Html#escape}. */
 final class CardRenderer {
 
     private static final String NO_VALUE = "—";
     private static final String BROWSER_TOOLTIP = "Opens the same conversation in a new tab of this browser.";
-    private static final String GITHUB_ENTER_SENTENCE = "Enter received. The worker stops the current step,"
+    private static final String GITHUB_ENTER_SENTENCE = "Enter received. The worker stops the current action,"
             + " and the link goes to a comment of the issue in a few seconds.";
     private static final List<PageAction> ENTER_ACTIONS = List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER);
     private static final List<PageAction> OTHER_ACTIONS =
@@ -37,27 +38,37 @@ final class CardRenderer {
 
     String render(IssueCard card, PageModel model) {
         IssueRecord record = card.record();
-        boolean waits = record.status() == IssueStatus.WAITS_FOR_YOU;
+        boolean waits = record.action().filter(ActionType::waitsForYou).isPresent();
+        List<String> requestLines = findPendingRequestLines(card, model);
+        boolean suspended = !requestLines.isEmpty();
         StringBuilder html = new StringBuilder();
-        html.append("<article class=\"").append(waits ? "card waits" : "card").append("\">");
-        html.append("<div class=\"card-head\"><span class=\"phase\">").append(toLowerCase(record.phase().name()))
+        html.append("<article class=\"").append(describeCardClass(waits, suspended)).append("\">");
+        html.append("<div class=\"card-head\"><span class=\"phase\">").append(Html.escape(record.state()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
-        List<String> requestLines = findPendingRequestLines(card, model);
         appendRequests(html, requestLines);
-        if (waits && requestLines.isEmpty()) {
+        boolean showsTheReason = waits && !suspended;
+        if (showsTheReason) {
             appendReason(html, record);
         }
-        appendLiveBox(html, card, model);
-        appendReviews(html, record);
-        appendFacts(html, record, model.fixLoopLimit());
+        appendLiveBox(html, card, model, suspended);
+        appendReviews(html, record, model.reviewNamesOf(record.issueNumber()));
+        appendFacts(html, record, model.limitsOf(record.issueNumber()));
         appendContext(html, Optional.ofNullable(model.contexts().get(card.issueNumber())));
         appendPullRequestLink(html, record, model.repositoryFullName());
-        appendNewestNote(html, record);
+        if (!showsTheReason) {
+            appendNewestNote(html, record);
+        }
         card.doneAt().ifPresent(doneAt -> appendDoneDate(html, doneAt));
-        appendActions(html, card, model);
+        appendActions(html, card, model, suspended);
         html.append("</article>");
         return html.toString();
+    }
+
+    /** A card with a sent request is suspended: it is gray, and its buttons are disabled until the worker acts. */
+    private static String describeCardClass(boolean waits, boolean suspended) {
+        String cardClass = waits ? "card waits" : "card";
+        return suspended ? cardClass + " pending" : cardClass;
     }
 
     private void appendTitle(StringBuilder html, IssueCard card, String repositoryFullName) {
@@ -87,9 +98,10 @@ final class CardRenderer {
         boolean continueRequested = model.continueRequested().contains(card.issueNumber());
         Set<String> rememberedLabels = model.findRememberedLabels(card.issueNumber());
         Optional<LivePlace> enterPlace = model.findEnterPlace(card.issueNumber());
+        boolean inBlockTarget = model.isInBlockTarget(card.issueNumber());
         List<String> lines = new ArrayList<>(Arrays.stream(PageAction.values())
                 .filter(action -> action.enterPlace().isEmpty() || action.enterPlace().equals(enterPlace))
-                .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels))
+                .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels, inBlockTarget))
                 .flatMap(action -> action.requestSentence().stream())
                 .toList());
         if (enterPlace.equals(Optional.of(LivePlace.GITHUB_COMMENT))
@@ -106,19 +118,20 @@ final class CardRenderer {
         }
     }
 
+    /** The newest note of a waiting card tells why it waits. */
     private void appendReason(StringBuilder html, IssueRecord record) {
-        record.waitReason().ifPresent(reason ->
-                html.append("<p class=\"reason\">").append(Html.escape(reason.sentence())).append("</p>"));
+        record.newestNote().ifPresent(note ->
+                html.append("<p class=\"reason\">").append(Html.escape(note)).append("</p>"));
     }
 
     /** The box shows where the owner opened the live conversation, and the places where it opens again. */
-    private void appendLiveBox(StringBuilder html, IssueCard card, PageModel model) {
+    private void appendLiveBox(StringBuilder html, IssueCard card, PageModel model, boolean suspended) {
         Optional<String> link = card.record().live().flatMap(live -> live.link());
         if (link.isEmpty()) {
             return;
         }
         LivePlace chosenPlace = card.record().live().orElseThrow().place();
-        String openGroup = createOpenGroup(card, model, link.get(), chosenPlace);
+        String openGroup = createOpenGroup(card, model, link.get(), chosenPlace, suspended);
         html.append("<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p>")
                 .append("<p class=\"open-label\">").append(describeChosenPlace(chosenPlace));
         if (!openGroup.isEmpty()) {
@@ -143,12 +156,13 @@ final class CardRenderer {
     }
 
     /** Only a full match of the Remote Control pattern becomes the Browser link. Any other value is text. */
-    private String createOpenGroup(IssueCard card, PageModel model, String link, LivePlace chosenPlace) {
+    private String createOpenGroup(IssueCard card, PageModel model, String link, LivePlace chosenPlace,
+            boolean suspended) {
         StringBuilder group = new StringBuilder();
         String fingerprint = CardFingerprint.of(card);
         if (isPossible(PageAction.OPEN_TERMINAL, card, model)) {
             appendPlaceForm(group, card.issueNumber(), PageAction.OPEN_TERMINAL, chosenPlace == LivePlace.TERMINAL,
-                    fingerprint);
+                    fingerprint, suspended);
         }
         if (TmuxLiveSessions.isRemoteControlLink(link)) {
             appendExternalLinkStart(group, link, createPlaceAttributes(chosenPlace == LivePlace.BROWSER,
@@ -159,11 +173,11 @@ final class CardRenderer {
     }
 
     /** Each review is a chip. Its class gives the color, and its title gives the result in words. */
-    private void appendReviews(StringBuilder html, IssueRecord record) {
+    private void appendReviews(StringBuilder html, IssueRecord record, List<String> reviewNames) {
         html.append("<ul class=\"reviews\">");
-        for (ReviewKind kind : ReviewKind.values()) {
-            Optional<String> result = Optional.ofNullable(record.reviews().get(kind)).map(this::describeVerdict);
-            String name = capitalize(kind.name());
+        for (String reviewName : reviewNames) {
+            Optional<String> result = Optional.ofNullable(record.reviews().get(reviewName)).map(this::describeVerdict);
+            String name = Html.escape(capitalize(reviewName));
             html.append("<li class=\"review ").append(result.orElse("none")).append("\" title=\"").append(name)
                     .append(": ").append(result.orElse(NO_VALUE)).append("\">").append(name).append("</li>");
         }
@@ -174,12 +188,31 @@ final class CardRenderer {
         return verdict == Verdict.APPROVE ? "positive" : "negative";
     }
 
-    private void appendFacts(StringBuilder html, IssueRecord record, int fixLoopLimit) {
-        String risk = record.risk().map(level -> toLowerCase(level.name())).orElse(NO_VALUE);
-        String riskClass = record.risk().map(level -> " class=\"risk-" + toLowerCase(level.name()) + "\"").orElse("");
-        html.append("<dl class=\"facts\"><div><dt>Fix loops</dt><dd>").append(record.fixLoops()).append(" of ")
-                .append(fixLoopLimit).append("</dd></div><div><dt>Risk</dt><dd").append(riskClass).append('>')
-                .append(risk).append("</dd></div></dl>");
+    private void appendFacts(StringBuilder html, IssueRecord record, Map<String, Integer> limits) {
+        html.append("<p class=\"entries\" title=\"Entries into each state with a limit\">")
+                .append(Html.escape(describeShortEntries(record, limits)))
+                .append("</p>");
+        appendRiskLine(html, record);
+    }
+
+    /** The short form "implement 1/3" keeps the entries on one line of the card. */
+    private String describeShortEntries(IssueRecord record, Map<String, Integer> limits) {
+        if (limits.isEmpty()) {
+            return NO_VALUE;
+        }
+        return limits.entrySet().stream()
+                .map(limit -> limit.getKey() + " " + record.entriesOf(limit.getKey()) + "/" + limit.getValue())
+                .collect(Collectors.joining(", "));
+    }
+
+    /** The reasons of the risk check are in the status comment of the issue, so the card shows only the line. */
+    private void appendRiskLine(StringBuilder html, IssueRecord record) {
+        record.risk().ifPresent(level -> {
+            String levelName = toLowerCase(level.name());
+            String size = record.small() ? "small" : "not small";
+            html.append("<p class=\"risk-line risk-").append(levelName).append("\">Risk: ").append(levelName)
+                    .append(", ").append(size).append("</p>");
+        });
     }
 
     /** The policy of the page forbids an inline style, so the bar is a meter element. */
@@ -218,7 +251,7 @@ final class CardRenderer {
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
      * The Enter buttons are one group before the other forms.
      */
-    private void appendActions(StringBuilder html, IssueCard card, PageModel model) {
+    private void appendActions(StringBuilder html, IssueCard card, PageModel model, boolean suspended) {
         String fingerprint = CardFingerprint.of(card);
         List<PageAction> enterActions = ENTER_ACTIONS.stream()
                 .filter(action -> isPossible(action, card, model))
@@ -227,14 +260,15 @@ final class CardRenderer {
         if (!enterActions.isEmpty()) {
             html.append("<div class=\"enter-group\">");
             for (PageAction action : enterActions) {
-                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint);
+                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint, suspended);
             }
             html.append("</div><span class=\"separator\"></span>");
         }
         for (PageAction action : OTHER_ACTIONS) {
             if (isPossible(action, card, model)) {
                 appendFormStart(html, card.issueNumber(), action, fingerprint);
-                html.append("<button>").append(action.buttonText()).append("</button></form>");
+                html.append(suspended ? "<button disabled>" : "<button>").append(action.buttonText())
+                        .append("</button></form>");
             }
         }
         html.append("</div>");
@@ -242,15 +276,16 @@ final class CardRenderer {
 
     private static boolean isPossible(PageAction action, IssueCard card, PageModel model) {
         return action.isPossible(card, model.continueRequested().contains(card.issueNumber()),
-                model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine());
+                model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine(),
+                model.isInBlockTarget(card.issueNumber()));
     }
 
     /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */
     private void appendPlaceForm(StringBuilder html, int issueNumber, PageAction action, boolean current,
-            String fingerprint) {
+            String fingerprint, boolean suspended) {
         appendFormStart(html, issueNumber, action, fingerprint);
         html.append("<button").append(createPlaceAttributes(current, action.buttonText(), action.tooltip()))
-                .append('>').append(action.buttonText()).append("</button></form>");
+                .append(suspended ? " disabled>" : ">").append(action.buttonText()).append("</button></form>");
     }
 
     /** The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it. */
@@ -276,12 +311,12 @@ final class CardRenderer {
                 + Html.escape(name) + ". " + tooltipText + "\"";
     }
 
-    private static String capitalize(String constantName) {
-        String lowerCase = toLowerCase(constantName);
+    private static String capitalize(String text) {
+        String lowerCase = toLowerCase(text);
         return Character.toUpperCase(lowerCase.charAt(0)) + lowerCase.substring(1);
     }
 
-    private static String toLowerCase(String constantName) {
-        return constantName.toLowerCase(Locale.ROOT);
+    private static String toLowerCase(String text) {
+        return text.toLowerCase(Locale.ROOT);
     }
 }
