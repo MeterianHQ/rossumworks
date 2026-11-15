@@ -32,7 +32,6 @@ import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.PageRequests;
-import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -73,10 +72,8 @@ class GitHubRequestBudgetTest {
     private static final String NOT_MODIFIED = " (304)";
     /** The issue list has the labels, so an issue in work without a request label needs no other read. */
     private static final int MAXIMUM_REQUESTS_OF_AN_IDLE_POLL = 1;
-    /** The issue list, one read of the events for all request labels, and one read of the comments. */
-    private static final int MAXIMUM_REQUESTS_OF_A_POLL_WITH_REQUEST_LABELS = 3;
-    /** One read of the events gives the actors of all request labels of the issue. */
-    private static final int MAXIMUM_EVENT_READS_OF_ONE_ISSUE = 1;
+    /** The issue list and one read of the comments. The worker reads no events of the issue. */
+    private static final int MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL = 2;
     private static final String EVENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/events";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
@@ -129,7 +126,7 @@ class GitHubRequestBudgetTest {
         server = new FakeGitHubServer(fakeGitHub, "MeterianHQ", "sample");
         gitHub = new HttpGitHubClient(server.apiBase(), TOKEN, createTarget(), HttpClient.newHttpClient(), clock);
         fakeGitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
-        fakeGitHub.addLabelBy(ISSUE, "factory", "bbossola");
+        fakeGitHub.addLabel(ISSUE, "factory");
     }
 
     @BeforeEach
@@ -156,22 +153,22 @@ class GitHubRequestBudgetTest {
         BoardState board = new BoardState(clock);
         FactoryConfiguration configuration = new FactoryConfiguration(createTarget(), "main",
                 new Limits(1, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
-        RequestReader requests = new RequestReader(gitHub, configuration.allowedAccounts());
+        PageRequests pageRequests = new PageRequests(Clock.systemUTC());
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
                 configuration.gatekeeperDirectory(), Duration.ZERO);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
-                new UsageTracker(0.90, Clock.systemUTC()), requests, layout, WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), new PageRequests(Clock.systemUTC()));
+                new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
+                board, new ContextTracker(), pageRequests);
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
-        return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
+        return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
                 liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")));
     }
 
@@ -215,20 +212,19 @@ class GitHubRequestBudgetTest {
     }
 
     @Test
-    void anIssueInWorkWithRequestLabelsFromAnotherAccountStaysInTheBudget() throws InterruptedException {
+    void anIssueInWorkWithAnEnterLabelStaysInTheBudget() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
         worker = createWorker(agent);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
-        fakeGitHub.addLabelBy(ISSUE, EnterRequests.ENTER_LABEL, "mallory");
-        fakeGitHub.addLabelBy(ISSUE, "factory:block", "mallory");
+        fakeGitHub.addLabel(ISSUE, EnterRequests.ENTER_LABEL);
         worker.pollOnce();
 
         List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
 
         assertThat(countsByPoll).allSatisfy(counts -> {
-            assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_REQUEST_LABELS);
-            assertThat(counts.getOrDefault(EVENTS_REQUEST, 0)).isLessThanOrEqualTo(MAXIMUM_EVENT_READS_OF_ONE_ISSUE);
+            assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL);
+            assertThat(counts).doesNotContainKey(EVENTS_REQUEST);
         });
     }
 

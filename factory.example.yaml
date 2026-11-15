@@ -14,8 +14,6 @@ limits:                 # all keys optional
   fix-loops: 2
   poll-interval: 60s
   usage-threshold: 0.90
-accounts:
-  allowed: [bbossola]
 isolation:              # optional
   mode: same-user
 claude:                 # optional

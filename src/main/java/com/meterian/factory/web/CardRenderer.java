@@ -11,6 +11,7 @@ import com.meterian.factory.state.Verdict;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -22,8 +23,9 @@ final class CardRenderer {
 
     private static final String NO_VALUE = "—";
     private static final String BROWSER_TOOLTIP = "Opens the same conversation in a new tab of this browser.";
-    private static final List<PageAction> ENTER_ACTIONS =
-            List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER, PageAction.ENTER_PHONE);
+    private static final String GITHUB_ENTER_SENTENCE = "Enter received. The worker stops the current step,"
+            + " and the link goes to a comment of the issue in a few seconds.";
+    private static final List<PageAction> ENTER_ACTIONS = List.of(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER);
     private static final List<PageAction> OTHER_ACTIONS =
             List.of(PageAction.APPROVE, PageAction.BLOCK, PageAction.START_AGAIN, PageAction.CONTINUE);
 
@@ -41,9 +43,9 @@ final class CardRenderer {
         html.append("<div class=\"card-head\"><span class=\"phase\">").append(toLowerCase(record.phase().name()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());
-        List<PageAction> pendingRequests = findPendingRequests(card, model);
-        appendRequests(html, pendingRequests);
-        if (waits && pendingRequests.isEmpty()) {
+        List<String> requestLines = findPendingRequestLines(card, model);
+        appendRequests(html, requestLines);
+        if (waits && requestLines.isEmpty()) {
             appendReason(html, record);
         }
         appendLiveBox(html, card, model);
@@ -78,24 +80,29 @@ final class CardRenderer {
     }
 
     /**
-     * The three Enter buttons share one label, so only the button of the remembered place shows its line. A label
-     * that did not come from the page has no remembered place, and it shows no Enter line.
+     * The two Enter buttons share one label, so only the button of the remembered place shows its line. An Enter
+     * from the GitHub app has the place GITHUB_COMMENT and no button, so it gets its own line.
      */
-    private static List<PageAction> findPendingRequests(IssueCard card, PageModel model) {
+    private static List<String> findPendingRequestLines(IssueCard card, PageModel model) {
         boolean continueRequested = model.continueRequested().contains(card.issueNumber());
         Set<String> rememberedLabels = model.findRememberedLabels(card.issueNumber());
         Optional<LivePlace> enterPlace = model.findEnterPlace(card.issueNumber());
-        return Arrays.stream(PageAction.values())
+        List<String> lines = new ArrayList<>(Arrays.stream(PageAction.values())
                 .filter(action -> action.enterPlace().isEmpty() || action.enterPlace().equals(enterPlace))
                 .filter(action -> action.isRequestPending(card, continueRequested, rememberedLabels))
-                .toList();
+                .flatMap(action -> action.requestSentence().stream())
+                .toList());
+        if (enterPlace.equals(Optional.of(LivePlace.GITHUB_COMMENT))
+                && PageAction.isEnterRequestPending(card, continueRequested, rememberedLabels)) {
+            lines.addFirst(GITHUB_ENTER_SENTENCE);
+        }
+        return lines;
     }
 
     /** A request of the page replaces the reason of the wait, so that the owner sees that the click arrived. */
-    private void appendRequests(StringBuilder html, List<PageAction> pendingRequests) {
-        for (PageAction action : pendingRequests) {
-            action.requestSentence().ifPresent(sentence ->
-                    html.append("<p class=\"request\">").append(Html.escape(sentence)).append("</p>"));
+    private void appendRequests(StringBuilder html, List<String> requestLines) {
+        for (String line : requestLines) {
+            html.append("<p class=\"request\">").append(Html.escape(line)).append("</p>");
         }
     }
 
@@ -131,7 +138,7 @@ final class CardRenderer {
         return switch (place) {
             case TERMINAL -> "You opened it in a terminal on this machine.";
             case BROWSER -> "You opened it in a tab of this browser.";
-            case PHONE -> "You sent it to the phone.";
+            case GITHUB_COMMENT -> "The link is in a comment of the issue on GitHub.";
         };
     }
 
@@ -147,10 +154,6 @@ final class CardRenderer {
             appendExternalLinkStart(group, link, createPlaceAttributes(chosenPlace == LivePlace.BROWSER,
                     "Browser", BROWSER_TOOLTIP));
             group.append("Browser</a>");
-        }
-        if (isPossible(PageAction.SEND_TO_PHONE, card, model)) {
-            appendPlaceForm(group, card.issueNumber(), PageAction.SEND_TO_PHONE, chosenPlace == LivePlace.PHONE,
-                    fingerprint);
         }
         return group.toString();
     }

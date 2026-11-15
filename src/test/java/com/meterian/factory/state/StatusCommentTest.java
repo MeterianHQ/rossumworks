@@ -161,14 +161,25 @@ class StatusCommentTest {
     }
 
     @Test
-    void aLiveSessionWithoutAPlaceIsPhone() {
+    void aLiveSessionWithoutAPlaceIsTheGitHubComment() {
         IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x"));
-        String bodyWithoutPlace = StatusComment.render(live, LIMIT).replaceAll(",\\s*\"place\"\\s*:\\s*\"[A-Z]+\"", "");
+        String bodyWithoutPlace = StatusComment.render(live, LIMIT).replaceAll(",\\s*\"place\"\\s*:\\s*\"[A-Z_]+\"", "");
         IssueComment comment = new IssueComment(1, WORKER, bodyWithoutPlace);
 
         assertThat(bodyWithoutPlace).doesNotContain("place");
         assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().live().orElseThrow().place())
-                .isEqualTo(LivePlace.PHONE);
+                .isEqualTo(LivePlace.GITHUB_COMMENT);
+    }
+
+    @Test
+    void theOldPlacePhoneReadsAsTheGitHubComment() {
+        IssueRecord live = record.withLive(liveSession("https://claude.ai/code/session_x"));
+        String oldBody = StatusComment.render(live, LIMIT).replace("\"GITHUB_COMMENT\"", "\"PHONE\"");
+        IssueComment comment = new IssueComment(1, WORKER, oldBody);
+
+        assertThat(oldBody).contains("\"PHONE\"");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().live().orElseThrow().place())
+                .isEqualTo(LivePlace.GITHUB_COMMENT);
     }
 
     @Test
@@ -191,7 +202,7 @@ class StatusCommentTest {
 
     private static LiveSession liveSession(String link) {
         return new LiveSession("abc", IssueStatus.IN_REVIEW, Optional.of(WaitReason.QUESTION), Optional.of(link),
-                LivePlace.PHONE);
+                LivePlace.GITHUB_COMMENT);
     }
 
     @Test

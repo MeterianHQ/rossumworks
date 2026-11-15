@@ -25,7 +25,7 @@ class PageActionTest {
     private static IssueRecord liveRecord(Optional<String> link) {
         return startedRecord(IssueStatus.WAITS_FOR_YOU, Phase.IMPLEMENT)
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
-                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link, LivePlace.PHONE));
+                .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), link, LivePlace.BROWSER));
     }
 
     private static IssueCard card(IssueRecord record) {
@@ -51,25 +51,25 @@ class PageActionTest {
         IssueRecord notStarted = IssueRecord.queued(12).withStatus(IssueStatus.IN_PROGRESS);
         IssueRecord started = startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT);
 
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(notStarted), false)).isFalse();
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(started), false)).isTrue();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(notStarted), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(started), false)).isTrue();
     }
 
     @Test
     void enterIsNotPossibleWhenThePhaseIsDone() {
         IssueRecord done = startedRecord(IssueStatus.DONE, Phase.DONE);
 
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(done), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(done), false)).isFalse();
     }
 
     @Test
     void enterIsNotPossibleWhenTheLiveStateHasALink() {
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(liveRecord(Optional.of(LINK))), false)).isFalse();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(liveRecord(Optional.of(LINK))), false)).isFalse();
     }
 
     @Test
     void enterIsPossibleAgainWhenTheLiveStateHasNoLink() {
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(liveRecord(Optional.empty())), false)).isTrue();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(liveRecord(Optional.empty())), false)).isTrue();
     }
 
     @Test
@@ -120,7 +120,7 @@ class PageActionTest {
                 remembered)).isFalse();
         assertThat(isPossibleOnThisMachine(PageAction.BLOCK, card(merge, Set.of("factory", "factory:block")),
                 remembered)).isFalse();
-        assertThat(isPossibleOnThisMachine(PageAction.ENTER_PHONE, card(merge, Set.of("factory", "factory:enter")),
+        assertThat(isPossibleOnThisMachine(PageAction.ENTER_BROWSER, card(merge, Set.of("factory", "factory:enter")),
                 remembered)).isFalse();
         assertThat(isPossibleOnThisMachine(PageAction.BLOCK, card(merge, Set.of("factory", "factory:approve")),
                 remembered)).isTrue();
@@ -133,7 +133,7 @@ class PageActionTest {
 
         assertThat(isPossible(PageAction.APPROVE, card(merge, Set.of("factory", "factory:approve")), false)).isTrue();
         assertThat(isPossible(PageAction.BLOCK, card(merge, Set.of("factory", "factory:block")), false)).isTrue();
-        assertThat(isPossible(PageAction.ENTER_PHONE, card(merge, Set.of("factory", "factory:enter")), false)).isTrue();
+        assertThat(isPossible(PageAction.ENTER_BROWSER, card(merge, Set.of("factory", "factory:enter")), false)).isTrue();
     }
 
     @Test
@@ -185,13 +185,11 @@ class PageActionTest {
 
         assertThat(PageAction.ENTER_TERMINAL.isPossible(started, false, Set.of(), false)).isFalse();
         assertThat(PageAction.OPEN_TERMINAL.isPossible(live, false, Set.of(), false)).isFalse();
-        assertThat(PageAction.ENTER_PHONE.isPossible(started, false, Set.of(), false)).isTrue();
         assertThat(PageAction.ENTER_BROWSER.isPossible(started, false, Set.of(), false)).isTrue();
-        assertThat(PageAction.SEND_TO_PHONE.isPossible(live, false, Set.of(), false)).isTrue();
     }
 
     @Test
-    void theThreeEnterActionsHaveTheSameRule() {
+    void theTwoEnterActionsHaveTheSameRule() {
         IssueCard started = card(startedRecord(IssueStatus.IN_PROGRESS, Phase.IMPLEMENT));
         IssueCard live = card(liveRecord(Optional.of(LINK)));
 
@@ -215,36 +213,19 @@ class PageActionTest {
     }
 
     @Test
-    void sendToPhoneNeedsARemoteControlLink() {
-        assertThat(isPossible(PageAction.SEND_TO_PHONE, card(liveRecord(Optional.of(LINK))), false)).isTrue();
-        assertThat(isPossible(PageAction.SEND_TO_PHONE, card(liveRecord(Optional.empty())), false)).isFalse();
-        assertThat(isPossible(PageAction.SEND_TO_PHONE, card(liveRecord(Optional.of("javascript:alert(1)"))), false))
-                .isFalse();
-    }
-
-    @Test
-    void sendToPhoneIsNotPossibleWithAContinueRequest() {
-        assertThat(isPossible(PageAction.SEND_TO_PHONE, card(liveRecord(Optional.of(LINK))), true)).isFalse();
-    }
-
-    @Test
     void onlyTheEnterActionsHaveAPlace() {
         assertThat(PageAction.ENTER_TERMINAL.enterPlace()).contains(LivePlace.TERMINAL);
         assertThat(PageAction.ENTER_BROWSER.enterPlace()).contains(LivePlace.BROWSER);
-        assertThat(PageAction.ENTER_PHONE.enterPlace()).contains(LivePlace.PHONE);
         assertThat(PageAction.OPEN_TERMINAL.enterPlace()).isEmpty();
-        assertThat(PageAction.SEND_TO_PHONE.enterPlace()).isEmpty();
         assertThat(PageAction.APPROVE.enterPlace()).isEmpty();
     }
 
     @Test
     void theOpenActionsHaveNoLabelAndNoRequestLine() {
         assertThat(PageAction.OPEN_TERMINAL.label()).isEmpty();
-        assertThat(PageAction.SEND_TO_PHONE.label()).isEmpty();
         assertThat(PageAction.OPEN_TERMINAL.requestSentence()).isEmpty();
-        assertThat(PageAction.SEND_TO_PHONE.requestSentence()).isEmpty();
-        assertThat(PageAction.ENTER_PHONE.requestSentence())
-                .contains("Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds.");
+        assertThat(PageAction.ENTER_BROWSER.requestSentence()).contains(
+                "Enter sent. The worker stops the current step, and the new tab opens the conversation in a few seconds.");
     }
 
     @Test
@@ -253,11 +234,7 @@ class PageActionTest {
                 "Opens the conversation in a terminal window on this machine. Close the window with Ctrl-b d.");
         assertThat(PageAction.ENTER_BROWSER.tooltip()).isEqualTo(
                 "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link.");
-        assertThat(PageAction.ENTER_PHONE.tooltip())
-                .isEqualTo("Sends the link of the conversation to your phone, with a GitHub notification.");
         assertThat(PageAction.OPEN_TERMINAL.tooltip())
                 .isEqualTo("Opens one more terminal window on this machine, attached to the same conversation.");
-        assertThat(PageAction.SEND_TO_PHONE.tooltip())
-                .isEqualTo("Sends the link to your phone again, with one more GitHub comment.");
     }
 }

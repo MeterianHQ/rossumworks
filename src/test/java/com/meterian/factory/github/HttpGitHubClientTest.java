@@ -20,7 +20,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
@@ -149,19 +148,6 @@ class HttpGitHubClientTest {
 
         assertThat(requests.get(0).target()).startsWith("/repos/o/r/issues?labels=factory&state=open");
         assertThat(issues).containsExactly(new Issue(1, "One", "text", Set.of("factory")));
-    }
-
-    @Test
-    void findsTheActorOfTheNewestLabelEvent() {
-        responder = request -> new Answer(200, "["
-                + "{\"event\":\"labeled\",\"created_at\":\"2026-11-01T10:00:00Z\",\"label\":{\"name\":\"factory:approve\"},\"actor\":{\"login\":\"old\"}},"
-                + "{\"event\":\"labeled\",\"created_at\":\"2026-11-01T12:00:00Z\",\"label\":{\"name\":\"factory:approve\"},\"actor\":{\"login\":\"new\"}},"
-                + "{\"event\":\"labeled\",\"created_at\":\"2026-11-01T13:00:00Z\",\"label\":{\"name\":\"other\"},\"actor\":{\"login\":\"x\"}}]");
-
-        Optional<String> actor = client.lastLabelActor(4, "factory:approve");
-
-        assertThat(actor).contains("new");
-        assertThat(requests.get(0).target()).startsWith("/repos/o/r/issues/4/events");
     }
 
     @Test
@@ -415,25 +401,15 @@ class HttpGitHubClientTest {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
-    private static String labeledEvent(String time, String label, String actorJson) {
-        return "{\"event\":\"labeled\",\"created_at\":\"" + time + "\",\"label\":{\"name\":\"" + label
-                + "\"},\"actor\":" + actorJson + "}";
-    }
-
     @Test
     void followsTheLinkHeaderToTheNextPage() {
         responder = request -> {
             boolean secondPage = request.target().contains("page=2");
-            boolean events = request.target().contains("/events");
-            String body = events
-                    ? "[" + (secondPage ? labeledEvent("2026-11-01T12:00:00Z", "factory:approve", "{\"login\":\"newest\"}")
-                    : labeledEvent("2026-11-01T10:00:00Z", "factory:approve", "{\"login\":\"older\"}")) + "]"
-                    : "[{\"number\":" + (secondPage ? 2 : 1) + ",\"node_id\":\"N\",\"title\":\"T\",\"labels\":[]}]";
+            String body = "[{\"number\":" + (secondPage ? 2 : 1) + ",\"node_id\":\"N\",\"title\":\"T\",\"labels\":[]}]";
             String link = secondPage ? null : "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"";
             return new Answer(200, body, link);
         };
 
-        assertThat(client.lastLabelActor(4, "factory:approve")).contains("newest");
         assertThat(client.openIssuesWithLabel("factory")).extracting(Issue::number).containsExactly(1, 2);
     }
 
@@ -450,39 +426,20 @@ class HttpGitHubClientTest {
     }
 
     @Test
-    void returnsNoActorWhenNoEventMatches() {
-        responder = request -> new Answer(200, "[]");
-        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
-
-        responder = request -> new Answer(200, "[" + labeledEvent("2026-11-01T10:00:00Z", "other",
-                "{\"login\":\"x\"}") + "]");
-        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
-    }
-
-    @Test
-    void returnsNoActorWhenTheNewestEventHasNoActor() {
-        responder = request -> new Answer(200, "["
-                + labeledEvent("2026-11-01T10:00:00Z", "factory:approve", "{\"login\":\"old\"}") + ","
-                + labeledEvent("2026-11-01T12:00:00Z", "factory:approve", "null") + "]");
-
-        assertThat(client.lastLabelActor(4, "factory:approve")).isEmpty();
-    }
-
-    @Test
     void countsEachRequestByMethodAndPathTemplate() {
         responder = request -> {
-            boolean firstEventPage = request.target().contains("/events") && !request.target().contains("page=2");
-            String link = firstEventPage ? "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"" : null;
-            return new Answer(200, request.target().contains("/events") ? "[]" : issueJson(), link);
+            boolean firstCommentPage = request.target().contains("/comments") && !request.target().contains("page=2");
+            String link = firstCommentPage ? "<" + baseUrl() + request.target() + "&page=2>; rel=\"next\"" : null;
+            return new Answer(200, request.target().contains("/comments") ? commentsJson(1, 100) : issueJson(), link);
         };
 
         client.issue(4);
         client.issue(12);
-        client.lastLabelActor(4, "factory:approve");
+        client.comments(4);
 
         assertThat(client.requestCounts()).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "GET /repos/{o}/{r}/issues/{n}", 2,
-                "GET /repos/{o}/{r}/issues/{n}/events", 2));
+                "GET /repos/{o}/{r}/issues/{n}/comments", 2));
     }
 
     @Test
@@ -577,20 +534,6 @@ class HttpGitHubClientTest {
                 .hasMessageContaining("403");
     }
 
-    @Test
-    void readsTheEventsOnceForTheActorsOfAllLabels() {
-        responder = request -> new Answer(200, "["
-                + labeledEvent("2026-11-01T10:00:00Z", "factory:block", "{\"login\":\"mallory\"}") + ","
-                + labeledEvent("2026-11-01T11:00:00Z", "factory:enter", "{\"login\":\"bbossola\"}") + ","
-                + labeledEvent("2026-11-01T12:00:00Z", "factory:block", "{\"login\":\"bbossola\"}") + ","
-                + labeledEvent("2026-11-01T13:00:00Z", "factory:enter", "null") + "]");
-
-        Map<String, String> actors = client.lastLabelActors(4);
-
-        assertThat(actors).containsExactly(Map.entry("factory:block", "bbossola"));
-        assertThat(requests).hasSize(1);
-    }
-
     private static Answer answerWithEntityTag(String entityTag, String body) {
         return new Answer(200, body, Map.of("ETag", entityTag));
     }
@@ -667,14 +610,11 @@ class HttpGitHubClientTest {
     }
 
     @Test
-    void sendsNoEntityTagForTheEventsOrForOneIssue() {
-        responder = request -> answerWithEntityTag("\"tag\"",
-                request.target().contains("/events") ? "[]" : issueJson());
+    void sendsNoEntityTagForOneIssue() {
+        responder = request -> answerWithEntityTag("\"tag\"", issueJson());
 
         client.issue(4);
         client.issue(4);
-        client.lastLabelActors(4);
-        client.lastLabelActors(4);
 
         assertThat(requests).extracting(request -> request.headers().get("If-None-Match")).containsOnly("");
     }

@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Runs the action of a button. It checks the rule of the button again on the current board, because the page
  * can be old. Enter, Approve, and Block add one label. Continue writes the local marker and makes no request.
  * After these actions, the page asks the worker for an early poll, so that the worker acts in seconds. Open
- * Terminal and Send to Phone act at once in the page: they need no poll.
+ * Terminal acts at once in the page: it needs no poll.
  */
 public final class PageActions {
 
@@ -35,19 +35,17 @@ public final class PageActions {
     private final LabelWriter labels;
     private final PageRequests pageRequests;
     private final LiveSessions liveSessions;
-    private final PhoneLinkSender phoneLinkSender;
     private final BoardState board;
     private final FactorySwitch factorySwitch;
     private final Runnable earlyPollRequest;
     private final ReentrantLock actionLock = new ReentrantLock();
 
     /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
-    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions,
-            PhoneLinkSender phoneLinkSender, BoardState board, FactorySwitch factorySwitch, Runnable earlyPollRequest) {
+    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board,
+            FactorySwitch factorySwitch, Runnable earlyPollRequest) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
-        this.phoneLinkSender = phoneLinkSender;
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.earlyPollRequest = earlyPollRequest;
@@ -58,7 +56,7 @@ public final class PageActions {
      *
      * @param state the fingerprint that the form sent, see {@link CardFingerprint}
      * @param viewerOnThisMachine true when the browser runs on the machine of the worker, see {@link ViewerLocation}
-     * @throws com.meterian.factory.github.GitHubException when GitHub refuses the label or the comment
+     * @throws com.meterian.factory.github.GitHubException when GitHub refuses the label
      */
     public ActionResult perform(int issueNumber, PageAction action, Optional<String> state,
             boolean viewerOnThisMachine) {
@@ -107,9 +105,8 @@ public final class PageActions {
     private ActionResult runAction(IssueCard card, PageAction action) {
         return switch (action) {
             case OPEN_TERMINAL -> openTerminal(card.issueNumber());
-            case SEND_TO_PHONE -> sendLinkToPhone(card);
             case CONTINUE -> requestEarlyPollAfter(() -> liveSessions.requestContinue(card.issueNumber()));
-            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE, APPROVE, BLOCK, START_AGAIN ->
+            case ENTER_TERMINAL, ENTER_BROWSER, APPROVE, BLOCK, START_AGAIN ->
                     requestEarlyPollAfter(() -> sendLabelRequest(card, action));
         };
     }
@@ -129,18 +126,11 @@ public final class PageActions {
         }
     }
 
-    /** The rule of Send to Phone accepts only a card with a Remote Control link. */
-    private ActionResult sendLinkToPhone(IssueCard card) {
-        String link = card.record().live().flatMap(live -> live.link()).orElseThrow();
-        phoneLinkSender.sendLink(card.issueNumber(), link);
-        return ActionResult.of(ActionOutcome.DONE);
-    }
-
     /** An Enter remembers its place first, so that the worker knows where to open the conversation. */
     private void sendLabelRequest(IssueCard card, PageAction action) {
         action.enterPlace().ifPresent(place -> pageRequests.rememberEnterPlace(card.issueNumber(), place));
         try {
-            addLabel(card, action, action.label().orElseThrow());
+            addLabel(card.issueNumber(), action.label().orElseThrow());
         } catch (RuntimeException exception) {
             forgetEnterPlace(card.issueNumber(), action);
             throw exception;
@@ -154,17 +144,9 @@ public final class PageActions {
         }
     }
 
-    /**
-     * The request is remembered first, so that the actor check of the next poll accepts the label. A label that
-     * the worker ignored is still on the issue: the page removes it and adds it again, so that the newest
-     * "labeled" event comes from the worker account.
-     */
-    private void addLabel(IssueCard card, PageAction action, String label) {
-        int issueNumber = card.issueNumber();
+    /** The request is remembered first, so that the card shows its waiting state at once. */
+    private void addLabel(int issueNumber, String label) {
         pageRequests.remember(issueNumber, label);
-        if (action.isLabelOnTheCard(card)) {
-            labels.removeLabel(issueNumber, label);
-        }
         labels.addLabel(issueNumber, label);
         board.recordLabelAdded(issueNumber, label);
     }

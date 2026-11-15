@@ -23,11 +23,20 @@ The factory needs no GitHub Project. The worker creates its labels in the target
 5. Build the jar with `./mvnw verify`.
 6. Run the worker: `java -jar target/claude-ai-factory-0.1.0-SNAPSHOT.jar run --config <file>`.
 
-Add the label `factory` to an issue to give it to the factory. Only the accounts in `accounts.allowed`
-can do this.
+Add the label `factory` to an issue to give it to the factory. The factory does not check who added a request
+label. It acts on each request label that it finds on an issue. Usually, only an account with triage access or
+more can add a label.
 
-Note: if the token belongs to the owner, GitHub sends the owner no notification for the comments of the
-worker. A separate GitHub account for the worker gives the notifications.
+Warning: two other paths add labels. They can give work to the factory from any account:
+
+- An issue template or an issue form with `labels:` adds its labels for each author of an issue.
+- A GitHub Actions workflow adds labels with its own token.
+
+Do not put `factory` or a `factory:` label in an issue template, an issue form, or a workflow.
+
+Note: the comments of the worker mention nobody. If the token belongs to the owner, GitHub sends the owner no
+notification for these comments. With a separate worker account, the owner gets a notification only for the
+issues that the owner watches.
 
 The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
 before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted phases run again from
@@ -47,7 +56,7 @@ In live mode the owner talks to the agent of an issue through Remote Control. Th
 
 ### Enter
 
-- The owner with an account of `accounts.allowed` adds the label `factory:enter` to the issue.
+- The owner adds the label `factory:enter` to the issue.
 - The agent can also ask a question. The issue then waits for the owner in the same way.
 
 The worker stops the running step at once, because only one process can use the session of the agent. The agent
@@ -69,7 +78,7 @@ into the environment of your tmux server. To see a session, run
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no phase for the issue.
 
-### The three places
+### The two places
 
 The owner chooses where the live conversation opens. The page has one Enter button for each place. Each button
 has a tooltip that tells what happens.
@@ -78,7 +87,6 @@ has a tooltip that tells what happens.
 |---|---|---|
 | Terminal | A terminal window on the machine of the worker, attached to the tmux session | The worker |
 | Browser | A new tab of the browser that clicked, on the claude.ai conversation | The browser |
-| Phone | The phone of the owner, from the GitHub notification of the mention | GitHub |
 
 - **Terminal.** After the session shows its link, the worker runs the terminal command. The last arguments are
   the tmux attach command. The command comes only from the configuration, never from a request. The default is
@@ -88,13 +96,12 @@ has a tooltip that tells what happens.
   `/exit`: it ends the session without a continue.
 - **Browser.** The click opens a new tab with a wait page: "The live conversation of #<n> opens…". The wait
   page asks the worker for the link. When the link is ready, the tab goes to the claude.ai conversation. The
-  tab goes only to a link of Remote Control. The first time, claude.ai can ask for a device sign-in.
-- **Phone.** The worker adds a comment with the link and the mention of the owner. GitHub sends the
-  notification to the phone. Only Phone sends a notification. For Terminal and Browser, the comment has no
-  mention.
+  tab goes only to a link of Remote Control. The first time, claude.ai can ask for a device sign-in. On a
+  phone, Browser also works.
 
-An Enter with no page request, for example a label from the GitHub app, is Phone. The comment with the link is
-always posted, because it is the record on GitHub.
+An Enter with no page request, for example a label from the GitHub app, opens no window and no tab. Open the
+link in the comment of the issue. On a phone, tap the link in the comment. The worker always posts the comment
+with the link, because it is the record on GitHub.
 
 Terminal shows only to a browser on the machine of the worker. The worker decides this from the remote address
 of the request: `127.0.0.1` or `::1`. The server applies the same rule to the POST. A reverse proxy or a tunnel
@@ -207,12 +214,12 @@ the top.
 ### Actions
 
 A button shows only when its action is possible. The worker checks the rule again when you click.
-A label that the worker ignored does not hide the button; the button removes the label and adds it again.
+A label that the page did not ask for hides the button only after the worker finds the label at a poll.
 A button of an old page gets "This action is not possible now." when the card changed. Load the page again.
 
 | Button | Label | Effect |
 |---|---|---|
-| Terminal, Browser, Phone | `factory:enter` | Opens live mode in the chosen place. |
+| Terminal, Browser | `factory:enter` | Opens live mode in the chosen place. |
 | Approve | `factory:approve` | Approves a merge that waits for the owner. |
 | Block | `factory:block` | Takes the issue out of the factory and stops the running `claude` process. |
 | Start again | `factory:start-again` | Discards the earlier work of a Blocked issue and runs the issue from the start. |
@@ -224,21 +231,20 @@ resets the branch, and starts a new session. The page asks for a confirm first. 
 gets the new commit. A pull request that GitHub merged moves the issue to Done, so the change never runs again.
 Start again shows only on a Blocked issue without a live conversation.
 
-The three Enter buttons are one joined row of three parts. They have no icons, because a card is 240 px wide.
+The two Enter buttons are one joined row of two parts. They have no icons, because a card is 240 px wide.
 Each part has a tooltip. A phone shows no tooltip, so the names are clear alone. Approve and Block go on the
-next row. The three Enter buttons add the same label. Approve and Block add their label too, with the token of
-the worker. The worker accepts the label because the page asked for it. Continue writes the local marker and
-adds no label.
+next row. The two Enter buttons add the same label. Approve and Block add their label too, with the token of
+the worker. Continue writes the local marker and adds no label.
 
 After one Enter, the card shows only the request line of the chosen place. For Terminal, the line says that a
-terminal window opens on this machine. For Browser, it says that the new tab goes to the conversation. For
-Phone, it says that the link goes to the phone.
+terminal window opens on this machine. For Browser, it says that the new tab goes to the conversation. For a
+label from the GitHub app, it says that the link goes to a comment of the issue.
 
 While the session is open, the card shows a green box "Live conversation open". The box names the chosen place.
-It also has one joined group of three parts: Terminal, Browser, and Phone. The chosen place is blue. Each part
-opens the conversation again in its place, also the blue one. For example, Terminal opens a new window after
-the owner closed the first one. Terminal in the group makes no GitHub request. Phone posts one more comment
-with the mention. Browser is a link to the Remote Control link. It opens a new tab.
+It also has one joined group of two parts: Terminal and Browser. The chosen place is blue. Each part opens the
+conversation again in its place, also the blue one. For example, Terminal opens a new window after the owner
+closed the first one. Terminal in the group makes no GitHub request. Browser is a link to the Remote Control
+link. It opens a new tab.
 
 After a click, the button shows a turning wheel and you cannot click it again. When you ask the browser for
 less motion, the button shows "…". After the action, the card shows a blue line, for example "Approval sent.
@@ -256,8 +262,7 @@ effect, in a few seconds. The 2 s give GitHub time to show the new label in the 
 does not show the label yet, the worker acts at the next usual poll.
 
 The page makes no GitHub request of its own. It shows the state from the last poll of the worker. An action
-usually makes only one request: it adds one label. When the label is already on the issue, the action makes
-two requests: it removes the label and adds it again.
+makes only one request: it adds one label.
 
 ### Stop and start the factory
 
@@ -299,4 +304,3 @@ A stop stays after a restart of the worker. The marker file is `<work-directory>
   the next usual poll, so after one poll interval at most.
 - A browser opens about 6 connections to one address. Many tabs of the page in one browser can stop the
   updates, the loads of the page, and the actions.
-- A label that the page adds just before a restart is ignored with a note. Click the button again.

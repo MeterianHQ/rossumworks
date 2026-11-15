@@ -176,16 +176,12 @@ class LiveFilesTest {
     }
 
     @Test
-    void theRefusalNamesTheGroupAndTheFix() throws IOException {
-        Path parent = Files.createDirectories(temporaryDirectory.resolve("group-message"));
-        Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxrwx---"));
-        String groupName = Files.readAttributes(parent, java.nio.file.attribute.PosixFileAttributes.class)
-                .group().getName();
-        org.junit.jupiter.api.Assumptions.assumeTrue(!groupName.equals(System.getProperty("user.name")));
+    void theRefusalNamesTheGroupAndTheFix() {
+        Path parent = Path.of("/srv/shared");
 
-        assertThatThrownBy(() -> new LiveFiles(parent.resolve("live")).install())
-                .hasMessageContaining("can be written by the group " + groupName)
-                .hasMessageContaining("Run: chmod go-w " + parent);
+        assertThat(LiveFiles.describeUnsafeParent(parent, 0770, "no-such-group"))
+                .contains("can be written by the group no-such-group")
+                .contains("Run: chmod go-w /srv/shared");
     }
 
     @Test

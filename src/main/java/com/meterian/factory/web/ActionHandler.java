@@ -23,7 +23,6 @@ final class ActionHandler implements HttpHandler {
     private static final String NOT_POSSIBLE_MESSAGE = "This action is not possible now.";
     private static final String UNKNOWN_ISSUE_MESSAGE = "This issue is no longer on the board.";
     private static final String REFUSED_LABEL_MESSAGE = "GitHub refused the label. ";
-    private static final String REFUSED_COMMENT_MESSAGE = "GitHub refused the comment. ";
     private static final String FAILED_ACTION_MESSAGE = "The action failed. See the log of the worker.";
 
     /** The issue and the action of one path. */
@@ -86,17 +85,12 @@ final class ActionHandler implements HttpHandler {
                     ViewerLocation.isThisMachine(exchange));
             sendResult(exchange, target, result);
         } catch (GitHubException exception) {
-            HttpAnswers.sendMessagePage(exchange, 502, describeRefusal(target.action()) + exception.getMessage());
+            HttpAnswers.sendMessagePage(exchange, 502, REFUSED_LABEL_MESSAGE + exception.getMessage());
         } catch (RuntimeException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "The action " + target.action().pathName() + " on the issue #"
                     + target.issueNumber() + " failed.", exception);
             HttpAnswers.sendMessagePage(exchange, 500, FAILED_ACTION_MESSAGE);
         }
-    }
-
-    /** Send to Phone is the only action that reaches GitHub without a label: it posts a comment. */
-    private static String describeRefusal(PageAction action) {
-        return action.label().isPresent() ? REFUSED_LABEL_MESSAGE : REFUSED_COMMENT_MESSAGE;
     }
 
     private static void sendResult(HttpExchange exchange, ActionTarget target, ActionResult result)

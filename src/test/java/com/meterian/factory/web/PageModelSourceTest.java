@@ -68,7 +68,7 @@ class PageModelSourceTest {
         TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
                 "true", Map.of());
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
+                new Limits(3, 4, Duration.ofSeconds(45), 0.90), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
@@ -84,7 +84,7 @@ class PageModelSourceTest {
         return IssueRecord.queued(number).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.LIVE_CONVERSATION)
                 .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
-                        LivePlace.PHONE));
+                        LivePlace.GITHUB_COMMENT));
     }
 
     private void writeSessionFile(IssueRecord record, long inputTokens) throws IOException {

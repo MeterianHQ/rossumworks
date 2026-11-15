@@ -87,7 +87,7 @@ public final class LiveFiles {
         return parent;
     }
 
-    private static String describeUnsafeParent(Path parent, int mode, String groupName) {
+    static String describeUnsafeParent(Path parent, int mode, String groupName) {
         String writer = (mode & OTHERS_WRITE_BIT) != 0 ? "others" : "the group " + groupName;
         return "The folder " + parent + " can be written by " + writer + ". Run: chmod go-w " + parent
                 + ", or choose a live-directory in a private folder.";

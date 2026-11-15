@@ -21,8 +21,6 @@ class ConfigurationLoaderTest {
               clone: /work/heidi-fix
               build:
                 command: ./mvnw verify
-            accounts:
-              allowed: [bbossola]
             work-directory: /work/factory
             gatekeeper-directory: /work/gatekeeper.git
             """;
@@ -43,7 +41,6 @@ class ConfigurationLoaderTest {
         assertThat(configuration.target().sshUrl()).isEqualTo("git@github.com:MeterianHQ/heidi-fix.git");
         assertThat(configuration.target().buildEnvironment()).containsEntry("LANG", "C.utf8");
         assertThat(configuration.mergeTargetBranch()).isEqualTo("main");
-        assertThat(configuration.allowedAccounts()).containsExactly("bbossola");
         assertThat(configuration.limits().pollInterval()).isEqualTo(Duration.ofSeconds(60));
         assertThat(configuration.promptDirectory()).isEmpty();
     }
@@ -101,12 +98,15 @@ class ConfigurationLoaderTest {
     }
 
     @Test
-    void refusesAnEmptyListOfAccounts() {
-        String withoutAccounts = REQUIRED_KEYS.replace("[bbossola]", "[]");
+    void loadsAnOldConfigurationWithTheAccountsSection() throws Exception {
+        String withAccounts = REQUIRED_KEYS + """
+                accounts:
+                  allowed: [bbossola]
+                """;
 
-        assertThatThrownBy(() -> load(withoutAccounts + MERGE_SECTION))
-                .isInstanceOf(ConfigurationException.class)
-                .hasMessageContaining("accounts.allowed");
+        FactoryConfiguration configuration = load(withAccounts + MERGE_SECTION);
+
+        assertThat(configuration.target().fullName()).isEqualTo("MeterianHQ/heidi-fix");
     }
 
     @Test
