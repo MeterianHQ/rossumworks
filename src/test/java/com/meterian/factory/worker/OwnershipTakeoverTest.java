@@ -72,14 +72,50 @@ class OwnershipTakeoverTest {
     }
 
     @Test
-    void takeOverKeepsAWaitForApproval() {
+    void takeOverKeepsAWaitForApprovalWithThePushedBranch() {
+        gitHub.addBranchHead(BRANCH, "abc123");
         addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
 
         IssueRecord record = takeOver();
 
+        assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
         assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void takeOverDropsAWaitForApprovalWithoutBranch() {
+        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
+
+        IssueRecord record = takeOver();
+
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(record.waitReason()).isEmpty();
+    }
+
+    @Test
+    void takeOverKeepsTheBlockOfAnOwnReleasedRecord() {
+        IssueRecord released = IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
+                .withWaitReason(WaitReason.FAILURE).withHandOver(HandOver.RELEASED);
+
+        IssueRecord record = takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.of(released));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.FAILURE);
+    }
+
+    @Test
+    void takeOverPrefersTheRecordOfAnotherAuthor() {
+        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.IN_PROGRESS));
+        IssueRecord own = IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
+                .withWaitReason(WaitReason.FAILURE);
+
+        IssueRecord record = takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.of(own));
+
+        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
     }
 
     @Test

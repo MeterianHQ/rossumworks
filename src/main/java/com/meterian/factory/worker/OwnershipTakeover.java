@@ -8,6 +8,7 @@ import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -32,9 +33,9 @@ final class OwnershipTakeover {
         record = continuePushedBranch(issue.number(), record);
         record = keepBlockOrWait(record, findEarlierRecord(comments, ownRecord));
         record = record.withNote("The factory of " + workerLogin + " continues the work of an earlier owner.");
-        IssueRecord withComment = ownRecord.flatMap(IssueRecord::statusCommentId).map(record::withStatusComment)
-                .orElse(record);
-        return statusPublisher.publish(issue, ownRecord.orElse(null), withComment);
+        IssueRecord recordWithOwnStatusComment = ownRecord.flatMap(IssueRecord::statusCommentId)
+                .map(record::withStatusComment).orElse(record);
+        return statusPublisher.publish(issue, ownRecord.orElse(null), recordWithOwnStatusComment);
     }
 
     private IssueRecord continuePushedBranch(int issueNumber, IssueRecord record) {
@@ -54,11 +55,18 @@ final class OwnershipTakeover {
 
     /** Only the status and the wait reason pass on. The other fields of an earlier record stay behind. */
     private IssueRecord keepBlockOrWait(IssueRecord record, Optional<IssueRecord> earlierRecord) {
-        if (earlierRecord.isEmpty() || !isBlockOrWait(earlierRecord.get().status())) {
+        if (earlierRecord.isEmpty() || !isBlockOrWait(earlierRecord.get().status())
+                || isApprovalWaitWithoutBranch(record, earlierRecord.get())) {
             return record;
         }
         IssueRecord withStatus = record.withStatus(earlierRecord.get().status());
         return earlierRecord.get().waitReason().map(withStatus::withWaitReason).orElse(withStatus);
+    }
+
+    /** An approval without the pushed branch has no pull request to merge, so the work starts again. */
+    private static boolean isApprovalWaitWithoutBranch(IssueRecord record, IssueRecord earlierRecord) {
+        return record.handOver().isEmpty() && earlierRecord.status() == IssueStatus.WAITS_FOR_YOU
+                && earlierRecord.waitReason().equals(Optional.of(WaitReason.MERGE_NEEDS_APPROVAL));
     }
 
     private static boolean isBlockOrWait(IssueStatus status) {
