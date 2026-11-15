@@ -1,6 +1,5 @@
 package com.meterian.factory.web;
 
-import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
@@ -16,9 +15,9 @@ import java.util.stream.Collectors;
 
 /**
  * The buttons of the page. Each rule is here only: the page shows a button and the server accepts its POST only
- * when {@link #isPossible} is true. A label on the card hides its button only when the page asked for this label:
- * a label that the worker ignored keeps the button, so that the owner can click again. The three Enter buttons
- * add the same label and differ only in the place where the live conversation opens.
+ * when {@link #isPossible} is true. A label on the card hides its button only when the page asked for this label,
+ * or when the worker found the label. The two Enter buttons add the same label and differ only in the place where
+ * the live conversation opens.
  */
 public enum PageAction {
     ENTER_TERMINAL("enter-terminal", "Terminal", "factory:enter", LivePlace.TERMINAL,
@@ -27,9 +26,6 @@ public enum PageAction {
     ENTER_BROWSER("enter-browser", "Browser", "factory:enter", LivePlace.BROWSER,
             "Enter sent. The worker stops the current step, and the new tab opens the conversation in a few seconds.",
             "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link."),
-    ENTER_PHONE("enter-phone", "Phone", "factory:enter", LivePlace.PHONE,
-            "Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds.",
-            "Sends the link of the conversation to your phone, with a GitHub notification."),
     APPROVE("approve", "Approve", "factory:approve", null,
             "Approval sent. The worker takes it in a few seconds.", ""),
     BLOCK("block", "Block", "factory:block", null, "Block sent. The worker stops the issue in a few seconds.", ""),
@@ -38,9 +34,7 @@ public enum PageAction {
     CONTINUE("continue", "Continue", null, null, "Continue sent. The factory takes the issue back in a few seconds.",
             ""),
     OPEN_TERMINAL("open-terminal", "Terminal", null, null, null,
-            "Opens one more terminal window on this machine, attached to the same conversation."),
-    SEND_TO_PHONE("send-to-phone", "Phone", null, null, null,
-            "Sends the link to your phone again, with one more GitHub comment.");
+            "Opens one more terminal window on this machine, attached to the same conversation.");
 
     private final String pathName;
     private final String buttonText;
@@ -60,14 +54,14 @@ public enum PageAction {
     }
 
     /**
-     * The line of the card while the worker did not act on the request yet. Open Terminal and Send to Phone have
-     * no line: they act at once.
+     * The line of the card while the worker did not act on the request yet. Open Terminal has no line: it acts at
+     * once.
      */
     public Optional<String> requestSentence() {
         return Optional.ofNullable(requestSentence);
     }
 
-    /** The place where the live conversation opens. Only the three Enter buttons have a place. */
+    /** The place where the live conversation opens. Only the two Enter buttons have a place. */
     public Optional<LivePlace> enterPlace() {
         return Optional.ofNullable(enterPlace);
     }
@@ -124,36 +118,40 @@ public enum PageAction {
         }
         IssueRecord record = card.record();
         return switch (this) {
-            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE -> isEnterPossible(record);
+            case ENTER_TERMINAL, ENTER_BROWSER -> isEnterPossible(record);
             case APPROVE -> ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isBlockPossible(record);
             case START_AGAIN -> StartAgainCheck.isPossible(record);
             case CONTINUE -> record.live().isPresent() && !continueRequested;
             case OPEN_TERMINAL -> findLiveLink(record).isPresent() && !continueRequested;
-            case SEND_TO_PHONE -> findLiveLink(record).filter(TmuxLiveSessions::isRemoteControlLink).isPresent()
-                    && !continueRequested;
         };
     }
 
     /**
      * Tells if the page sent this request and the record does not show its effect yet. A label that the page
-     * did not request is never a pending request.
+     * did not request is a pending request only after the worker finds it at a poll.
      */
     public boolean isRequestPending(IssueCard card, boolean continueRequested, Set<String> rememberedLabels) {
         IssueRecord record = card.record();
         return switch (this) {
-            case ENTER_TERMINAL, ENTER_BROWSER, ENTER_PHONE ->
+            case ENTER_TERMINAL, ENTER_BROWSER ->
                     isRequestedLabelOnTheCard(card, rememberedLabels) && isEnterPossible(record);
             case APPROVE -> isRequestedLabelOnTheCard(card, rememberedLabels) && ApprovalCheck.waitsForApproval(record);
             case BLOCK -> isRequestedLabelOnTheCard(card, rememberedLabels) && isBlockPossible(record);
             case START_AGAIN -> isRequestedLabelOnTheCard(card, rememberedLabels) && StartAgainCheck.isPossible(record);
             case CONTINUE -> continueRequested && record.live().isPresent();
-            case OPEN_TERMINAL, SEND_TO_PHONE -> false;
+            case OPEN_TERMINAL -> false;
         };
     }
 
+    /** The two Enter buttons add the same label, so one Enter request is pending for both. */
+    public static boolean isEnterRequestPending(IssueCard card, boolean continueRequested,
+            Set<String> rememberedLabels) {
+        return ENTER_TERMINAL.isRequestPending(card, continueRequested, rememberedLabels);
+    }
+
     /** True when the card has the label of this button. */
-    public boolean isLabelOnTheCard(IssueCard card) {
+    private boolean isLabelOnTheCard(IssueCard card) {
         return label().filter(card.labels()::contains).isPresent();
     }
 

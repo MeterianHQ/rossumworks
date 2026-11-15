@@ -52,7 +52,7 @@ class BoardPageTest {
     }
 
     private static IssueRecord liveRecord(int number, String link) {
-        return liveRecord(number, link, LivePlace.PHONE);
+        return liveRecord(number, link, LivePlace.GITHUB_COMMENT);
     }
 
     private static IssueRecord liveRecord(int number, String link, LivePlace place) {
@@ -184,11 +184,11 @@ class BoardPageTest {
         assertThat(html).contains("<div class=\"enter-group\">");
         assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" target=\"_blank\">");
         assertThat(html).contains("data-tip=\"" + PageAction.ENTER_TERMINAL.tooltip() + "\"",
-                "data-tip=\"" + PageAction.ENTER_BROWSER.tooltip() + "\"",
-                "data-tip=\"" + PageAction.ENTER_PHONE.tooltip() + "\"");
-        assertThat(html).contains("aria-label=\"Phone. " + PageAction.ENTER_PHONE.tooltip() + "\"");
+                "data-tip=\"" + PageAction.ENTER_BROWSER.tooltip() + "\"");
+        assertThat(html).contains("aria-label=\"Browser. " + PageAction.ENTER_BROWSER.tooltip() + "\"");
         assertThat(html).containsSubsequence("class=\"enter-group\"", "/enter-terminal", "/enter-browser",
-                "/enter-phone", "/approve", "/block");
+                "/approve", "/block");
+        assertThat(html).doesNotContain("/enter-phone").doesNotContain("Phone");
         assertThat(html).doesNotContain("\u2197").doesNotContain("class=\"icon\"");
     }
 
@@ -198,7 +198,7 @@ class BoardPageTest {
 
         String html = page.renderBoard(modelForAnotherDevice(List.of(card(waiting), card(liveRecord(13, LINK)))));
 
-        assertThat(html).contains("/issues/12/enter-browser", "/issues/12/enter-phone", "/issues/13/send-to-phone");
+        assertThat(html).contains("/issues/12/enter-browser", LINK);
         assertThat(html).doesNotContain("/enter-terminal").doesNotContain("/open-terminal");
     }
 
@@ -210,8 +210,8 @@ class BoardPageTest {
                 + " Open it again or somewhere else:</p>");
         assertThat(html).contains("<a href=\"" + LINK + NEW_TAB.substring(0, NEW_TAB.length() - 1)
                 + " class=\"current\"");
-        assertThat(html).containsSubsequence("<div class=\"open-group\">", "/issues/12/open-terminal", LINK,
-                "/issues/12/send-to-phone");
+        assertThat(html).containsSubsequence("<div class=\"open-group\">", "/issues/12/open-terminal", LINK);
+        assertThat(html).doesNotContain("send-to-phone");
         assertThat(html).containsOnlyOnce("class=\"current\"").doesNotContain("class=\"icon\"");
     }
 
@@ -228,7 +228,7 @@ class BoardPageTest {
     void theLiveBoxHasNoBrowserLinkForAWrongLink() {
         String html = page.renderBoard(model(List.of(card(liveRecord(12, "javascript:alert(1)")))));
 
-        assertThat(html).contains("You sent it to the phone.");
+        assertThat(html).contains("The link is in a comment of the issue on GitHub.");
         assertThat(html).doesNotContain("href=\"javascript").doesNotContain("Browser</a>");
         assertThat(html).contains("javascript:alert(1)");
     }
@@ -333,7 +333,8 @@ class BoardPageTest {
         String state = "<input type=\"hidden\" name=\"state\" value=\"" + CardFingerprint.of(card(record)) + "\">";
         assertThat(html).contains(
                 "<form method=\"post\" action=\"/issues/12/approve\">" + state + "<button>Approve</button></form>");
-        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-phone\">" + state + "<button");
+        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" target=\"_blank\">"
+                + state + "<button");
         assertThat(html).contains("action=\"/issues/12/block\"").contains("<button>Block</button>");
         assertThat(html).doesNotContain("/issues/12/continue").doesNotContain("<button>Continue</button>");
     }
@@ -374,10 +375,21 @@ class BoardPageTest {
         IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
 
         String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
-                Map.of(12, LivePlace.PHONE)));
+                Map.of(12, LivePlace.BROWSER)));
 
-        assertThat(html).contains(requestLine(
-                "Enter sent. The worker stops the current step, and the link goes to your phone in a few seconds."));
+        assertThat(html).contains(requestLine("Enter sent. The worker stops the current step, and the new tab opens"
+                + " the conversation in a few seconds."));
+    }
+
+    @Test
+    void anEnterFromGitHubShowsThatTheLinkGoesToAComment() {
+        IssueRecord record = waitingRecord(12, WaitReason.MERGE_NEEDS_APPROVAL).withPhase(Phase.MERGE);
+
+        String html = page.renderBoard(modelWithEnterPlaces(List.of(cardWithLabel(record, "factory:enter")),
+                Map.of(12, LivePlace.GITHUB_COMMENT)));
+
+        assertThat(html).containsOnlyOnce("class=\"request\"").contains(requestLine("Enter received. The worker stops"
+                + " the current step, and the link goes to a comment of the issue in a few seconds."));
     }
 
     @Test

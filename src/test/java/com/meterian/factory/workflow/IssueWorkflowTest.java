@@ -62,8 +62,6 @@ class IssueWorkflowTest {
     private static final String REVIEW_RETRY_NOTE = "A review session failed; the factory runs the reviews again.";
     private static final String TEXT_CHANGED_SENTENCE = "The issue text changed after the label factory."
             + " Add the label factory:approve to accept the new text.";
-    private static final String MALLORY_NOTE =
-            "The label factory:approve from mallory is ignored: the account is not in accounts.allowed.";
 
     @TempDir
     Path temporaryDirectory;
@@ -91,7 +89,7 @@ class IssueWorkflowTest {
         gitHub.setAuthenticatedLogin(WORKER_LOGIN);
         gitHub.readPullRequestHeadsFrom(githubRepository);
         gitHub.addIssue(ISSUE, "Change the greeting", "The greeting must change.");
-        gitHub.addLabelBy(ISSUE, "factory", "bbossola");
+        gitHub.addLabel(ISSUE, "factory");
     }
 
     /** The worker stores the hash of the issue text at the intake. */
@@ -111,14 +109,14 @@ class IssueWorkflowTest {
         TargetRepository target = createTarget(buildCommand);
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
                 temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
-                buildRunner, merger, usage, new RequestReader(gitHub, List.of("bbossola")),
+                buildRunner, merger, usage,
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
                 BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
     }
@@ -237,32 +235,16 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAfterAnApprovalFromAnAllowedAccount() throws ApiKeyDetectedException {
+    void mergesAfterAnApproval() throws ApiKeyDetectedException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord record = advanceUntilWaiting(workflow, waiting);
 
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain("factory", APPROVE_LABEL);
-    }
-
-    @Test
-    void ignoresAnApprovalFromAnotherAccount() throws ApiKeyDetectedException {
-        IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord record = waitForApprovalOfAMediumRisk(workflow);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "mallory");
-
-        for (int step = 0; step < 3; step++) {
-            record = workflow.advance(record);
-        }
-
-        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
-        assertThat(record.notes()).contains(MALLORY_NOTE);
-        assertThat(visiblePartOfStatusComment().split(MALLORY_NOTE, -1)).hasSize(2);
-        assertThat(gitHub.squashMergeCalls()).isEmpty();
     }
 
     @Test
@@ -430,7 +412,7 @@ class IssueWorkflowTest {
         assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
         assertThat(record.waitReason()).contains(WaitReason.LIVE_CONVERSATION);
         assertThat(gitHub.commentsOf(ISSUE)).anySatisfy(comment -> assertThat(comment.body())
-                .contains("Which greeting do you want?").contains("@bbossola"));
+                .contains("Which greeting do you want?").doesNotContain("@"));
         assertThat(run(worktree(), "log", "--all", "--oneline", "--", ".factory")).isEmpty();
         assertThat(run(worktree(), "rev-parse", "HEAD")).isEqualTo(run(worktree(), "rev-parse", "origin/main"));
     }
@@ -943,7 +925,7 @@ class IssueWorkflowTest {
         IssueRecord prepared = workflow.advance(queuedRecord());
         gitHub.editIssue(ISSUE, "Change the greeting", "Change the greeting to hello.");
         IssueRecord waiting = workflow.advance(prepared);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord accepted = workflow.advance(waiting);
         IssueRecord record = advanceUntilPhase(workflow, accepted, Phase.BUILD);
@@ -962,28 +944,13 @@ class IssueWorkflowTest {
     void anApprovalFromBeforeTheChangeDoesNotAcceptTheNewText() throws ApiKeyDetectedException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
         gitHub.editIssue(ISSUE, "Change the greeting", "Delete the history of the repository.");
 
         IssueRecord record = workflow.advance(workflow.advance(prepared));
 
         assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(APPROVE_LABEL);
-        assertThat(agent.requests()).isEmpty();
-    }
-
-    @Test
-    void anApprovalFromAnotherAccountDoesNotAcceptTheNewText() throws ApiKeyDetectedException {
-        IssueWorkflow workflow = createWorkflow("true");
-        IssueRecord prepared = workflow.advance(queuedRecord());
-        gitHub.editIssue(ISSUE, "Change the greeting", "Delete the history of the repository.");
-        IssueRecord waiting = workflow.advance(prepared);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "mallory");
-
-        IssueRecord record = workflow.advance(waiting);
-
-        assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
-        assertThat(record.notes()).contains(MALLORY_NOTE);
         assertThat(agent.requests()).isEmpty();
     }
 
@@ -1119,7 +1086,7 @@ class IssueWorkflowTest {
         IssueRecord waiting = advanceUntilWaiting(workflow, queuedRecord());
         // A change at line 3 is in the context lines of the change at line 1, so the diff changes.
         moveTheBase("m.txt", "1\n2\nthree\n4\n5\n6\n7\n8\n");
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord record = advanceUntilWaiting(workflow, waiting);
 
@@ -1137,7 +1104,7 @@ class IssueWorkflowTest {
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeReview = advanceUntilPhase(workflow, queuedRecord(), Phase.REVIEW);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
 
         IssueRecord record = workflow.advance(beforeReview);
 
@@ -1217,7 +1184,7 @@ class IssueWorkflowTest {
     void theConflictFixDoesNotRevertTheChangeOfAnotherIssue() throws ApiKeyDetectedException {
         moveTheBase("z.txt", "original\n");
         gitHub.addIssue(8, "Change z", "Change the file z.");
-        gitHub.addLabelBy(8, "factory", "bbossola");
+        gitHub.addLabel(8, "factory");
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1265,7 +1232,7 @@ class IssueWorkflowTest {
 
     private static final String LIVE_LINK = "https://claude.ai/code/session_test7";
     private static final String LIVE_COMMENT = "The live conversation is open: " + LIVE_LINK
-            + "\n\nType /factory:continue in the conversation when you are done.\n\n@bbossola";
+            + "\n\nType /factory:continue in the conversation when you are done.";
 
     private IssueRecord blockAtTheFixLoopLimitInReview(IssueWorkflow workflow) throws ApiKeyDetectedException {
         for (int round = 0; round < 3; round++) {
@@ -1518,7 +1485,7 @@ class IssueWorkflowTest {
     void aStaleApprovalDoesNotMergeAChangeOfTheConversation() throws ApiKeyDetectedException, IOException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
-        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
         IssueRecord live = workflow.enterLiveMode(waiting);
         Files.writeString(worktree().resolve("agreed.txt"), "agreed in the conversation\n");
         liveSessions.requestContinue(ISSUE);

@@ -76,7 +76,7 @@ public final class IssueWorkflow {
 
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
-                         RequestReader requests, WorkspaceLayout layout, String workerLogin,
+                         WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
                          PageRequests pageRequests) {
         this.configuration = configuration;
@@ -85,7 +85,7 @@ public final class IssueWorkflow {
         this.prompts = prompts;
         this.buildRunner = buildRunner;
         this.merger = merger;
-        this.ownerApproval = new OwnerApproval(gitHub, requests);
+        this.ownerApproval = new OwnerApproval(gitHub);
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
         this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch(),
@@ -100,8 +100,7 @@ public final class IssueWorkflow {
         this.layout = layout;
         this.phaseRunner = new PhaseRunner(agentRunner, usage, contexts);
         this.reviewRound = new ReviewRound(phaseRunner, prompts);
-        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, configuration.allowedAccounts(),
-                pageRequests);
+        this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
     }
@@ -355,15 +354,14 @@ public final class IssueWorkflow {
         }
         reviewedCommit.restoreRebasedHead(worktree, record);
         boolean isApproved = ownerApproval.isGiven(issue);
-        IssueRecord noted = isApproved ? record : ownerApproval.noteIgnoredLabel(issue, record);
         boolean questionOpen = new FactoryFolder(worktree).hasQuestion();
-        MergeDecision decision = MergeGate.decide(noted, git.treeHash(worktree), questionOpen, isApproved);
+        MergeDecision decision = MergeGate.decide(record, git.treeHash(worktree), questionOpen, isApproved);
         return switch (decision) {
             case MergeDecision.NeedsOwner needsOwner ->
-                    noted.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
-            case MergeDecision.Refused refused -> block(noted, "The merge gate refuses: " + refused.reason() + ".");
-            case MergeDecision.Automatic automatic -> mergePullRequest(issue, noted, worktree);
-            case MergeDecision.Approved approved -> mergePullRequest(issue, noted, worktree);
+                    record.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL);
+            case MergeDecision.Refused refused -> block(record, "The merge gate refuses: " + refused.reason() + ".");
+            case MergeDecision.Automatic automatic -> mergePullRequest(issue, record, worktree);
+            case MergeDecision.Approved approved -> mergePullRequest(issue, record, worktree);
         };
     }
 
@@ -405,7 +403,7 @@ public final class IssueWorkflow {
 
     /** The owner answers in the live conversation. When it does not open, the question waits with a note. */
     private IssueRecord askOwner(IssueRecord record, String question, Path worktree) {
-        gitHub.createComment(record.issueNumber(), QuestionComment.render(question, configuration.allowedAccounts()));
+        gitHub.createComment(record.issueNumber(), QuestionComment.render(question));
         IssueRecord waiting = record.withStatus(IssueStatus.WAITS_FOR_YOU).withWaitReason(WaitReason.QUESTION);
         return liveMode.enter(waiting, worktree);
     }

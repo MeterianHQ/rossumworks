@@ -13,7 +13,7 @@ public record LiveSession(
     public LiveSession {
         waitBefore = waitBefore == null ? Optional.empty() : waitBefore;
         link = link == null ? Optional.empty() : link;
-        place = place == null ? LivePlace.PHONE : place;
+        place = place == null ? LivePlace.GITHUB_COMMENT : place;
     }
 
     public LiveSession withLink(String newLink) {

@@ -8,7 +8,6 @@ public record FactoryConfiguration(
         TargetRepository target,
         String mergeTargetBranch,
         Limits limits,
-        List<String> allowedAccounts,
         IsolationMode isolationMode,
         ClaudeSettings claude,
         Path workDirectory,

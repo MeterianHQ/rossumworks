@@ -4,12 +4,11 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.Phase;
-import com.meterian.factory.workflow.IssueLabelActors;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.StartAgainCheck;
 import com.meterian.factory.workflow.StatusPublisher;
 
-/** The label factory:start-again: who gave it, and the new record that removes it. */
+/** The label factory:start-again, and the new record that removes it. */
 final class StartAgainRequests {
 
     static final String START_AGAIN_LABEL = "factory:start-again";
@@ -20,25 +19,15 @@ final class StartAgainRequests {
             "GitHub already merged the pull request, so the issue does not start again.";
 
     private final GitHubClient gitHub;
-    private final IgnoredLabelNote ignoredLabelNote;
     private final StatusPublisher statusPublisher;
 
-    StartAgainRequests(GitHubClient gitHub, IgnoredLabelNote ignoredLabelNote, StatusPublisher statusPublisher) {
+    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher) {
         this.gitHub = gitHub;
-        this.ignoredLabelNote = ignoredLabelNote;
         this.statusPublisher = statusPublisher;
     }
 
-    /** Tells if the issue has the label from an allowed account. A label from another account gets a note once. */
-    boolean isRequested(Issue issue, IssueLabelActors labelActors) {
-        if (!issue.labels().contains(START_AGAIN_LABEL)) {
-            return false;
-        }
-        if (labelActors.isGivenByAllowedAccount(START_AGAIN_LABEL)) {
-            return true;
-        }
-        ignoredLabelNote.write(labelActors, START_AGAIN_LABEL, gitHub.comments(issue.number()));
-        return false;
+    static boolean isRequested(Issue issue) {
+        return issue.labels().contains(START_AGAIN_LABEL);
     }
 
     /** The label goes away only after the record is on GitHub: a failure keeps it for the next poll. */

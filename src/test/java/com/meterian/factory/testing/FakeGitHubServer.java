@@ -40,7 +40,6 @@ public final class FakeGitHubServer implements AutoCloseable {
     private static final Pattern ISSUE = Pattern.compile("/issues/(\\d+)");
     private static final Pattern ISSUE_COMMENTS = Pattern.compile("/issues/(\\d+)/comments");
     private static final Pattern COMMENT = Pattern.compile("/issues/comments/(\\d+)");
-    private static final Pattern ISSUE_EVENTS = Pattern.compile("/issues/(\\d+)/events");
     private static final Pattern ISSUE_LABELS = Pattern.compile("/issues/(\\d+)/labels");
     private static final Pattern ISSUE_LABEL = Pattern.compile("/issues/(\\d+)/labels/(.+)");
     private static final Pattern PULL_REQUEST = Pattern.compile("/pulls/(\\d+)");
@@ -190,9 +189,6 @@ public final class FakeGitHubServer implements AutoCloseable {
         if ((matcher = ISSUE_COMMENTS.matcher(route)).matches()) {
             return ok(toCommentArray(gitHub.comments(number(matcher))));
         }
-        if ((matcher = ISSUE_EVENTS.matcher(route)).matches()) {
-            return ok(toEventArray(gitHub.labelEventsOf(number(matcher))));
-        }
         if (route.equals("/pulls")) {
             String branch = query.getOrDefault("head", "").replaceFirst("^[^:]*:", "");
             ArrayNode pullRequests = mapper.createArrayNode();
@@ -307,20 +303,6 @@ public final class FakeGitHubServer implements AutoCloseable {
         for (IssueComment comment : comments) {
             ObjectNode json = mapper.createObjectNode().put("id", comment.id()).put("body", comment.body());
             json.set("user", mapper.createObjectNode().put("login", comment.authorLogin()));
-            array.add(json);
-        }
-        return array;
-    }
-
-    /** The position of the event gives its time, so a later event always has a later time. */
-    private ArrayNode toEventArray(List<FakeGitHubClient.LabelEvent> events) {
-        ArrayNode array = mapper.createArrayNode();
-        for (int position = 0; position < events.size(); position++) {
-            FakeGitHubClient.LabelEvent event = events.get(position);
-            ObjectNode json = mapper.createObjectNode().put("event", "labeled")
-                    .put("created_at", String.format("2026-11-01T00:%02d:%02dZ", position / 60, position % 60));
-            json.set("label", mapper.createObjectNode().put("name", event.label()));
-            json.set("actor", mapper.createObjectNode().put("login", event.actor()));
             array.add(json);
         }
         return array;

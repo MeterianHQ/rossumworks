@@ -51,7 +51,7 @@ class IssueWorkspaceTest {
         run(pusher, "config", "user.email", "factory-test@example.com");
         TargetRepository target = new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
-                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
+                IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);

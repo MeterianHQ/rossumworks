@@ -16,11 +16,10 @@ import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.WaitReason;
 import com.meterian.factory.workflow.ApprovalCheck;
-import com.meterian.factory.workflow.IssueLabelActors;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
-import com.meterian.factory.workflow.RequestReader;
+import com.meterian.factory.workflow.PageRequests;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.time.Clock;
@@ -52,13 +51,12 @@ public final class Worker {
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
     private final PhaseStopper phaseStopper;
-    private final RequestReader requests;
+    private final PageRequests pageRequests;
     private final String workerLogin;
     private final ExecutorService executor;
     private final WorkspaceLayout layout;
     private final StatusPublisher statusPublisher;
     private final RestartPreparation restartPreparation;
-    private final IgnoredLabelNote ignoredLabelNote;
     private final EnterRequests enterRequests;
     private final StartAgainRequests startAgainRequests;
     private final LiveRecordCheck liveRecordCheck;
@@ -76,13 +74,13 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
+                  PhaseStopper phaseStopper, PageRequests pageRequests, String workerLogin, ExecutorService executor,
                   LiveSessions liveSessions, Clock clock, BoardUpdates board, FactorySwitch factorySwitch) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
         this.phaseStopper = phaseStopper;
-        this.requests = requests;
+        this.pageRequests = pageRequests;
         this.workerLogin = workerLogin;
         this.executor = executor;
         this.board = board;
@@ -90,9 +88,8 @@ public final class Worker {
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
         this.restartPreparation = new RestartPreparation(gitHub, layout);
-        this.ignoredLabelNote = new IgnoredLabelNote(gitHub, workerLogin);
-        this.enterRequests = new EnterRequests(gitHub, ignoredLabelNote, workflow);
-        this.startAgainRequests = new StartAgainRequests(gitHub, ignoredLabelNote, statusPublisher);
+        this.enterRequests = new EnterRequests(gitHub, workflow);
+        this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
@@ -232,23 +229,19 @@ public final class Worker {
         }
     }
 
-    /** The events of the issue are read at most once in this check, and only for a request label. */
+    /** The factory does not check who added a request label, so each request label counts. See the README. */
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
         int issueNumber = issue.number();
         if (isBlockInProgress(issueNumber)) {
             return Optional.empty();
         }
-        IssueLabelActors labelActors = requests.readLabelActorsOf(issueNumber);
-        showAcceptedRequests(issue, labelActors);
+        showAcceptedRequests(issue);
         if (issue.labels().contains(BLOCK_LABEL)) {
-            if (labelActors.isGivenByAllowedAccount(BLOCK_LABEL)) {
-                requestBlock(issueNumber);
-                return Optional.empty();
-            }
-            ignoredLabelNote.write(labelActors, BLOCK_LABEL, gitHub.comments(issueNumber));
+            requestBlock(issueNumber);
+            return Optional.empty();
         }
         if (isInWork(issueNumber)) {
-            if (enterRequests.isRequested(issue, labelActors)) {
+            if (EnterRequests.isRequested(issue)) {
                 stopTheStepForTheEnter(issueNumber);
             }
             return Optional.empty();
@@ -260,11 +253,11 @@ public final class Worker {
         }
         Optional<IssueRecord> record = StatusComment.findRecord(comments, workerLogin);
         if (record.isEmpty()) {
-            return factorySwitch.isStopRequested() ? Optional.empty() : takeIntoQueue(issue, comments, labelActors);
+            return factorySwitch.isStopRequested() ? Optional.empty() : Optional.of(takeIntoQueue(issue));
         }
-        IssueRecord afterStartAgain = startAgainRequests.isRequested(issue, labelActors)
+        IssueRecord afterStartAgain = StartAgainRequests.isRequested(issue)
                 ? startAgainRequests.startAgain(issue, record.get()) : record.get();
-        IssueRecord current = enterRequests.isRequested(issue, labelActors) ? enterRequests.enter(afterStartAgain)
+        IssueRecord current = EnterRequests.isRequested(issue) ? enterRequests.enter(afterStartAgain)
                 : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
@@ -272,12 +265,12 @@ public final class Worker {
     }
 
     /** The card shows the waiting state of an accepted label also when the label comes from the GitHub app. */
-    private void showAcceptedRequests(Issue issue, IssueLabelActors labelActors) {
+    private void showAcceptedRequests(Issue issue) {
         boolean hasNewRequest = false;
         for (String label : List.of(APPROVE_LABEL, BLOCK_LABEL, EnterRequests.ENTER_LABEL,
                 StartAgainRequests.START_AGAIN_LABEL)) {
-            if (issue.labels().contains(label) && labelActors.isGivenByAllowedAccount(label)) {
-                hasNewRequest |= requests.rememberAcceptedRequest(issue.number(), label);
+            if (issue.labels().contains(label)) {
+                hasNewRequest |= pageRequests.rememberAcceptedRequest(issue.number(), label);
             }
         }
         if (hasNewRequest) {
@@ -313,19 +306,13 @@ public final class Worker {
                 || waitsForAGivenApprovalLabel(issue, record);
     }
 
-    /** The workflow checks who gave the label, and notes a label from another account. */
     private static boolean waitsForAGivenApprovalLabel(Issue issue, IssueRecord record) {
         return ApprovalCheck.waitsForApproval(record) && issue.labels().contains(APPROVE_LABEL);
     }
 
-    private Optional<IssueRecord> takeIntoQueue(Issue issue, List<IssueComment> comments,
-                                                IssueLabelActors labelActors) {
-        if (!labelActors.isGivenByAllowedAccount(FACTORY_LABEL)) {
-            ignoredLabelNote.write(labelActors, FACTORY_LABEL, comments);
-            return Optional.empty();
-        }
+    private IssueRecord takeIntoQueue(Issue issue) {
         IssueRecord queued = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
-        return Optional.of(publishFirstRecord(issue, queued));
+        return publishFirstRecord(issue, queued);
     }
 
     /** The new status comment becomes the newest record, so the broken record never counts again. */

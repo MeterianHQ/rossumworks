@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PageRequests {
 
     static final Duration REQUEST_LIFETIME = Duration.ofHours(24);
+    private static final String ENTER_LABEL = "factory:enter";
 
     private final Clock clock;
     private final Map<String, Instant> expiryByRequest = new ConcurrentHashMap<>();
@@ -30,6 +31,23 @@ public final class PageRequests {
         expiryByRequest.put(createKey(issueNumber, label), clock.instant().plus(REQUEST_LIFETIME));
     }
 
+    /**
+     * Remembers a request label that the worker found on the issue, so that the page shows its waiting state also
+     * for a label from the GitHub app.
+     *
+     * @return true when the page did not know this request before
+     */
+    public boolean rememberAcceptedRequest(int issueNumber, String label) {
+        boolean isNew = !isRemembered(issueNumber, label);
+        if (isNew) {
+            remember(issueNumber, label);
+        }
+        if (ENTER_LABEL.equals(label)) {
+            rememberGitHubCommentUnlessAPlaceIsRemembered(issueNumber);
+        }
+        return isNew;
+    }
+
     public boolean isRemembered(int issueNumber, String label) {
         Instant expiry = expiryByRequest.get(createKey(issueNumber, label));
         return expiry != null && clock.instant().isBefore(expiry);
@@ -38,13 +56,6 @@ public final class PageRequests {
     /** The page calls this method before it adds the label that enters the live conversation. */
     public void rememberEnterPlace(int issueNumber, LivePlace place) {
         placeByIssue.put(issueNumber, new PlaceRequest(place, clock.instant().plus(REQUEST_LIFETIME)));
-    }
-
-    /** A label from the GitHub app has no place. Without a place of the page, the conversation opens on the phone. */
-    public void rememberPhoneUnlessAPlaceIsRemembered(int issueNumber) {
-        if (findEnterPlace(issueNumber).isEmpty()) {
-            rememberEnterPlace(issueNumber, LivePlace.PHONE);
-        }
     }
 
     /** Gives the remembered place and keeps it. Gives nothing when no place is remembered or it expired. */
@@ -56,13 +67,20 @@ public final class PageRequests {
         return Optional.of(request.place());
     }
 
-    /** Gives the remembered place and forgets it. Gives PHONE when no place is remembered or it expired. */
+    /** Gives the remembered place and forgets it. Gives GITHUB_COMMENT when no place is remembered or it expired. */
     public LivePlace takeEnterPlace(int issueNumber) {
         PlaceRequest request = placeByIssue.remove(issueNumber);
         if (request == null || !clock.instant().isBefore(request.expiry())) {
-            return LivePlace.PHONE;
+            return LivePlace.GITHUB_COMMENT;
         }
         return request.place();
+    }
+
+    /** A label from the GitHub app has no place. Without a place of the page, the link goes only to a comment. */
+    private void rememberGitHubCommentUnlessAPlaceIsRemembered(int issueNumber) {
+        if (findEnterPlace(issueNumber).isEmpty()) {
+            rememberEnterPlace(issueNumber, LivePlace.GITHUB_COMMENT);
+        }
     }
 
     private void removeExpiredRequests() {

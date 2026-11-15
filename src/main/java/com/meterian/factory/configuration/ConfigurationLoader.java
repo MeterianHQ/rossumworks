@@ -22,13 +22,11 @@ public final class ConfigurationLoader {
 
     public static FactoryConfiguration load(Path file) throws ConfigurationException {
         ConfigurationSection root = new ConfigurationSection(readTree(file), "");
-        ConfigurationSection accountsSection = root.requireSection("accounts");
         Path workDirectory = root.requirePath("work-directory");
         return new FactoryConfiguration(
                 readTarget(root.requireSection("target")),
                 root.requireNestedText("merge", "target-branch"),
                 readLimits(root),
-                readAllowedAccounts(accountsSection),
                 readIsolationMode(root),
                 readClaudeSettings(root),
                 workDirectory,
@@ -111,14 +109,6 @@ public final class ConfigurationLoader {
             throw section.createInvalidKeyException("usage-threshold", "must be more than 0 and at most 1");
         }
         return value;
-    }
-
-    private static List<String> readAllowedAccounts(ConfigurationSection section) throws ConfigurationException {
-        List<String> accounts = section.requireTextList("allowed");
-        if (accounts.isEmpty()) {
-            throw section.createInvalidKeyException("allowed", "must have at least one account");
-        }
-        return accounts;
     }
 
     private static IsolationMode readIsolationMode(ConfigurationSection root) throws ConfigurationException {

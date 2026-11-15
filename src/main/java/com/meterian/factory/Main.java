@@ -29,16 +29,13 @@ import com.meterian.factory.web.BoardPage;
 import com.meterian.factory.web.LabelWriter;
 import com.meterian.factory.web.PageActions;
 import com.meterian.factory.web.PageModelSource;
-import com.meterian.factory.web.PhoneLinkSender;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.web.login.PasswordLogin;
 import com.meterian.factory.worker.PhaseStopper;
 import com.meterian.factory.worker.Worker;
 import com.meterian.factory.workflow.IssueWorkflow;
-import com.meterian.factory.workflow.LiveComment;
 import com.meterian.factory.workflow.PageRequests;
-import com.meterian.factory.workflow.RequestReader;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.io.Console;
 import java.io.File;
@@ -315,21 +312,19 @@ public final class Main {
         SharedState shared = SharedState.create(configuration);
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
-        RequestReader requests = createRequestReader(gitHub, configuration, workerLogin, shared);
         BuildRunner buildRunner = new BuildRunner();
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
                 configuration.terminalCommand());
-        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, requests, workerLogin,
+        IssueWorkflow workflow = createWorkflow(configuration, gitHub, agentRunner, buildRunner, workerLogin,
                 liveSessions, shared);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
-        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch());
+        Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, shared.pageRequests(), workerLogin,
+                executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
-                createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
-                worker::requestEarlyPoll, claudeHome);
+                () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
             shared.board().recordRequestChange();
@@ -354,41 +349,19 @@ public final class Main {
         return EXIT_API_KEY;
     }
 
-    /** The same page requests go to the reader and to the page, so that the reader accepts a label of the page. */
-    static RequestReader createRequestReader(GitHubClient gitHub, FactoryConfiguration configuration,
-                                             String workerLogin, SharedState shared) {
-        return new RequestReader(gitHub, configuration.allowedAccounts(), workerLogin, shared.pageRequests());
-    }
-
-    /** The page gets only these two label requests of the GitHub client. A 404 on a remove is not an error. */
+    /** The page gets only the label request of the GitHub client. */
     static LabelWriter createLabelWriter(GitHubClient gitHub) {
-        return new LabelWriter() {
-            @Override
-            public void addLabel(int issueNumber, String label) {
-                gitHub.addLabel(issueNumber, label);
-            }
-
-            @Override
-            public void removeLabel(int issueNumber, String label) {
-                gitHub.removeLabel(issueNumber, label);
-            }
-        };
-    }
-
-    /** The page sends the live link again with the comment of the worker: the mention notifies the phone. */
-    static PhoneLinkSender createPhoneLinkSender(GitHubClient gitHub, FactoryConfiguration configuration) {
-        Optional<String> mentionedLogin = configuration.allowedAccounts().stream().findFirst();
-        return (issueNumber, link) -> gitHub.createComment(issueNumber, LiveComment.render(link, mentionedLogin));
+        return gitHub::addLabel;
     }
 
     /**
-     * Without a web section, the worker serves no page. The page gets only a label writer and a phone link
-     * sender, never the GitHub client.
+     * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
+     * client.
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
                                                LiveSessions liveSessions, LabelWriter labels,
-                                               PhoneLinkSender phoneLinkSender, IntSupplier issuesInWork,
-                                               Runnable earlyPollRequest, Path claudeHome) {
+                                               IntSupplier issuesInWork, Runnable earlyPollRequest,
+                                               Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
                 new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
@@ -396,8 +369,8 @@ public final class Main {
                         new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
                         Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, phoneLinkSender, shared.board(),
-                        shared.factorySwitch(), earlyPollRequest)));
+                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(), shared.factorySwitch(),
+                        earlyPollRequest)));
     }
 
     /** A web server that cannot start stops the worker before its first poll. */
@@ -492,7 +465,7 @@ public final class Main {
 
     private static IssueWorkflow createWorkflow(FactoryConfiguration configuration, GitHubClient gitHub,
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
-                                                RequestReader requests, String workerLogin,
+                                                String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
@@ -501,7 +474,7 @@ public final class Main {
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
-                shared.usage(), requests, layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
+                shared.usage(), layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
                 shared.pageRequests());
     }
 }

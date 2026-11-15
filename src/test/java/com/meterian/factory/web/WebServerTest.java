@@ -67,15 +67,8 @@ class WebServerTest {
     private static final String EXPECTED_POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; "
             + "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
-    /** The two requests of the label writer. */
-    private enum LabelChange { ADD, REMOVE }
-
     /** The arguments of one call of the label writer. */
-    private record LabelCall(LabelChange change, int issueNumber, String label) {
-    }
-
-    /** The arguments of one call of the phone link sender. */
-    private record SentLink(int issueNumber, String link) {
+    private record LabelCall(int issueNumber, String label) {
     }
 
     @TempDir
@@ -88,8 +81,6 @@ class WebServerTest {
     private final List<LabelCall> labelCalls = new CopyOnWriteArrayList<>();
     private volatile Optional<RuntimeException> labelFailure = Optional.empty();
     private final AtomicInteger earlyPollRequests = new AtomicInteger();
-    private final List<SentLink> sentLinks = new CopyOnWriteArrayList<>();
-    private volatile Optional<RuntimeException> sendFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private FactorySwitch factorySwitch;
@@ -113,17 +104,7 @@ class WebServerTest {
     }
 
     private LabelWriter createLabelWriter() {
-        return new LabelWriter() {
-            @Override
-            public void addLabel(int issueNumber, String label) {
-                recordLabelCall(new LabelCall(LabelChange.ADD, issueNumber, label));
-            }
-
-            @Override
-            public void removeLabel(int issueNumber, String label) {
-                recordLabelCall(new LabelCall(LabelChange.REMOVE, issueNumber, label));
-            }
-        };
+        return (issueNumber, label) -> recordLabelCall(new LabelCall(issueNumber, label));
     }
 
     private void recordLabelCall(LabelCall call) {
@@ -134,11 +115,7 @@ class WebServerTest {
     }
 
     private static LabelCall added(String label) {
-        return new LabelCall(LabelChange.ADD, ISSUE_NUMBER, label);
-    }
-
-    private static LabelCall removed(String label) {
-        return new LabelCall(LabelChange.REMOVE, ISSUE_NUMBER, label);
+        return new LabelCall(ISSUE_NUMBER, label);
     }
 
     private PageModelSource createModelSource() {
@@ -146,7 +123,7 @@ class WebServerTest {
         TargetRepository target = new TargetRepository("MeterianHQ", "target", temporaryDirectory.resolve("clone"),
                 "true", Map.of());
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
-                new Limits(3, 4, Duration.ofSeconds(45), 0.90), List.of("bbossola"), IsolationMode.SAME_USER,
+                new Limits(3, 4, Duration.ofSeconds(45), 0.90), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
@@ -169,12 +146,12 @@ class WebServerTest {
         return IssueRecord.queued(ISSUE_NUMBER).withAgentSessionStarted().withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withPhase(Phase.IMPLEMENT).withWaitReason(WaitReason.LIVE_CONVERSATION)
                 .withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(), Optional.empty(),
-                        LivePlace.PHONE));
+                        LivePlace.GITHUB_COMMENT));
     }
 
     private static IssueRecord liveConversationWithLink() {
         return liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of(LINK), LivePlace.PHONE));
+                Optional.of(LINK), LivePlace.GITHUB_COMMENT));
     }
 
     private static Issue issue() {
@@ -575,7 +552,7 @@ class WebServerTest {
     }
 
     @Test
-    void aLabelThatTheWorkerIgnoredShowsTheButton() {
+    void aLabelThatThePageDidNotRequestShowsTheButton() {
         recordCardWithLabel(mergeWaitsForApproval(), APPROVE_LABEL);
 
         HttpResponse<String> page = get("/board", logIn());
@@ -584,13 +561,13 @@ class WebServerTest {
     }
 
     @Test
-    void anApproveOnAnIgnoredLabelRemovesTheLabelAndAddsItAgain() {
+    void anApproveOnALabelThatIsAlreadyThereOnlyAddsTheLabel() {
         recordCardWithLabel(mergeWaitsForApproval(), APPROVE_LABEL);
 
         HttpResponse<String> answer = postAction("/issues/12/approve", logIn());
 
         assertThat(answer.statusCode()).isEqualTo(303);
-        assertThat(labelCalls).containsExactly(removed(APPROVE_LABEL), added(APPROVE_LABEL));
+        assertThat(labelCalls).containsExactly(added(APPROVE_LABEL));
         assertThat(pageRequests.isRemembered(ISSUE_NUMBER, APPROVE_LABEL)).isTrue();
     }
 
@@ -742,18 +719,7 @@ class WebServerTest {
 
         postAction("/issues/12/enter-terminal", logIn());
 
-        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.PHONE);
-    }
-
-    @Test
-    void anEnterOnThePhoneAddsTheLabelOfEnter() {
-        recordCard(waitsForAnAnswer());
-
-        HttpResponse<String> answer = postAction("/issues/12/enter-phone", logIn());
-
-        assertThat(answer.statusCode()).isEqualTo(303);
-        assertThat(labelCalls).containsExactly(added("factory:enter"));
-        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.PHONE);
+        assertThat(pageRequests.takeEnterPlace(ISSUE_NUMBER)).isEqualTo(LivePlace.GITHUB_COMMENT);
     }
 
     @Test
@@ -766,7 +732,6 @@ class WebServerTest {
         assertThat(answer.headers().firstValue("Location")).contains("/");
         assertThat(liveSessions.openedTerminals()).containsExactly(ISSUE_NUMBER);
         assertThat(labelCalls).isEmpty();
-        assertThat(sentLinks).isEmpty();
         assertThat(earlyPollRequests.get()).isZero();
     }
 
@@ -782,33 +747,8 @@ class WebServerTest {
         assertThat(earlyPollRequests.get()).isZero();
     }
 
-    @Test
-    void sendToPhonePostsTheLink() {
-        recordCard(liveConversationWithLink());
-
-        HttpResponse<String> answer = postAction("/issues/12/send-to-phone", logIn());
-
-        assertThat(answer.statusCode()).isEqualTo(303);
-        assertThat(answer.headers().firstValue("Location")).contains("/");
-        assertThat(sentLinks).containsExactly(new SentLink(ISSUE_NUMBER, LINK));
-        assertThat(labelCalls).isEmpty();
-        assertThat(earlyPollRequests.get()).isZero();
-    }
-
-    @Test
-    void aRefusedCommentGives502WithTheMessage() {
-        recordCard(liveConversationWithLink());
-        sendFailure = Optional.of(new GitHubException("GitHub answered 502 for POST /issues/12/comments"));
-
-        HttpResponse<String> answer = postAction("/issues/12/send-to-phone", logIn());
-
-        assertThat(answer.statusCode()).isEqualTo(502);
-        assertThat(answer.body())
-                .contains("GitHub refused the comment. GitHub answered 502 for POST /issues/12/comments");
-    }
-
     private PageActions createPageActions() {
-        return new PageActions(createLabelWriter(), pageRequests, liveSessions, this::recordSentLink, board,
+        return new PageActions(createLabelWriter(), pageRequests, liveSessions, board,
                 factorySwitch, earlyPollRequests::incrementAndGet);
     }
 
@@ -873,7 +813,7 @@ class WebServerTest {
     @Test
     void aLinkThatIsNotRemoteControlIsNeverGiven() {
         recordCard(liveConversation().withLive(new LiveSession("abc", IssueStatus.IN_PROGRESS, Optional.empty(),
-                Optional.of("javascript:alert(1)"), LivePlace.PHONE)));
+                Optional.of("javascript:alert(1)"), LivePlace.GITHUB_COMMENT)));
 
         assertThat(get("/live/12/link", logIn()).statusCode()).isEqualTo(204);
     }
@@ -892,12 +832,5 @@ class WebServerTest {
         assertThat(answer.statusCode()).isEqualTo(200);
         assertThat(answer.headers().firstValue("Content-Type")).hasValueSatisfying(
                 value -> assertThat(value).startsWith("text/javascript"));
-    }
-
-    private void recordSentLink(int issueNumber, String link) {
-        sendFailure.ifPresent(failure -> {
-            throw failure;
-        });
-        sentLinks.add(new SentLink(issueNumber, link));
     }
 }
