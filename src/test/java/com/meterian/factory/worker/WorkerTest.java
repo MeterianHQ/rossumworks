@@ -1691,7 +1691,8 @@ class WorkerTest {
     void newOwnerContinuesFromThePushedBranch() throws InterruptedException {
         String pushedCommit = pushTheBranchOfAlice();
         recordAnEarlierAssignmentOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
 
@@ -1702,6 +1703,40 @@ class WorkerTest {
         assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
         assertThat(record.phase()).isNotIn(Phase.PREPARE, Phase.IMPLEMENT, Phase.BUILD);
         assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void newOwnerWaitsForTheOwnerWhenTheIssueTextChanged() throws InterruptedException {
+        pushTheBranchOfAlice();
+        recordAnEarlierAssignmentOfAlice();
+        String acceptedTextHash = IssueText.computeHash(gitHub.issue(ISSUE));
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(acceptedTextHash));
+        gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.requests()).isEmpty();
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+    }
+
+    @Test
+    void newOwnerWaitsForTheOwnerWhenTheEarlierRecordHasNoTextHash() throws InterruptedException {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).isEmpty();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
     }
 
     @Test
@@ -1743,7 +1778,8 @@ class WorkerTest {
         assertThat(readRecord(ISSUE).orElseThrow().handOver()).isEmpty();
         reassignToAlice();
         String pushedCommit = pushTheBranchOfAlice();
-        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
         reassignToTheWorker();
 
         createWorker(new FakeAgentRunner(), 0).pollOnce();

@@ -7,7 +7,6 @@ import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.WaitReason;
-import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
 import java.util.Optional;
@@ -37,13 +36,21 @@ final class OwnershipTakeover {
 
     /** The new status comment is the newest one of the worker, so the next poll does not take over again. */
     IssueRecord takeOver(Issue issue, Optional<IssueRecord> earlierRecord) {
-        IssueRecord record = IssueRecord.queued(issue.number()).withIssueTextHash(IssueText.computeHash(issue));
+        IssueRecord record = keepAcceptedIssueText(IssueRecord.queued(issue.number()), earlierRecord);
         record = continuePushedBranch(issue.number(), record)
                 .withNote("The factory of " + workerLogin + " continues the work of an earlier owner.");
         if (earlierRecord.isPresent()) {
             record = keepBlockOrWait(record, earlierRecord.get());
         }
         return statusPublisher.publishInNewComment(issue, record);
+    }
+
+    /**
+     * Only the text that an earlier owner accepted counts. Fail closed: without its hash, the issue text check
+     * stops the next agent phase until the owner approves the text.
+     */
+    private static IssueRecord keepAcceptedIssueText(IssueRecord record, Optional<IssueRecord> earlierRecord) {
+        return earlierRecord.flatMap(IssueRecord::issueTextHash).map(record::withIssueTextHash).orElse(record);
     }
 
     private IssueRecord continuePushedBranch(int issueNumber, IssueRecord record) {

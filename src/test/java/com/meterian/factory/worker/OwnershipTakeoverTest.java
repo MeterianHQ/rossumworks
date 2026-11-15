@@ -154,6 +154,20 @@ class OwnershipTakeoverTest {
         assertThat(StatusComment.findRecord(gitHub.commentsOf(ISSUE_NUMBER), WORKER_LOGIN)).contains(record);
     }
 
+    @Test
+    void takeOverCopiesTheIssueTextHashOfTheEarlierRecord() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withIssueTextHash("accepted-hash"));
+
+        assertThat(record.issueTextHash()).contains("accepted-hash");
+    }
+
+    @Test
+    void takeOverFromARecordWithoutTextHashWritesNoHash() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER));
+
+        assertThat(record.issueTextHash()).isEmpty();
+    }
+
     private IssueRecord takeOverFrom(IssueRecord earlierRecord) {
         return takeover.takeOver(issue, Optional.of(earlierRecord));
     }
