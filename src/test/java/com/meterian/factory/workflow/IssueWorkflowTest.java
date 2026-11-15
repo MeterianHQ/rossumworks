@@ -24,6 +24,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.prompt.PromptLibrary;
@@ -126,7 +127,7 @@ class IssueWorkflowTest {
                 buildRunner, merger, usage,
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
                 BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()),
-                ownershipGuard);
+                ownershipGuard, new LostIssues());
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {

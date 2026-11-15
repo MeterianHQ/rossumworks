@@ -11,6 +11,7 @@ import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.ownership.IssueClaim;
+import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.Ownership;
 import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.state.HandOver;
@@ -72,6 +73,7 @@ public final class Worker {
     private final EarlierOwnerRecord earlierOwnerRecord;
     private final BoardUpdates board;
     private final FactorySwitch factorySwitch;
+    private final LostIssues lostIssues;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final PollWait pollWait;
     private final Set<Integer> issuesInWork = new HashSet<>();
@@ -88,7 +90,8 @@ public final class Worker {
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
                   PhaseStopper phaseStopper, PageRequests pageRequests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock, BoardUpdates board, FactorySwitch factorySwitch) {
+                  LiveSessions liveSessions, Clock clock, BoardUpdates board, FactorySwitch factorySwitch,
+                  LostIssues lostIssues) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
@@ -98,8 +101,10 @@ public final class Worker {
         this.executor = executor;
         this.board = board;
         this.factorySwitch = factorySwitch;
+        this.lostIssues = lostIssues;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board,
+                lostIssues);
         this.restartPreparation = new RestartPreparation(gitHub, layout);
         this.enterRequests = new EnterRequests(gitHub, workflow);
         this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher);
@@ -245,7 +250,9 @@ public final class Worker {
             return Optional.empty();
         }
         Ownership ownership = issueClaim.claim(issue);
-        if (ownership == Ownership.OWNED_BY_ANOTHER) {
+        if (ownership == Ownership.OWNED) {
+            lostIssues.forgetLoss(issue.number());
+        } else if (ownership == Ownership.OWNED_BY_ANOTHER) {
             leaveIssueOfAnotherOwner(issue);
         }
         return Optional.of(issue).filter(claimed -> ownership == Ownership.OWNED);
@@ -265,6 +272,7 @@ public final class Worker {
      * poll releases the issue.
      */
     private void leaveIssueOfAnotherOwner(Issue issue) {
+        lostIssues.rememberLoss(issue.number());
         synchronized (this) {
             if (issuesInWork.contains(issue.number())) {
                 issuesOfAnotherOwner.add(issue.number());
@@ -522,6 +530,7 @@ public final class Worker {
 
     /** The guard refused a change on GitHub. This is not a failure, so the issue gets no block. */
     private synchronized void rememberIssueOfAnotherOwner(int issueNumber) {
+        lostIssues.rememberLoss(issueNumber);
         issuesOfAnotherOwner.add(issueNumber);
     }
 
@@ -640,7 +649,7 @@ public final class Worker {
      */
     private void writeRelease(int issueNumber) {
         try {
-            ownershipRelease.release(gitHub.issue(issueNumber));
+            ownershipRelease.release(issueNumber);
         } catch (GitHubException exception) {
             logGitHubFailure("The release of the issue #" + issueNumber, exception);
         } finally {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
@@ -35,7 +36,8 @@ class OwnershipTakeoverTest {
         gitHub.setAuthenticatedLogin(WORKER_LOGIN);
         gitHub.addIssue(ISSUE_NUMBER, "Title", "Body");
         issue = gitHub.issue(ISSUE_NUMBER);
-        StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, 3, BoardUpdates.IGNORED);
+        StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, 3, BoardUpdates.IGNORED,
+                new LostIssues());
         takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN);
     }
 

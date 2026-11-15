@@ -26,6 +26,7 @@ import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
+import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.state.HandOver;
@@ -181,19 +182,20 @@ class WorkerTest {
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board) {
         BuildRunner buildRunner = new BuildRunner();
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, WORKER_LOGIN);
+        LostIssues lostIssues = new LostIssues();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
                 configuration.gatekeeperDirectory(), Duration.ZERO, ownershipGuard);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()),
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests, ownershipGuard);
+                board, new ContextTracker(), pageRequests, ownershipGuard, lostIssues);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC(), board, factorySwitch());
+                liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -1669,6 +1671,46 @@ class WorkerTest {
         assertThat(record.handOver()).contains(HandOver.RELEASED);
         assertThat(gitHub.pullRequests()).isEmpty();
         assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void stepResultAfterTheLossDoesNotChangeTheStatusLabel() throws InterruptedException {
+        CountDownLatch pollSawTheNewAssignee = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(() -> {
+            reassignToAlice();
+            gitHub.setStatus(gitHub.issue(ISSUE), IssueStatus.WAITS_FOR_YOU);
+            awaitQuietly(pollSawTheNewAssignee);
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> gitHub.assigneesOf(ISSUE).contains(ALICE));
+        Set<String> statusLabelsOfTheNewOwner = gitHub.statusLabelsOf(ISSUE);
+
+        worker.pollOnce();
+        pollSawTheNewAssignee.countDown();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(gitHub.statusLabelsOf(ISSUE)).isEqualTo(statusLabelsOfTheNewOwner);
+    }
+
+    @Test
+    void losingBuildDoesNotRemoveTheApprovalOfTheNewOwner() throws InterruptedException, IOException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        Path buildMayEnd = temporaryDirectory.resolve("build-may-end");
+        String buildCommand = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), buildCommand));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(buildStarted));
+
+        reassignToAlice();
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+        Files.createFile(buildMayEnd);
+        waitForTheLoops();
+
+        assertThat(gitHub.labelsOf(ISSUE)).contains(APPROVE_LABEL);
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
     }
 
     @Test
