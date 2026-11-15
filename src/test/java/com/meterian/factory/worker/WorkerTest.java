@@ -1580,6 +1580,12 @@ class WorkerTest {
         gitHub.addCommentBy(ISSUE, ALICE, StatusComment.render(record, 2));
     }
 
+    /** The issue had the assignee alice once, and has it no longer. */
+    private void recordAnEarlierAssignmentOfAlice() {
+        gitHub.assignBy(ISSUE, ALICE);
+        gitHub.unassign(ISSUE, ALICE);
+    }
+
     /** The factory of alice pushed the branch of the issue to the target repository. */
     private String pushTheBranchOfAlice() {
         Path aliceClone = temporaryDirectory.resolve("alice");
@@ -1684,6 +1690,7 @@ class WorkerTest {
     @Test
     void newOwnerContinuesFromThePushedBranch() throws InterruptedException {
         String pushedCommit = pushTheBranchOfAlice();
+        recordAnEarlierAssignmentOfAlice();
         addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
         FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
@@ -1699,6 +1706,7 @@ class WorkerTest {
 
     @Test
     void newOwnerKeepsABlock() throws InterruptedException {
+        recordAnEarlierAssignmentOfAlice();
         addRecordOfAlice(IssueRecord.queued(ISSUE).withStatus(IssueStatus.BLOCKED)
                 .withWaitReason(WaitReason.BLOCKED_BY_OWNER));
         gitHub.assignBy(ISSUE, WORKER_LOGIN);
@@ -1726,6 +1734,53 @@ class WorkerTest {
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
         assertThat(record.pullRequestNumber()).contains(gitHub.pullRequests().getFirst().number());
+    }
+
+    @Test
+    void factoryThatComesBackWhileOffContinuesThePushedBranch() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thatFails(), 2).pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).isEmpty();
+        reassignToAlice();
+        String pushedCommit = pushTheBranchOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        reassignToTheWorker();
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        createWorker(new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void secondPollAfterTheTakeOverDoesNotTakeOverAgain() {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord afterTheTakeOver = readRecord(ISSUE).orElseThrow();
+        int statusCommentsAfterTheTakeOver = statusComments(ISSUE).size();
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+
+        assertThat(readRecord(ISSUE)).contains(afterTheTakeOver);
+        assertThat(statusComments(ISSUE)).hasSize(statusCommentsAfterTheTakeOver);
+    }
+
+    @Test
+    void strangerStatusCommentDoesNotStartATakeOver() {
+        gitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(IssueRecord.queued(ISSUE)
+                .withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER), 2));
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.handOver()).isEmpty();
+        assertThat(record.notes()).noneMatch(note -> note.contains("earlier owner"));
     }
 
     @Test

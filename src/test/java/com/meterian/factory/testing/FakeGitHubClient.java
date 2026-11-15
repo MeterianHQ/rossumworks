@@ -47,6 +47,7 @@ public final class FakeGitHubClient implements GitHubClient {
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
     private long nextAssignmentEventId = 1;
+    private int assignmentEventReads;
     private boolean ignoresTheAssignees;
     private Runnable assigningAction;
     private int nextPullRequestNumber = 500;
@@ -98,6 +99,10 @@ public final class FakeGitHubClient implements GitHubClient {
 
     public synchronized Set<String> assigneesOf(int issueNumber) {
         return Set.copyOf(assignees.get(issueNumber));
+    }
+
+    public synchronized int assignmentEventReads() {
+        return assignmentEventReads;
     }
 
     /** Then addAssignee does nothing, as GitHub does for a login without access. */
@@ -327,6 +332,7 @@ public final class FakeGitHubClient implements GitHubClient {
 
     @Override
     public synchronized List<AssignmentEvent> assignmentEvents(int issueNumber) {
+        assignmentEventReads++;
         return List.copyOf(assignmentEventsByIssue.get(issueNumber));
     }
 

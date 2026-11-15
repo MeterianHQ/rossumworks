@@ -69,6 +69,7 @@ public final class Worker {
     private final IssueClaim issueClaim;
     private final OwnershipRelease ownershipRelease;
     private final OwnershipTakeover ownershipTakeover;
+    private final EarlierOwnerRecord earlierOwnerRecord;
     private final BoardUpdates board;
     private final FactorySwitch factorySwitch;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
@@ -107,6 +108,7 @@ public final class Worker {
         this.issueClaim = new IssueClaim(gitHub, workerLogin);
         this.ownershipRelease = new OwnershipRelease(gitHub, statusPublisher, workerLogin);
         this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin);
+        this.earlierOwnerRecord = new EarlierOwnerRecord(gitHub, workerLogin);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
     }
 
@@ -318,9 +320,11 @@ public final class Worker {
             return Optional.empty();
         }
         Optional<IssueRecord> ownRecord = StatusComment.findRecord(comments, workerLogin);
+        Optional<IssueRecord> newerRecordOfAnotherOwner = earlierOwnerRecord.findNewerThanOwnRecord(issueNumber,
+                comments);
         IssueRecord record;
-        if (isTakeOverNeeded(ownRecord, comments)) {
-            record = ownershipTakeover.takeOver(issue, comments, ownRecord);
+        if (isTakeOverNeeded(ownRecord, newerRecordOfAnotherOwner)) {
+            record = ownershipTakeover.takeOver(issue, newerRecordOfAnotherOwner.or(() -> ownRecord));
         } else if (ownRecord.isEmpty()) {
             return factorySwitch.isStopRequested() ? Optional.empty() : Optional.of(takeIntoQueue(issue));
         } else {
@@ -335,14 +339,16 @@ public final class Worker {
         return Optional.of(current).filter(found -> isStartable(issue, found));
     }
 
-    private boolean isTakeOverNeeded(Optional<IssueRecord> ownRecord, List<IssueComment> comments) {
-        return isReleased(ownRecord) || ownRecord.isEmpty() && continuesTheWorkOfAnotherAuthor(comments);
-    }
-
-    /** A stopped factory leaves a new issue untouched, as for an issue without any record. */
-    private boolean continuesTheWorkOfAnotherAuthor(List<IssueComment> comments) {
-        return !factorySwitch.isStopRequested()
-                && StatusComment.findNewestRecordOfAnotherAuthor(comments, workerLogin).isPresent();
+    /**
+     * A newer record of another owner makes the own record out of date. Without an own record, a stopped factory
+     * leaves the issue untouched, as for an issue without any record.
+     */
+    private boolean isTakeOverNeeded(Optional<IssueRecord> ownRecord,
+                                     Optional<IssueRecord> newerRecordOfAnotherOwner) {
+        if (newerRecordOfAnotherOwner.isEmpty()) {
+            return isReleased(ownRecord);
+        }
+        return ownRecord.isPresent() || !factorySwitch.isStopRequested();
     }
 
     /** The own record of a factory that stopped earlier is out of date, so the factory continues as a new owner. */

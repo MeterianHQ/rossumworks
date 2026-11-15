@@ -235,20 +235,33 @@ class StatusCommentTest {
     }
 
     @Test
-    void findsTheNewestRecordOfAnotherAuthor() {
+    void findsTheRecordsOfOtherAuthorsTheNewestFirst() {
         IssueRecord ofBob = record.withPhase(Phase.MERGE);
         List<IssueComment> comments = List.of(
                 new IssueComment(1, "alice", StatusComment.render(record, LIMIT)),
                 new IssueComment(2, "bob", StatusComment.render(ofBob, LIMIT)),
-                new IssueComment(3, "worker", StatusComment.render(record, LIMIT)));
+                new IssueComment(3, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(4, "carol", "**Factory status:** broken\n<!-- factory-record\n{\n-->"));
 
-        assertThat(StatusComment.findNewestRecordOfAnotherAuthor(comments, "worker")).contains(ofBob);
+        assertThat(StatusComment.findRecordsOfOtherAuthors(comments, "worker")).containsExactly(
+                new AuthoredRecord(2, "bob", ofBob), new AuthoredRecord(1, "alice", record));
     }
 
     @Test
     void comparesTheWorkerLoginWithoutCase() {
         List<IssueComment> comments = List.of(new IssueComment(1, "Worker", StatusComment.render(record, LIMIT)));
 
-        assertThat(StatusComment.findNewestRecordOfAnotherAuthor(comments, "worker")).isEmpty();
+        assertThat(StatusComment.findRecordsOfOtherAuthors(comments, "worker")).isEmpty();
+    }
+
+    @Test
+    void findsTheIdOfTheNewestStatusCommentOfTheWorker() {
+        List<IssueComment> comments = List.of(
+                new IssueComment(1, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(2, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(3, "worker", "A plain comment."),
+                new IssueComment(4, "alice", StatusComment.render(record, LIMIT)));
+
+        assertThat(StatusComment.findNewestStatusCommentId(comments, "worker")).contains(2L);
     }
 }

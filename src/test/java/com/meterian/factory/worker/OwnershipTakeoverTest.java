@@ -22,6 +22,8 @@ class OwnershipTakeoverTest {
     private static final String WORKER_LOGIN = "factory-bot";
     private static final int ISSUE_NUMBER = 7;
     private static final String BRANCH = WorkspaceLayout.branch(ISSUE_NUMBER);
+    private static final String OPEN_QUESTION_NOTE =
+            "The earlier owner had an open question. The question stays on the machine of the earlier owner.";
 
     private FakeGitHubClient gitHub;
     private OwnershipTakeover takeover;
@@ -42,7 +44,7 @@ class OwnershipTakeoverTest {
         gitHub.addBranchHead(BRANCH, "abc123");
         int pullRequestNumber = gitHub.createPullRequest(BRANCH, "main", "Title", "Body").number();
 
-        IssueRecord record = takeOver();
+        IssueRecord record = takeOverWithoutEarlierRecord();
 
         assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
         assertThat(record.pullRequestNumber()).contains(pullRequestNumber);
@@ -53,7 +55,7 @@ class OwnershipTakeoverTest {
 
     @Test
     void takeOverWithoutBranchStartsAgain() {
-        IssueRecord record = takeOver();
+        IssueRecord record = takeOverWithoutEarlierRecord();
 
         assertThat(record.handOver()).isEmpty();
         assertThat(record.pullRequestNumber()).isEmpty();
@@ -62,10 +64,8 @@ class OwnershipTakeoverTest {
 
     @Test
     void takeOverKeepsABlock() {
-        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
                 .withWaitReason(WaitReason.BLOCKED_BY_OWNER));
-
-        IssueRecord record = takeOver();
 
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
@@ -74,10 +74,9 @@ class OwnershipTakeoverTest {
     @Test
     void takeOverKeepsAWaitForApprovalWithThePushedBranch() {
         gitHub.addBranchHead(BRANCH, "abc123");
-        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
-                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
 
-        IssueRecord record = takeOver();
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+                .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
 
         assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
         assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
@@ -86,10 +85,8 @@ class OwnershipTakeoverTest {
 
     @Test
     void takeOverDropsAWaitForApprovalWithoutBranch() {
-        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
                 .withWaitReason(WaitReason.MERGE_NEEDS_APPROVAL));
-
-        IssueRecord record = takeOver();
 
         assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
         assertThat(record.phase()).isEqualTo(Phase.PREPARE);
@@ -97,52 +94,71 @@ class OwnershipTakeoverTest {
     }
 
     @Test
-    void takeOverKeepsTheBlockOfAnOwnReleasedRecord() {
-        IssueRecord released = IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
-                .withWaitReason(WaitReason.FAILURE).withHandOver(HandOver.RELEASED);
+    void takeOverKeepsAWaitForAChangedIssueText() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+                .withWaitReason(WaitReason.ISSUE_TEXT_CHANGED));
 
-        IssueRecord record = takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.of(released));
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+    }
+
+    @Test
+    void takeOverDoesNotKeepAQuestion() {
+        gitHub.addBranchHead(BRANCH, "abc123");
+
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+                .withWaitReason(WaitReason.QUESTION));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.waitReason()).isEmpty();
+        assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(record.notes()).contains(OPEN_QUESTION_NOTE);
+    }
+
+    @Test
+    void takeOverDoesNotKeepALiveConversation() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.WAITS_FOR_YOU)
+                .withWaitReason(WaitReason.LIVE_CONVERSATION));
+
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(record.waitReason()).isEmpty();
+        assertThat(record.notes()).contains(OPEN_QUESTION_NOTE);
+    }
+
+    @Test
+    void takeOverKeepsTheBlockOfAnOwnReleasedRecord() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
+                .withWaitReason(WaitReason.FAILURE).withHandOver(HandOver.RELEASED));
 
         assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
         assertThat(record.waitReason()).contains(WaitReason.FAILURE);
     }
 
     @Test
-    void takeOverPrefersTheRecordOfAnotherAuthor() {
-        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.IN_PROGRESS));
-        IssueRecord own = IssueRecord.queued(ISSUE_NUMBER).withStatus(IssueStatus.BLOCKED)
-                .withWaitReason(WaitReason.FAILURE);
-
-        IssueRecord record = takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.of(own));
-
-        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
-    }
-
-    @Test
-    void takeOverIgnoresThePullRequestNumberOfAnotherAuthor() {
-        addRecordOfAlice(IssueRecord.queued(ISSUE_NUMBER).withPullRequest(99));
-
-        IssueRecord record = takeOver();
+    void takeOverIgnoresThePullRequestNumberOfTheEarlierRecord() {
+        IssueRecord record = takeOverFrom(IssueRecord.queued(ISSUE_NUMBER).withPullRequest(99));
 
         assertThat(record.pullRequestNumber()).isEmpty();
     }
 
     @Test
-    void takeOverEditsTheStatusCommentOfTheOwnRecord() {
-        long commentId = gitHub.createComment(ISSUE_NUMBER, StatusComment.render(IssueRecord.queued(ISSUE_NUMBER), 3));
-        IssueRecord own = IssueRecord.queued(ISSUE_NUMBER).withStatusComment(commentId);
+    void takeOverWritesANewStatusComment() {
+        IssueRecord own = IssueRecord.queued(ISSUE_NUMBER);
+        long ownCommentId = gitHub.createComment(ISSUE_NUMBER, StatusComment.render(own, 3));
 
-        IssueRecord record = takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.of(own));
+        IssueRecord record = takeOverFrom(own.withStatusComment(ownCommentId));
 
-        assertThat(record.statusCommentId()).contains(commentId);
-        assertThat(gitHub.commentsOf(ISSUE_NUMBER)).hasSize(1);
+        assertThat(record.statusCommentId()).isPresent().get().isNotEqualTo(ownCommentId);
+        assertThat(gitHub.commentsOf(ISSUE_NUMBER)).hasSize(2);
+        assertThat(StatusComment.findRecord(gitHub.commentsOf(ISSUE_NUMBER), WORKER_LOGIN)).contains(record);
     }
 
-    private void addRecordOfAlice(IssueRecord record) {
-        gitHub.addCommentBy(ISSUE_NUMBER, "alice", StatusComment.render(record, 3));
+    private IssueRecord takeOverFrom(IssueRecord earlierRecord) {
+        return takeover.takeOver(issue, Optional.of(earlierRecord));
     }
 
-    private IssueRecord takeOver() {
-        return takeover.takeOver(issue, gitHub.commentsOf(ISSUE_NUMBER), Optional.empty());
+    private IssueRecord takeOverWithoutEarlierRecord() {
+        return takeover.takeOver(issue, Optional.empty());
     }
 }

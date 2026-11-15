@@ -37,6 +37,12 @@ public final class StatusPublisher {
         return published;
     }
 
+    /** Writes the record to a new status comment, also when the worker has an older one. */
+    public IssueRecord publishInNewComment(Issue issue, IssueRecord record) {
+        long commentId = gitHub.createComment(issue.number(), StatusComment.render(record, fixLoopLimit));
+        return publish(issue, null, record.withStatusComment(commentId));
+    }
+
     private long findOrCreateStatusComment(int issueNumber, IssueRecord record) {
         return findStatusComment(issueNumber)
                 .orElseGet(() -> gitHub.createComment(issueNumber, StatusComment.render(record, fixLoopLimit)));

@@ -58,13 +58,20 @@ public final class StatusComment {
                 .max(Comparator.comparingLong(IssueComment::id));
     }
 
-    /** Reads the record of the newest status comment that another account wrote. */
-    public static Optional<IssueRecord> findNewestRecordOfAnotherAuthor(List<IssueComment> comments, String workerLogin) {
+    /** Returns the id of the newest status comment of the worker. */
+    public static Optional<Long> findNewestStatusCommentId(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin).map(IssueComment::id);
+    }
+
+    /** Reads the records of the status comments that other accounts wrote, the newest first. */
+    public static List<AuthoredRecord> findRecordsOfOtherAuthors(List<IssueComment> comments, String workerLogin) {
         return comments.stream()
                 .filter(comment -> !workerLogin.equalsIgnoreCase(comment.authorLogin()))
                 .filter(StatusComment::isStatusComment)
-                .max(Comparator.comparingLong(IssueComment::id))
-                .flatMap(comment -> readRecord(comment.body()));
+                .sorted(Comparator.comparingLong(IssueComment::id).reversed())
+                .flatMap(comment -> readRecord(comment.body()).stream()
+                        .map(record -> new AuthoredRecord(comment.id(), comment.authorLogin(), record)))
+                .toList();
     }
 
     private static boolean isStatusComment(IssueComment comment) {
