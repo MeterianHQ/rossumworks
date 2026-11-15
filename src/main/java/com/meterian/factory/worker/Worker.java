@@ -5,6 +5,7 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import com.meterian.factory.definition.ColumnNames;
 import com.meterian.factory.definition.DefinitionVersion;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.StateDefinition;
@@ -150,7 +151,7 @@ public final class Worker {
                 verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
-            for (IssueRecord record : orderBackFromLiveFirst(startable, earlierLiveIssues)) {
+            for (IssueRecord record : orderForTheSlots(startable, earlierLiveIssues)) {
                 verifyEnoughRequestsRemain();
                 if (!factorySwitch.isStopRequested()) {
                     startIssue(record);
@@ -255,12 +256,19 @@ public final class Worker {
         }
     }
 
-    /** An issue back from its live session gets the slot that its session held, before any other issue. */
-    private static List<IssueRecord> orderBackFromLiveFirst(List<IssueRecord> startable,
-                                                            Set<Integer> earlierLiveIssues) {
+    /**
+     * An issue that left the queue holds a slot, also after a restart. So an issue back from its live session goes
+     * first, then the other started issues, and the queued issues last. The order by issue number stays in each group.
+     */
+    private static List<IssueRecord> orderForTheSlots(List<IssueRecord> startable, Set<Integer> earlierLiveIssues) {
         return startable.stream()
-                .sorted(Comparator.comparing((IssueRecord record) -> !earlierLiveIssues.contains(record.issueNumber())))
+                .sorted(Comparator.comparing((IssueRecord record) -> !earlierLiveIssues.contains(record.issueNumber()))
+                        .thenComparing(Worker::isQueued))
                 .toList();
+    }
+
+    private static boolean isQueued(IssueRecord record) {
+        return ColumnNames.QUEUED.equals(record.column());
     }
 
     private void ensureLabelsOnce() {

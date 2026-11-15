@@ -483,6 +483,23 @@ class WorkerTest {
     }
 
     @Test
+    void aStartedIssueGetsTheSlotBeforeAQueuedIssueWithALowerNumber() throws InterruptedException {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord started = RecordStates.move(readRecord(ISSUE).orElseThrow().withAgentSessionStarted(),
+                "implement");
+        gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, LIMITS, RecordStates.REVIEW_NAMES));
+        addLabeledIssue(3);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).containsOnly(ISSUE);
+        assertThat(readRecord(3).orElseThrow().column()).isEqualTo("queued");
+    }
+
+    @Test
     void aStoppedFactoryDoesNotStartAnIssueThatIsAlreadyStarted() {
         createWorker(new FakeAgentRunner(), 0).pollOnce();
         IssueRecord started = RecordStates.move(readRecord(ISSUE).orElseThrow().withAgentSessionStarted(),

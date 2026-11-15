@@ -16,7 +16,8 @@ the facts of this machine:
   at the start, when this folder does not exist. A clone that exists stays as it is.
 - `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
 - `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`. An open live session counts against
-  `parallel-issues`, as an issue in work.
+  `parallel-issues`, as an issue in work. An issue that left the queue gets a slot before a queued issue, also
+  after a restart of the worker.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `isolation`, `claude`, `live`, and `web`.
 
