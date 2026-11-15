@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.ClasspathDefinitionFiles;
+import com.meterian.factory.definition.DefinitionException;
+import com.meterian.factory.definition.DefinitionLoader;
+import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LivePlace;
@@ -188,6 +193,41 @@ class OwnershipTakeoverTest {
         IssueRecord record = takeOverFrom(RecordStates.queued(ISSUE_NUMBER));
 
         assertThat(record.issueTextHash()).isEmpty();
+    }
+
+    @Test
+    void takeOverDoesNotTurnAnApprovalOutsideTheMergeIntoAMergeApproval() throws DefinitionException {
+        useDefinition(loadDefinitionWithADesignApproval());
+        gitHub.addBranchHead(BRANCH, "abc123");
+        IssueRecord earlier = RecordStates.queued(ISSUE_NUMBER)
+                .withMove("design-approval", Optional.of(ActionType.APPROVAL), "waits-for-you");
+
+        IssueRecord record = takeOverFrom(earlier);
+
+        assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(record.state()).isEqualTo("prepare");
+    }
+
+    /** The default workflow with one more approval state between prepare and build. */
+    private static FactoryDefinition loadDefinitionWithADesignApproval() throws DefinitionException {
+        ClasspathDefinitionFiles defaultFiles = new ClasspathDefinitionFiles();
+        String mainFile = defaultFiles.read("factory.yaml").orElseThrow()
+                .replace("      on: { done: implement }\n",
+                        "      on: { done: design-approval }\n"
+                                + "    design-approval:\n"
+                                + "      column: waits-for-you\n"
+                                + "      action: { type: approval }\n"
+                                + "      on: { approved: build }\n");
+        return DefinitionLoader.load(path -> path.equals("factory.yaml") ? Optional.of(mainFile)
+                : defaultFiles.read(path));
+    }
+
+    private void useDefinition(FactoryDefinition definition) {
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(definition);
+        StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, definitions, BoardUpdates.IGNORED,
+                new LostIssues());
+        OnAnyStateMoves onAnyStateMoves = new OnAnyStateMoves(definitions, new WorkspaceLayout(temporaryDirectory));
+        takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN, definitions, onAnyStateMoves);
     }
 
     private IssueRecord takeOverFrom(IssueRecord earlierRecord) {

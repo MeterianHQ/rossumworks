@@ -1,7 +1,6 @@
 package com.meterian.factory.worker;
 
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntPredicate;
 
@@ -50,11 +49,17 @@ final class LiveSessionSlots {
         return union;
     }
 
-    /** An issue back from its live session takes over the slot of its own session, so it does not count. */
-    synchronized int countOutsideWork(Set<Integer> issuesInWork, Optional<Integer> excludedIssueNumber) {
+    synchronized int countOutsideWork(Set<Integer> issuesInWork) {
         return (int) issuesInLiveSession.stream()
                 .filter(issueNumber -> !issuesInWork.contains(issueNumber))
-                .filter(issueNumber -> excludedIssueNumber.filter(issueNumber::equals).isEmpty())
+                .count();
+    }
+
+    /** An issue back from its live session takes over the slot of its own session, so it does not count. */
+    synchronized int countOutsideWorkExcept(Set<Integer> issuesInWork, int excludedIssueNumber) {
+        return (int) issuesInLiveSession.stream()
+                .filter(issueNumber -> !issuesInWork.contains(issueNumber))
+                .filter(issueNumber -> issueNumber != excludedIssueNumber)
                 .count();
     }
 }

@@ -520,7 +520,9 @@ of the current version of `.factory`.
 4. An earlier record that waits for a merge approval goes to the state where the same event of the
    `merge-gate` state goes, for example `waits-for-approval`. This needs the pushed branch. After the approval,
    the issue goes to the `start` state, so the factory makes the worktree from the branch and builds again.
-5. A state with the action `conversation` does not pass on, because the session stays on the earlier machine.
+5. An earlier record in another `approval` state, which no `merge-gate` state enters, does not pass on. The new
+   owner continues its work from the `start` state.
+6. A state with the action `conversation` does not pass on, because the session stays on the earlier machine.
 
 The YAML does not name these moves.
 
