@@ -1616,6 +1616,44 @@ class WorkerTest {
     }
 
     @Test
+    void aStoppedFactoryDoesNotAssignANewIssue() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.assigneesOf(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+    }
+
+    @Test
+    void aStoppedFactoryDoesNotTakeOverANewIssueOfAnEarlierOwner() {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void aStoppedFactoryAssignsAgainAnIssueWithItsRecord() {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        gitHub.unassign(ISSUE, WORKER_LOGIN);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.assigneesOf(ISSUE)).containsExactly(WORKER_LOGIN);
+        assertThat(findCard(board, ISSUE)).isPresent();
+    }
+
+    @Test
     void pollLeavesAnIssueOfAnotherAccount() {
         addLabeledIssue(OTHER_ISSUE);
         gitHub.assignBy(OTHER_ISSUE, ALICE);
