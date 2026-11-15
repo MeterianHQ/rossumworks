@@ -2,6 +2,9 @@
 
 Date: 2026-11-15. Status: approved by the owner on 2026-11-15.
 
+> Note, 2026-11-15: main removed `accounts.allowed` (PR #26); the claim takes
+> every `factory` label.
+
 ## 1. Intent
 
 Until now, only one person ran the factory. Now more people run their own

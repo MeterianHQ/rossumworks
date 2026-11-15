@@ -54,9 +54,10 @@ token.
 
 ### Pick up
 
-- The factory picks up an issue that has no assignee. It needs the label `factory` from an account in
-  `accounts.allowed`.
+- The factory picks up an issue that has the label `factory` and no assignee.
 - The factory assigns the issue to itself. Then it reads the issue again.
+- A stopped factory does not pick up a new issue. It does not assign itself, and it writes nothing on the issue.
+  An issue with a record of this factory is not new: the factory assigns itself again.
 - When the issue has more than one assignee, the earliest "assigned" event among the current assignees wins.
   The factory that loses removes its own assignee.
 - When an assignee has no event, the factory gives way.
@@ -121,7 +122,7 @@ An older factory ignores the assignees. Thus upgrade all the factories of a repo
 upgrade, look at the issues with the label `factory`. Remove their human assignees, or assign them to the
 account of the token.
 
-The labels are always orders. They keep the rule of `accounts.allowed`. An assignee change from any account
+The labels are always orders. The factory does not check who added a label. An assignee change from any account
 counts.
 
 ## The language of the agents
@@ -368,8 +369,8 @@ worker then continues the stopped issues and starts the waiting issues in about 
 While the factory is stopping or stopped:
 
 - No issue starts or continues. This includes the stopped issues and Start again.
-- The worker does not touch a new issue with the `factory` label. It writes no record and no comment, and the
-  issue gets no card. So another factory can take the issue. The worker takes it at the first poll after **Start**,
+- The worker does not touch a new issue with the `factory` label. It does not assign itself, it writes no record
+  and no comment, and the issue gets no card. So another factory can take the issue. The worker takes it at the first poll after **Start**,
   if no other factory took it first.
 - Block works at once. Enter opens the live conversation.
 - An Approve and a `/factory:continue` wait until you click **Start**.
