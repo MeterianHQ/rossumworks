@@ -16,9 +16,12 @@ public final class IssueClaim {
         this.workerLogin = workerLogin;
     }
 
-    /** The caller works on the issue only when the result is OWNED. */
+    /** The caller works on the issue only when the result is OWNED. A worker that loses removes its assignee. */
     public Ownership claim(Issue issue) {
         Ownership ownership = decide(issue);
+        if (ownership == Ownership.OWNED_BY_ANOTHER && isAssignee(issue)) {
+            gitHub.removeAssignee(issue.number(), workerLogin);
+        }
         if (ownership != Ownership.UNASSIGNED) {
             return ownership;
         }
@@ -31,10 +34,14 @@ public final class IssueClaim {
         if (ownership == Ownership.OWNED_BY_ANOTHER) {
             gitHub.removeAssignee(issueNumber, workerLogin);
         } else if (ownership == Ownership.UNASSIGNED) {
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "GitHub ignored the assignee {1} on the issue {0}", issueNumber, workerLogin);
+            LOGGER.log(System.Logger.Level.WARNING, "GitHub ignored the assignee {1} on the issue #{0}",
+                    String.valueOf(issueNumber), workerLogin);
         }
         return ownership;
+    }
+
+    private boolean isAssignee(Issue issue) {
+        return issue.assignees().stream().anyMatch(assignee -> assignee.equalsIgnoreCase(workerLogin));
     }
 
     private Ownership decide(Issue issue) {

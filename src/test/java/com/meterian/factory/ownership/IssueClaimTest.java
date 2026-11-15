@@ -61,6 +61,15 @@ class IssueClaimTest {
     }
 
     @Test
+    void claimRemovesTheWorkerWhenAnEarlierAssigneeOwnsTheIssue() {
+        gitHub.assignBy(ISSUE_NUMBER, "alice");
+        gitHub.assignBy(ISSUE_NUMBER, "worker");
+
+        assertEquals(Ownership.OWNED_BY_ANOTHER, claim.claim(gitHub.issue(ISSUE_NUMBER)));
+        assertEquals(Set.of("alice"), gitHub.assigneesOf(ISSUE_NUMBER));
+    }
+
+    @Test
     void claimRefusesAnIssueWhenGitHubIgnoresTheAssignee() {
         gitHub.ignoreTheAssignees();
 
