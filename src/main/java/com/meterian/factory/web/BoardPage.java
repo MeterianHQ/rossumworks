@@ -102,8 +102,9 @@ public final class BoardPage {
         return switch (state) {
             case RUNNING -> Optional.empty();
             case STOPPING -> Optional.of("The factory is stopping. Each issue in work ends its current step, "
-                    + "moves to the next phase, and stops. No issue starts.");
-            case STOPPED -> Optional.of("The factory is stopped. No issue starts. New issues wait in Queued.");
+                    + "moves to the next phase, and stops. No issue starts. New issues stay free for other factories.");
+            case STOPPED -> Optional.of("The factory is stopped. No issue starts or continues. "
+                    + "New issues stay free for other factories.");
         };
     }
 
