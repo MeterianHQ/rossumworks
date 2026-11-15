@@ -19,6 +19,7 @@ issues in work. A pull request that changes `.factory` always waits for your app
     implement.md
     fix.md
     ...
+  run.sh                the script that starts the worker with the latest release
 ```
 
 The main file is `.factory/factory.yaml`. The paths of the prompt files are relative to the folder `.factory`.
@@ -28,7 +29,8 @@ loader refuses a path that starts with `/` or that has the segment `..`.
 The jar of the factory contains a complete example:
 [`src/main/resources/factory/`](../src/main/resources/factory/). Section 15 shows its `factory.yaml`. To start,
 run the command `create` of the jar (see "Setup" in the README). It writes this folder as `.factory` with the
-build command of your repository, and it opens the PR `factory/setup`. Then change the files as you need.
+build command of your repository, adds `run.sh`, and opens the PR `factory/setup`. The loader does not read
+`run.sh`. Then change the files as you need.
 
 ## 2. The main file
 

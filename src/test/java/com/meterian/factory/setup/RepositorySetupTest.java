@@ -111,6 +111,17 @@ class RepositorySetupTest {
     }
 
     @Test
+    void publishesAShellScriptAsExecutable() throws Exception {
+        RepositoryFacts facts = setup.read(clone);
+        Map<String, String> files = Map.of(".factory/factory.yaml", "a: b\n", ".factory/run.sh", "echo\n");
+
+        setup.publish(clone, gatekeeper, facts, files);
+
+        assertThat(run(github, "ls-tree", "factory/setup", ".factory/run.sh")).startsWith("100755 blob ");
+        assertThat(run(github, "ls-tree", "factory/setup", ".factory/factory.yaml")).startsWith("100644 blob ");
+    }
+
+    @Test
     void publishesAgainAfterACrashedRun() throws Exception {
         RepositoryFacts facts = setup.read(clone);
         git.addWorktree(clone, work.resolve("setup-worktree"), "factory/setup", facts.baseCommit());

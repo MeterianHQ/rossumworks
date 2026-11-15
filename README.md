@@ -75,8 +75,7 @@ only: the record in the status comment keeps the state. The worker removes the o
    `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.2.0-SNAPSHOT.jar create`. Answer the questions.
    Enter takes the default answer.
 5. Merge the PR `factory/setup`.
-6. In the same clone, run the `run` command that `create` shows, for example
-   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.2.0-SNAPSHOT.jar run`.
+6. In the same clone, run the command that `create` shows, for example `.factory/run.sh`.
 
 `run` without `--config` reads the owner and the name of the GitHub repository of the clone, for example
 `MeterianHQ/heidi-fix`. It then reads `~/.claude-ai-factory/MeterianHQ-heidi-fix/worker.yaml`. When the file
@@ -93,6 +92,22 @@ Then assign the PR by hand. Until the merge of the PR, the worker takes no issue
 
 The default `.factory` holds `factory.yaml` and the prompt files that it uses. `create` does not copy
 `prompts/resume.md` of the jar, because the default workflow does not use it.
+
+### The run script
+
+The default `.factory` also holds the script `run.sh`. `create` commits it with the execute permission. The
+script starts the worker with the latest release of the factory:
+
+1. It asks the GitHub API for the latest release of `MeterianHQ/claude-ai-factory`. It sends the token of
+   `FACTORY_GITHUB_TOKEN`, or else the token of `gh`, because the repository is private.
+2. It downloads the jar of that release into `~/.claude-ai-factory/jars`. A jar in this folder is not
+   downloaded again.
+3. It goes to the root of the clone and runs `java -jar <the jar> run`. It gives its arguments to `run`, for
+   example `.factory/run.sh --config <work folder>/worker.yaml`.
+
+When the download fails, the script uses the newest jar in `~/.claude-ai-factory/jars`. When that folder has no
+jar, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. When the repository
+already has a `.factory`, `create` adds no script, and it shows the `java -jar` command.
 
 When `worker.yaml` exists in the work folder, `create` stops with the message "The file ... exists" and the
 exit code 1. A second run after a successful run also stops there, because the first run wrote `worker.yaml`.

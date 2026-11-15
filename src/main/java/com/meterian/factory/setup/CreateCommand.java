@@ -27,6 +27,7 @@ public final class CreateCommand {
     private static final String JAVA_HOME_VARIABLE = "JAVA_HOME";
     private static final String CLONE_FOLDER = "repository";
     private static final String DEFAULT_JAR = "claude-ai-factory.jar";
+    private static final String RUN_SCRIPT = ".factory/run.sh";
 
     /** Where the GitHub of a repository is. A test gives a fake client and a local repository. */
     public interface GitHubConnector {
@@ -210,21 +211,27 @@ public final class CreateCommand {
             assignmentProblem.ifPresent(output::println);
             output.println("The worker takes issues after the merge of the pull request.");
         });
-        showStartCommand(settings);
+        showStartCommand(settings, pullRequest.isPresent());
+    }
+
+    /** After the merge, the run script of .factory starts the latest release. Without a PR, the running jar. */
+    private void showStartCommand(WorkerSettings settings, boolean pullRequestAddsRunScript) {
+        String program = pullRequestAddsRunScript ? RUN_SCRIPT : "java -jar " + findJarPath() + " run";
+        output.println("Start the worker with this command, in a clone of " + settings.repository().fullName() + ":");
+        output.println("  " + program + findConfigurationOption(settings));
+        if (pullRequestAddsRunScript) {
+            output.println("The script comes with the merge of the pull request. It runs the latest release.");
+        }
     }
 
     /** In the default work folder, run finds worker.yaml from the clone. Another folder needs --config. */
-    private void showStartCommand(WorkerSettings settings) {
+    private String findConfigurationOption(WorkerSettings settings) {
         Path defaultWorkDirectory = WorkerSettings.defaultWorkDirectory(home, settings.repository())
                 .toAbsolutePath();
         if (settings.workDirectory().equals(defaultWorkDirectory)) {
-            output.println("Start the worker with this command, in a clone of "
-                    + settings.repository().fullName() + ":");
-            output.println("  java -jar " + findJarPath() + " run");
-            return;
+            return "";
         }
-        output.println("Start the worker with this command:");
-        output.println("  java -jar " + findJarPath() + " run --config " + settings.configurationFile());
+        return " --config " + settings.configurationFile();
     }
 
     /** The path of the running jar. Outside a jar, for example in a test, the name of the jar. */

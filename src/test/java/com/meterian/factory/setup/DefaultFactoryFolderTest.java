@@ -35,11 +35,20 @@ class DefaultFactoryFolderTest {
     void copiesEveryFileOfTheBuiltInDefinition() {
         Set<String> expected = new HashSet<>();
         expected.add(".factory/factory.yaml");
+        expected.add(".factory/run.sh");
         BuiltInDefinition.load().prompts().keySet().forEach(path -> expected.add(".factory/" + path));
 
         Map<String, String> files = DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main");
 
         assertThat(files.keySet()).isEqualTo(expected);
+    }
+
+    @Test
+    void addsTheRunScriptThatStartsTheLatestRelease() {
+        String script = DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main").get(".factory/run.sh");
+
+        assertThat(script).startsWith("#!/usr/bin/env bash\n")
+                .contains("repos/MeterianHQ/claude-ai-factory/releases/latest", "exec java -jar \"${jar}\" run \"$@\"");
     }
 
     @ParameterizedTest

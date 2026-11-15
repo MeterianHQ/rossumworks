@@ -189,7 +189,28 @@ class CreateCommandTest {
         runCreate(answering("", "", "", "", "y"));
 
         assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
-                + "  java -jar claude-ai-factory.jar run" + System.lineSeparator()).doesNotContain("--config");
+                + "  .factory/run.sh" + System.lineSeparator()
+                + "The script comes with the merge of the pull request. It runs the latest release.")
+                .doesNotContain("--config", "java -jar");
+    }
+
+    @Test
+    void anExistingFactoryFolderGivesTheStartCommandWithTheJar() {
+        pushToMain(".factory/factory.yaml", "build: {}\n");
+
+        runCreate(answering("", "", "", "y"));
+
+        assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
+                + "  java -jar claude-ai-factory.jar run" + System.lineSeparator()).doesNotContain("run.sh");
+    }
+
+    @Test
+    void thePullRequestHasTheExecutableRunScript() {
+        pushToMain("package.json", "{}\n");
+
+        runCreate(answering("", "", "", "", "y"));
+
+        assertThat(run(github, "ls-tree", "factory/setup", ".factory/run.sh")).startsWith("100755 blob ");
     }
 
     @Test
@@ -200,8 +221,8 @@ class CreateCommandTest {
         int exitCode = runCreate(answering("", otherWorkDirectory.toString(), "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
-        assertThat(outputText()).contains("Start the worker with this command:" + System.lineSeparator()
-                + "  java -jar claude-ai-factory.jar run --config " + otherWorkDirectory.resolve("worker.yaml"));
+        assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
+                + "  .factory/run.sh --config " + otherWorkDirectory.resolve("worker.yaml"));
     }
 
     @Test
