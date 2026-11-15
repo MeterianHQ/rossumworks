@@ -206,10 +206,10 @@ button {
 /* The state of the factory is in the top right corner. Its color tells the state at a glance. */
 .factory-state {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
+    gap: 0.6rem;
     margin-left: auto;
-    padding: 0.4rem 0.8rem;
+    padding: 0.35rem 0.5rem 0.35rem 0.8rem;
     border: 2px solid var(--factory-state-color);
     border-radius: 8px;
     background: var(--surface-raised);
@@ -235,10 +235,6 @@ button {
     letter-spacing: 0.05em;
 }
 
-.factory-state button {
-    margin-top: 0.25rem;
-}
-
 .tile-label {
     color: var(--text-muted);
     font-size: 0.72rem;
@@ -249,11 +245,6 @@ button {
 .tile-value {
     font-weight: 600;
     white-space: nowrap;
-}
-
-.tile-note {
-    color: var(--text-muted);
-    font-size: 0.72rem;
 }
 
 .usage meter {

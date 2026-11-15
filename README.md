@@ -279,7 +279,7 @@ attempts for 15 minutes, also the correct password.
 
 The header shows the health of the worker: its start time, the time of the last GitHub check, the issues in
 work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
-percent and its time.
+percent. The tooltip of a usage window tells the time of the value. A phone shows no tooltip.
 
 At its start, the worker runs one very short `claude -p` session to read the usage, so that the page shows it
 before the first phase. This session has no tools, no MCP servers, and no saved session, and it uses about
