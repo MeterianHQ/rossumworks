@@ -1,5 +1,7 @@
 # Issue ownership by assignee: implementation plan
 
+> Note, 2026-11-15: main removed `accounts.allowed` (PR #26). The lines of this plan about an allowed account no longer apply: the claim takes every `factory` label.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A factory works only on the issues that the GitHub assignee gives to its worker login, and it continues the pushed work of an earlier owner.

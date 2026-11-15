@@ -370,8 +370,8 @@ While the factory is stopping or stopped:
 
 - No issue starts or continues. This includes the stopped issues and Start again.
 - The worker does not touch a new issue with the `factory` label. It does not assign itself, it writes no record
-  and no comment, and the issue gets no card. So another factory can take the issue. The worker takes it at the first poll after **Start**,
-  if no other factory took it first.
+  and no comment, and the issue gets no card. So another factory can take the issue. The worker takes it at the
+  first poll after **Start**, if no other factory took it first.
 - Block works at once. Enter opens the live conversation.
 - An Approve and a `/factory:continue` wait until you click **Start**.
 

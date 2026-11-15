@@ -3,7 +3,8 @@
 Date: 2026-11-15. Status: approved by the owner on 2026-11-15.
 
 > Note, 2026-11-15: main removed `accounts.allowed` (PR #26); the claim takes
-> every `factory` label.
+> every `factory` label. A stopped factory does not claim a new issue. An issue
+> with a record of this factory is not new.
 
 ## 1. Intent
 
@@ -36,8 +37,6 @@ Non-goals:
   before the first push, and the Claude session.
 - A shared board for all the factories. Each factory shows only its own
   issues.
-- A change to `accounts.allowed`. The rule for who can give orders with labels
-  stays the same.
 
 Anti-goals:
 
@@ -60,7 +59,7 @@ Anti-goals:
   has a status record of another factory.
 - Labels are always orders. The assignee is not an order: it only tells which
   factory owns the issue. Thus a factory accepts an assignee change from any
-  account. The labels keep the rule of `accounts.allowed`.
+  account. The factory does not check who added a label.
 - The factory of the new assignee keeps a blocked or a waiting state of the
   old record.
 
