@@ -219,6 +219,22 @@ class DefinitionVersionsTest {
     }
 
     @Test
+    void refusesARecordWhoseCommitIsNotOnTheDefaultBranch() {
+        commitDefinition(author, builtInMainFile());
+        run(author, "checkout", "-q", "-b", "side");
+        String side = commitDefinition(author, mainFileWithImplementLimit(5));
+        run(author, "push", "-q", "origin", "side");
+        run(clone, "fetch", "-q", "origin", "side");
+        DefinitionVersions versions = createVersions();
+        versions.refresh();
+        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(side);
+
+        assertThatThrownBy(() -> versions.definitionOf(record))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("is not on the branch main");
+    }
+
+    @Test
     void usesTheBuiltInVersionForARecordWithoutACommit() {
         DefinitionVersions versions = createVersions();
 

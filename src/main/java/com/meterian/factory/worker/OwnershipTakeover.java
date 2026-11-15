@@ -105,11 +105,22 @@ final class OwnershipTakeover {
         if (record.handOver().isEmpty()) {
             return record;
         }
-        String event = earlierWorkflow.flatMap(found -> found.findMergeGateEventTo(earlierRecord.state()))
-                .orElse(NEEDS_APPROVAL_EVENT);
-        return workflow.findMergeGateTarget(event).map(workflow::state)
+        return findMergeGateEvent(earlierWorkflow, earlierRecord.state())
+                .flatMap(workflow::findMergeGateTarget).map(workflow::state)
                 .map(approvalState -> moveTo(record, approvalState))
                 .orElse(record);
+    }
+
+    /**
+     * An approval state that no merge gate enters is not a wait for the merge, so the new owner continues its work.
+     * Without the earlier workflow, the wait is the usual approval of the merge.
+     */
+    private static Optional<String> findMergeGateEvent(Optional<WorkflowDefinition> earlierWorkflow,
+                                                       String earlierState) {
+        if (earlierWorkflow.isEmpty()) {
+            return Optional.of(NEEDS_APPROVAL_EVENT);
+        }
+        return earlierWorkflow.get().findMergeGateEventTo(earlierState);
     }
 
     /** The definition of an earlier record can fail to load. Then the current workflow gives the names. */

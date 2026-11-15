@@ -10,7 +10,8 @@ import java.util.Optional;
 
 /**
  * Waits for the label factory:approve (spec 5.5). In the target of issue-text-changed, the label accepts the new
- * text and goes away. In another approval state, the label approves the merge and stays: the merge gate reads it. The approval records the tree of the approved files.
+ * text and goes away. In another approval state, the label approves the merge and stays: the merge gate reads it.
+ * The approval records the tree of the approved files.
  */
 final class ApprovalAction implements Action {
 

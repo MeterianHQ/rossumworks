@@ -127,7 +127,23 @@ public final class DefinitionVersions implements DefinitionLookup {
      */
     @Override
     public FactoryDefinition definitionOf(IssueRecord record) {
-        return record.definitionCommit().map(this::definitionOfCommit).orElse(builtIn);
+        return record.definitionCommit().map(this::definitionOfRecordCommit).orElse(builtIn);
+    }
+
+    /**
+     * Anyone who can edit the status comment can change the commit of the record. So the commit must be on the
+     * default branch: the factory never runs a .factory of another branch.
+     */
+    private FactoryDefinition definitionOfRecordCommit(String commit) {
+        if (!definitionsByCommit.containsKey(commit) && !isOnTheDefaultBranch(commit)) {
+            throw new IllegalStateException("The commit " + shorten(commit) + " of .factory in the record is not on "
+                    + "the branch " + defaultBranch + ".");
+        }
+        return definitionOfCommit(commit);
+    }
+
+    private boolean isOnTheDefaultBranch(String commit) {
+        return CloneLock.run(clone, () -> git.isAncestor(clone, commit, ORIGIN + "/" + defaultBranch));
     }
 
     /** A failure of the fetch keeps the current version. */

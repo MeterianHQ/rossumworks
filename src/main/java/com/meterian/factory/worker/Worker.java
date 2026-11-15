@@ -232,7 +232,7 @@ public final class Worker {
 
     /** The issues in work and the open live sessions share the parallel limit. */
     public synchronized int countUsedSlots() {
-        return issuesInWork.size() + liveSessionSlots.countOutsideWork(issuesInWork, Optional.empty());
+        return issuesInWork.size() + liveSessionSlots.countOutsideWork(issuesInWork);
     }
 
     private void rememberLiveSession(IssueRecord record) {
@@ -508,7 +508,7 @@ public final class Worker {
 
     private synchronized boolean reserveSlot(int issueNumber) {
         int usedSlots = issuesInWork.size()
-                + liveSessionSlots.countOutsideWork(issuesInWork, Optional.of(issueNumber));
+                + liveSessionSlots.countOutsideWorkExcept(issuesInWork, issueNumber);
         boolean hasFreeSlot = usedSlots < configuration.limits().parallelIssues();
         return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber)
                 && !releasesInProgress.contains(issueNumber) && issuesInWork.add(issueNumber);
