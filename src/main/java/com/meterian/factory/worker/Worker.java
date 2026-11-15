@@ -74,6 +74,7 @@ public final class Worker {
     private final BoardUpdates board;
     private final FactorySwitch factorySwitch;
     private final LostIssues lostIssues;
+    private final ReleasedIssues releasedIssues = new ReleasedIssues();
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final PollWait pollWait;
     private final Set<Integer> issuesInWork = new HashSet<>();
@@ -251,11 +252,17 @@ public final class Worker {
         }
         Ownership ownership = issueClaim.claim(issue);
         if (ownership == Ownership.OWNED) {
-            lostIssues.forgetLoss(issue.number());
+            forgetEarlierLoss(issue.number());
         } else if (ownership == Ownership.OWNED_BY_ANOTHER) {
             leaveIssueOfAnotherOwner(issue);
         }
         return Optional.of(issue).filter(claimed -> ownership == Ownership.OWNED);
+    }
+
+    /** The issue can come back to the factory. A later loss then needs a new release. */
+    private void forgetEarlierLoss(int issueNumber) {
+        lostIssues.forgetLoss(issueNumber);
+        releasedIssues.forgetRelease(issueNumber);
     }
 
     /**
@@ -269,7 +276,7 @@ public final class Worker {
 
     /**
      * A running step ends normally, and the loop then releases the issue. A block in progress goes first: a later
-     * poll releases the issue.
+     * poll releases the issue. An issue that this run released costs no request.
      */
     private void leaveIssueOfAnotherOwner(Issue issue) {
         lostIssues.rememberLoss(issue.number());
@@ -278,7 +285,8 @@ public final class Worker {
                 issuesOfAnotherOwner.add(issue.number());
                 return;
             }
-            if (blockedIssues.contains(issue.number()) || !releasesInProgress.add(issue.number())) {
+            if (blockedIssues.contains(issue.number()) || releasedIssues.isReleased(issue.number())
+                    || !releasesInProgress.add(issue.number())) {
                 return;
             }
         }
@@ -522,7 +530,9 @@ public final class Worker {
     /** The assignee can change between two polls, so each step checks the owner first. */
     private boolean isOwnedBeforeTheStep(int issueNumber) {
         Ownership ownership = issueClaim.claim(gitHub.issue(issueNumber));
-        if (ownership == Ownership.OWNED_BY_ANOTHER) {
+        if (ownership == Ownership.OWNED) {
+            forgetEarlierLoss(issueNumber);
+        } else if (ownership == Ownership.OWNED_BY_ANOTHER) {
             rememberIssueOfAnotherOwner(issueNumber);
         }
         return ownership == Ownership.OWNED;
@@ -650,6 +660,7 @@ public final class Worker {
     private void writeRelease(int issueNumber) {
         try {
             ownershipRelease.release(issueNumber);
+            releasedIssues.rememberRelease(issueNumber);
         } catch (GitHubException exception) {
             logGitHubFailure("The release of the issue #" + issueNumber, exception);
         } finally {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.meterian.factory.github.AssignmentEvent;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -39,6 +40,7 @@ public final class FakeGitHubServer implements AutoCloseable {
 
     private static final Pattern ISSUE = Pattern.compile("/issues/(\\d+)");
     private static final Pattern ISSUE_COMMENTS = Pattern.compile("/issues/(\\d+)/comments");
+    private static final Pattern ISSUE_EVENTS = Pattern.compile("/issues/(\\d+)/events");
     private static final Pattern COMMENT = Pattern.compile("/issues/comments/(\\d+)");
     private static final Pattern ISSUE_LABELS = Pattern.compile("/issues/(\\d+)/labels");
     private static final Pattern ISSUE_ASSIGNEES = Pattern.compile("/issues/(\\d+)/assignees");
@@ -190,6 +192,9 @@ public final class FakeGitHubServer implements AutoCloseable {
         if ((matcher = ISSUE_COMMENTS.matcher(route)).matches()) {
             return ok(toCommentArray(gitHub.comments(number(matcher))));
         }
+        if ((matcher = ISSUE_EVENTS.matcher(route)).matches()) {
+            return ok(toAssignmentEventArray(gitHub.assignmentEvents(number(matcher))));
+        }
         if (route.equals("/pulls")) {
             String branch = query.getOrDefault("head", "").replaceFirst("^[^:]*:", "");
             ArrayNode pullRequests = mapper.createArrayNode();
@@ -311,6 +316,17 @@ public final class FakeGitHubServer implements AutoCloseable {
         gitHub.assigneesOf(issue.number()).stream().sorted()
                 .forEach(login -> assignees.add(mapper.createObjectNode().put("login", login)));
         return json;
+    }
+
+    private ArrayNode toAssignmentEventArray(List<AssignmentEvent> events) {
+        ArrayNode array = mapper.createArrayNode();
+        for (AssignmentEvent event : events) {
+            ObjectNode json = mapper.createObjectNode().put("id", event.id()).put("event", "assigned")
+                    .put("created_at", event.createdAt().toString());
+            json.set("assignee", mapper.createObjectNode().put("login", event.assignee()));
+            array.add(json);
+        }
+        return array;
     }
 
     private ArrayNode toCommentArray(List<IssueComment> comments) {
