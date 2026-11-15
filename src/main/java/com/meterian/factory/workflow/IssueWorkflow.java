@@ -22,10 +22,13 @@ import com.meterian.factory.merge.MergeGate;
 import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.merge.ReviewedCommit;
+import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.RiskResult;
 import com.meterian.factory.prompt.RiskResultReader;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
@@ -71,6 +74,7 @@ public final class IssueWorkflow {
     private final LiveMode liveMode;
     private final LiveRecordPublisher livePublisher;
     private final UnknownSessionCloser unknownSessionCloser;
+    private final OwnershipGuard ownershipGuard;
     /** The notes of the review round of the current step, by issue number. Each issue thread uses its own entry. */
     private final Map<Integer, List<ReviewNote>> reviewNotesToPublish = new ConcurrentHashMap<>();
 
@@ -78,7 +82,7 @@ public final class IssueWorkflow {
                          PromptLibrary prompts, BuildRunner buildRunner, Merger merger, UsageTracker usage,
                          WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
-                         PageRequests pageRequests) {
+                         PageRequests pageRequests, OwnershipGuard ownershipGuard, LostIssues lostIssues) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.git = git;
@@ -89,8 +93,9 @@ public final class IssueWorkflow {
         this.conflictResolution = new ConflictResolution(git, configuration.mergeTargetBranch());
         this.workspace = new IssueWorkspace(configuration, git);
         this.pullRequestPublisher = new PullRequestPublisher(gitHub, git, configuration.mergeTargetBranch(),
-                configuration.gatekeeperDirectory().toAbsolutePath());
-        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
+                configuration.gatekeeperDirectory().toAbsolutePath(), ownershipGuard);
+        this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board,
+                lostIssues);
         this.forwardCheckFailure = new ForwardCheckFailure(statusPublisher);
         this.fixLoop = new FixLoop(prompts, ownerApproval, conflictResolution, configuration.limits().fixLoops());
         this.reviewedCommit = new ReviewedCommit(git, configuration.target().cloneDirectory(),
@@ -103,6 +108,7 @@ public final class IssueWorkflow {
         this.liveMode = new LiveMode(git, gitHub, liveSessions, ownerApproval, pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
+        this.ownershipGuard = ownershipGuard;
     }
 
     /** The review notes go to the pull request only after the record of their round is on GitHub. */
@@ -197,6 +203,10 @@ public final class IssueWorkflow {
     }
 
     private IssueRecord prepare(IssueRecord record, Path worktree) {
+        if (record.handOver().equals(Optional.of(HandOver.CONTINUES_PUSHED_BRANCH))) {
+            workspace.createFromPushedBranch(record.issueNumber(), worktree);
+            return record.withoutHandOver().withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.BUILD);
+        }
         workspace.create(record.issueNumber(), worktree);
         return record.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
     }
@@ -283,16 +293,32 @@ public final class IssueWorkflow {
                 return fixLoop.start(record, worktree, List.of(new Finding("The build failed", outcome.outputTail())));
             }
         }
-        ownerApproval.withdraw(record.issueNumber());
+        withdrawTheApprovalAsTheOwner(record.issueNumber());
         PullRequestPublisher.PublishedBranch published = pullRequestPublisher.publish(issue, worktree, headCommit);
         IssueRecord withTree = record.withBuiltTree(treeHash);
         IssueRecord built = published.pullRequest()
                 .map(pullRequest -> withTree.withPullRequest(pullRequest.number()))
                 .orElse(withTree);
         if (!published.isOnGitHub()) {
-            return forwardCheckFailure.count(issue, record, built, headCommit, treeHash);
+            return countFailedForwardCheck(issue, record, built, headCommit, treeHash);
         }
         return built.withoutFailedForwardChecks().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.REVIEW);
+    }
+
+    /** The approval label can be for a new owner, so a factory that lost the issue does not remove it. */
+    private void withdrawTheApprovalAsTheOwner(int issueNumber) {
+        ownershipGuard.verifyStillOwner(issueNumber);
+        ownerApproval.withdraw(issueNumber);
+    }
+
+    /**
+     * The gatekeeper refuses a forward over a commit of another factory. When another account owns the issue now,
+     * the refused forward is not a failure: the loop ends, and the issue gets no count and no block.
+     */
+    private IssueRecord countFailedForwardCheck(Issue issue, IssueRecord before, IssueRecord after,
+                                                String pushedCommit, String pushedTree) {
+        ownershipGuard.verifyStillOwner(issue.number());
+        return forwardCheckFailure.count(issue, before, after, pushedCommit, pushedTree);
     }
 
     /** The build passed for this tree and only the forward failed, so the build does not run again. */
@@ -375,7 +401,7 @@ public final class IssueWorkflow {
             case MergeResult.Failed failed -> block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> record;
             case MergeResult.NotForwarded notForwarded ->
-                    forwardCheckFailure.count(issue, record, record, notForwarded.pushedCommit(),
+                    countFailedForwardCheck(issue, record, record, notForwarded.pushedCommit(),
                             notForwarded.pushedTree());
         };
     }

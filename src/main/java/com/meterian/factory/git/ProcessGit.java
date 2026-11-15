@@ -19,6 +19,8 @@ public final class ProcessGit implements Git {
     private static final String FACTORY_FOLDER_PATTERN = ".factory/";
 
     private static final String FACTORY_BRANCH_PREFIX = "factory/";
+    /** The exit code of git ls-remote --exit-code when the remote has no matching reference. */
+    private static final int LS_REMOTE_NO_MATCHING_REFERENCE = 2;
     private static final List<String> FIXED_IDENTITY = List.of(
             "-c", "user.name=claude-ai-factory",
             "-c", "user.email=claude-ai-factory@users.noreply.github.com");
@@ -188,11 +190,37 @@ public final class ProcessGit implements Git {
 
     @Override
     public void pushCommit(Path worktree, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
+    }
+
+    @Override
+    /** A branch that is gone from the remote has no commit to protect, so the push then expects a missing branch. */
+    public void forwardCommit(Path repository, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        String reference = "refs/heads/" + branch;
+        String[] leasedPush = {"push", "--force-with-lease=" + reference, remote, commit + ":" + reference};
+        GitProcess.Result leased = executeOverTheNetwork(repository, leasedPush);
+        if (leased.exitCode() == 0) {
+            return;
+        }
+        if (!isMissingOnTheRemote(repository, remote, reference)) {
+            throw createFailure(List.of(leasedPush), leased);
+        }
+        runOverTheNetwork(repository, "push", "--force-with-lease=" + reference + ":", remote,
+                commit + ":" + reference);
+    }
+
+    private boolean isMissingOnTheRemote(Path repository, String remote, String reference) {
+        return executeOverTheNetwork(repository, "ls-remote", "--exit-code", remote, reference).exitCode()
+                == LS_REMOTE_NO_MATCHING_REFERENCE;
+    }
+
+    private static void verifyFactoryBranch(String branch) {
         if (!branch.startsWith(FACTORY_BRANCH_PREFIX)) {
             throw new GitException("git push refused: the branch " + branch + " does not start with "
                     + FACTORY_BRANCH_PREFIX);
         }
-        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
     }
 
     @Override
@@ -224,7 +252,11 @@ public final class ProcessGit implements Git {
     }
 
     private void runOverTheNetwork(Path directory, String... arguments) {
-        requireSuccess(arguments, process.execute(directory, Optional.of(networkTimeout), List.of(arguments)));
+        requireSuccess(arguments, executeOverTheNetwork(directory, arguments));
+    }
+
+    private GitProcess.Result executeOverTheNetwork(Path directory, String... arguments) {
+        return process.execute(directory, Optional.of(networkTimeout), List.of(arguments));
     }
 
     private GitProcess.Result execute(Path directory, String... arguments) {

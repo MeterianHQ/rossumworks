@@ -215,4 +215,53 @@ class StatusCommentTest {
         assertThat(body.split("<!-- factory-record", -1)).hasSize(2);
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(live);
     }
+
+    @Test
+    void recordWithoutHandOverReadsAsEmpty() {
+        String body = StatusComment.render(IssueRecord.queued(7), LIMIT).replace(",\"handOver\":null", "");
+        IssueComment comment = new IssueComment(1, WORKER, body);
+
+        assertThat(body).doesNotContain("handOver");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().handOver()).isEmpty();
+    }
+
+    @Test
+    void handOverSurvivesTheStatusComment() {
+        IssueRecord released = record.withHandOver(HandOver.RELEASED);
+        IssueComment comment = new IssueComment(1, WORKER, StatusComment.render(released, LIMIT));
+
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER).orElseThrow().handOver())
+                .isEqualTo(Optional.of(HandOver.RELEASED));
+    }
+
+    @Test
+    void findsTheRecordsOfOtherAuthorsTheNewestFirst() {
+        IssueRecord ofBob = record.withPhase(Phase.MERGE);
+        List<IssueComment> comments = List.of(
+                new IssueComment(1, "alice", StatusComment.render(record, LIMIT)),
+                new IssueComment(2, "bob", StatusComment.render(ofBob, LIMIT)),
+                new IssueComment(3, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(4, "carol", "**Factory status:** broken\n<!-- factory-record\n{\n-->"));
+
+        assertThat(StatusComment.findRecordsOfOtherAuthors(comments, "worker")).containsExactly(
+                new AuthoredRecord(2, "bob", ofBob), new AuthoredRecord(1, "alice", record));
+    }
+
+    @Test
+    void comparesTheWorkerLoginWithoutCase() {
+        List<IssueComment> comments = List.of(new IssueComment(1, "Worker", StatusComment.render(record, LIMIT)));
+
+        assertThat(StatusComment.findRecordsOfOtherAuthors(comments, "worker")).isEmpty();
+    }
+
+    @Test
+    void findsTheIdOfTheNewestStatusCommentOfTheWorker() {
+        List<IssueComment> comments = List.of(
+                new IssueComment(1, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(2, "worker", StatusComment.render(record, LIMIT)),
+                new IssueComment(3, "worker", "A plain comment."),
+                new IssueComment(4, "alice", StatusComment.render(record, LIMIT)));
+
+        assertThat(StatusComment.findNewestStatusCommentId(comments, "worker")).contains(2L);
+    }
 }

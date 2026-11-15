@@ -1,5 +1,6 @@
 package com.meterian.factory.worker;
 
+import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -24,7 +25,11 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.GitHubOwnershipGuard;
+import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -69,7 +74,10 @@ import org.junit.jupiter.api.io.TempDir;
 class WorkerTest {
 
     private static final int ISSUE = 7;
+    private static final int OTHER_ISSUE = 8;
     private static final String WORKER_LOGIN = "factory-bot";
+    private static final String ALICE = "alice";
+    private static final String STOP_COMMENT_START = "The factory of `factory-bot` stops work on this issue";
     private static final String FACTORY_LABEL = "factory";
     private static final String BLOCK_LABEL = "factory:block";
     private static final String APPROVE_LABEL = "factory:approve";
@@ -173,19 +181,21 @@ class WorkerTest {
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board) {
         BuildRunner buildRunner = new BuildRunner();
+        OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, WORKER_LOGIN);
+        LostIssues lostIssues = new LostIssues();
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
+                configuration.gatekeeperDirectory(), Duration.ZERO, ownershipGuard);
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()),
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests);
+                board, new ContextTracker(), pageRequests, ownershipGuard, lostIssues);
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC(), board, factorySwitch());
+                liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues);
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -1548,5 +1558,393 @@ class WorkerTest {
         assertThat(openInterrupted).isTrue();
         assertThat(liveSessions.isOpen(ISSUE)).isFalse();
         assertThat(readRecord(ISSUE).orElseThrow().live()).isEmpty();
+    }
+
+    /** Another factory takes the issue: its account becomes the only assignee. */
+    private void reassignToAlice() {
+        gitHub.unassign(ISSUE, WORKER_LOGIN);
+        gitHub.assignBy(ISSUE, ALICE);
+    }
+
+    private void reassignToTheWorker() {
+        gitHub.unassign(ISSUE, ALICE);
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+    }
+
+    private List<IssueComment> stopComments(int issueNumber) {
+        return gitHub.commentsOf(issueNumber).stream()
+                .filter(comment -> comment.body().startsWith(STOP_COMMENT_START))
+                .toList();
+    }
+
+    /** The factory of alice wrote this record on the issue. */
+    private void addRecordOfAlice(IssueRecord record) {
+        gitHub.addCommentBy(ISSUE, ALICE, StatusComment.render(record, 2));
+    }
+
+    /** The issue had the assignee alice once, and has it no longer. */
+    private void recordAnEarlierAssignmentOfAlice() {
+        gitHub.assignBy(ISSUE, ALICE);
+        gitHub.unassign(ISSUE, ALICE);
+    }
+
+    /** The factory of alice pushed the branch of the issue to the target repository: origin and GitHub. */
+    private String pushTheBranchOfAlice() {
+        Path aliceClone = temporaryDirectory.resolve("alice");
+        run(temporaryDirectory, "clone", "-q", temporaryDirectory.resolve("origin.git").toString(),
+                aliceClone.toString());
+        run(aliceClone, "config", "user.name", "Alice");
+        run(aliceClone, "config", "user.email", "alice@example.com");
+        run(aliceClone, "checkout", "-q", "-b", WorkspaceLayout.branch(ISSUE));
+        commitFile(aliceClone, "alice.txt", "alice\n", "Change of the factory of alice");
+        run(aliceClone, "push", "-q", "origin", WorkspaceLayout.branch(ISSUE));
+        run(aliceClone, "push", "-q", temporaryDirectory.resolve("github.git").toString(),
+                WorkspaceLayout.branch(ISSUE));
+        String pushedCommit = run(aliceClone, "rev-parse", "HEAD").trim();
+        gitHub.addBranchHead(WorkspaceLayout.branch(ISSUE), pushedCommit);
+        return pushedCommit;
+    }
+
+    @Test
+    void pollAssignsAnIssueWithoutAssignee() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        assertThat(gitHub.assigneesOf(ISSUE)).containsExactly(WORKER_LOGIN);
+        assertThat(readRecord(ISSUE)).isPresent();
+    }
+
+    @Test
+    void aStoppedFactoryDoesNotAssignANewIssue() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.assigneesOf(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+    }
+
+    @Test
+    void aStoppedFactoryDoesNotTakeOverANewIssueOfAnEarlierOwner() {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void aStoppedFactoryAssignsAgainAnIssueWithItsRecord() {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        gitHub.unassign(ISSUE, WORKER_LOGIN);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.assigneesOf(ISSUE)).containsExactly(WORKER_LOGIN);
+        assertThat(findCard(board, ISSUE)).isPresent();
+    }
+
+    @Test
+    void pollLeavesAnIssueOfAnotherAccount() {
+        addLabeledIssue(OTHER_ISSUE);
+        gitHub.assignBy(OTHER_ISSUE, ALICE);
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        assertThat(gitHub.commentsOf(OTHER_ISSUE)).isEmpty();
+        assertThat(gitHub.statusLabelsOf(OTHER_ISSUE)).isEmpty();
+        assertThat(gitHub.assigneesOf(OTHER_ISSUE)).containsExactly(ALICE);
+        assertThat(findCard(board, OTHER_ISSUE)).isEmpty();
+        assertThat(findCard(board, ISSUE)).isPresent();
+    }
+
+    @Test
+    void runningStepEndsWhenTheAssigneeChanges() throws InterruptedException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        CountDownLatch pollSawTheNewAssignee = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(() -> {
+            reassignToAlice();
+            awaitQuietly(pollSawTheNewAssignee);
+        });
+        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60), "touch " + buildStarted));
+        worker.pollOnce();
+        waitUntil(() -> gitHub.assigneesOf(ISSUE).contains(ALICE));
+
+        worker.pollOnce();
+        pollSawTheNewAssignee.countDown();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(agent.stoppedIssues()).isEmpty();
+        assertThat(buildStarted).doesNotExist();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+        assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void buildPushRefusedEndsTheLoopWithoutABlock() throws InterruptedException, IOException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        Path buildMayEnd = temporaryDirectory.resolve("build-may-end");
+        String buildCommand = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), buildCommand));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(buildStarted));
+
+        reassignToAlice();
+        Files.createFile(buildMayEnd);
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isNotEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.handOver()).contains(HandOver.RELEASED);
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void stepResultAfterTheLossDoesNotChangeTheStatusLabel() throws InterruptedException {
+        CountDownLatch pollSawTheNewAssignee = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(() -> {
+            reassignToAlice();
+            gitHub.setStatus(gitHub.issue(ISSUE), IssueStatus.WAITS_FOR_YOU);
+            awaitQuietly(pollSawTheNewAssignee);
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> gitHub.assigneesOf(ISSUE).contains(ALICE));
+        Set<String> statusLabelsOfTheNewOwner = gitHub.statusLabelsOf(ISSUE);
+
+        worker.pollOnce();
+        pollSawTheNewAssignee.countDown();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(gitHub.statusLabelsOf(ISSUE)).isEqualTo(statusLabelsOfTheNewOwner);
+    }
+
+    @Test
+    void losingBuildDoesNotRemoveTheApprovalOfTheNewOwner() throws InterruptedException, IOException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        Path buildMayEnd = temporaryDirectory.resolve("build-may-end");
+        String buildCommand = "touch " + buildStarted + "; while [ ! -f " + buildMayEnd + " ]; do sleep 0.05; done";
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile(),
+                createConfiguration(2, Duration.ofSeconds(60), buildCommand));
+        worker.pollOnce();
+        waitUntil(() -> Files.exists(buildStarted));
+
+        reassignToAlice();
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+        Files.createFile(buildMayEnd);
+        waitForTheLoops();
+
+        assertThat(gitHub.labelsOf(ISSUE)).contains(APPROVE_LABEL);
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+    }
+
+    @Test
+    void liveSessionStaysOpenWhenTheAssigneeChanges() throws InterruptedException {
+        Worker worker = enterTheWaitingIssue();
+        reassignToAlice();
+
+        worker.pollOnce();
+        liveSessions.requestContinue(ISSUE);
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(liveSessions.isOpen(ISSUE)).isTrue();
+        assertThat(liveSessions.closeCalls()).isEmpty();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.LIVE_CONVERSATION);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void newOwnerContinuesFromThePushedBranch() throws InterruptedException {
+        String pushedCommit = pushTheBranchOfAlice();
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
+        assertThat(record.phase()).isNotIn(Phase.PREPARE, Phase.IMPLEMENT, Phase.BUILD);
+        assertThat(record.waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void newOwnerWaitsForTheOwnerWhenTheIssueTextChanged() throws InterruptedException {
+        pushTheBranchOfAlice();
+        recordAnEarlierAssignmentOfAlice();
+        String acceptedTextHash = IssueText.computeHash(gitHub.issue(ISSUE));
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(acceptedTextHash));
+        gitHub.editIssue(ISSUE, "Change the greeting 7", "Change the greeting to hello.");
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true);
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.requests()).isEmpty();
+        assertThat(record.status()).isEqualTo(IssueStatus.WAITS_FOR_YOU);
+        assertThat(record.waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+    }
+
+    @Test
+    void newOwnerWaitsForTheOwnerWhenTheEarlierRecordHasNoTextHash() throws InterruptedException {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).isEmpty();
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.ISSUE_TEXT_CHANGED);
+    }
+
+    @Test
+    void newOwnerKeepsABlock() throws InterruptedException {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withStatus(IssueStatus.BLOCKED)
+                .withWaitReason(WaitReason.BLOCKED_BY_OWNER));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        FakeAgentRunner agent = new FakeAgentRunner();
+
+        createWorker(agent, 2).pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.waitReason()).contains(WaitReason.BLOCKED_BY_OWNER);
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void factoryThatComesBackContinuesAsANewOwner() throws InterruptedException {
+        runToTheMergeApproval();
+        reassignToAlice();
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        reassignToTheWorker();
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        assertThat(record.pullRequestNumber()).contains(gitHub.pullRequests().getFirst().number());
+    }
+
+    @Test
+    void factoryThatComesBackWhileOffContinuesThePushedBranch() throws InterruptedException {
+        createWorker(new FakeAgentRunner().thenChangeFile().thatFails(), 2).pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).isEmpty();
+        reassignToAlice();
+        String pushedCommit = pushTheBranchOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW)
+                .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
+        reassignToTheWorker();
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
+        createWorker(new FakeAgentRunner().thenApproveAllReviews().thenAssessRisk("medium", true), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
+        assertThat(readRecord(ISSUE).orElseThrow().waitReason()).contains(WaitReason.MERGE_NEEDS_APPROVAL);
+    }
+
+    @Test
+    void secondPollAfterTheTakeOverDoesNotTakeOverAgain() {
+        recordAnEarlierAssignmentOfAlice();
+        addRecordOfAlice(IssueRecord.queued(ISSUE).withPhase(Phase.REVIEW).withStatus(IssueStatus.IN_REVIEW));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord afterTheTakeOver = readRecord(ISSUE).orElseThrow();
+        int statusCommentsAfterTheTakeOver = statusComments(ISSUE).size();
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+
+        assertThat(readRecord(ISSUE)).contains(afterTheTakeOver);
+        assertThat(statusComments(ISSUE)).hasSize(statusCommentsAfterTheTakeOver);
+    }
+
+    @Test
+    void strangerStatusCommentDoesNotStartATakeOver() {
+        gitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(IssueRecord.queued(ISSUE)
+                .withStatus(IssueStatus.BLOCKED).withWaitReason(WaitReason.BLOCKED_BY_OWNER), 2));
+
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.status()).isEqualTo(IssueStatus.QUEUED);
+        assertThat(record.handOver()).isEmpty();
+        assertThat(record.notes()).noneMatch(note -> note.contains("earlier owner"));
+    }
+
+    @Test
+    void noStepStartsAfterTheAssigneeChangesBetweenPolls() throws InterruptedException {
+        Path buildStarted = temporaryDirectory.resolve("build-started");
+        gitHub.whenACommentEditContains("\"phase\":\"BUILD\"", this::reassignToAlice);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile();
+        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60), "touch " + buildStarted));
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(buildStarted).doesNotExist();
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void aPollDuringTheReleaseWritesTheReleaseOnce() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFileAnd(this::reassignToAlice);
+        Worker worker = createWorker(agent, 2);
+        gitHub.whenACommentEditContains("\"handOver\":\"RELEASED\"", worker::pollOnce);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
+        assertThat(stopComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void claimFailureSkipsOnlyThatIssue() throws InterruptedException {
+        addLabeledIssue(3);
+        gitHub.whenAssigning(() -> {
+            throw new GitHubException("GitHub answered 502 for POST /issues/3/assignees");
+        });
+        FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+
+        worker.pollOnce();
+
+        assertThat(worker.issuesInWork()).containsExactly(ISSUE);
+        assertThat(readRecord(3)).isEmpty();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        agent.stopPhase(ISSUE);
+        waitForTheLoops();
     }
 }

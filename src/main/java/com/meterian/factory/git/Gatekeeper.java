@@ -7,7 +7,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/** The gatekeeper is a local bare repository. Its hooks accept only factory branches and forward them to GitHub. */
+/**
+ * The gatekeeper is a local bare repository. Its hooks accept only factory branches and forward them to GitHub. A
+ * forward replaces the branch on GitHub only when the branch is at the commit that the gatekeeper expects: the
+ * commit of its remote-tracking branch. Thus a commit of another factory stays.
+ */
 public final class Gatekeeper {
 
     private static final String GITHUB_REMOTE = "github";
@@ -26,6 +30,15 @@ public final class Gatekeeper {
         Path hooksDirectory = gatekeeperDirectory.toAbsolutePath().resolve("hooks");
         git.run(gatekeeperDirectory, "config", "core.hooksPath", hooksDirectory.toString());
         HOOK_NAMES.forEach(hookName -> writeHook(gatekeeperDirectory, hookName));
+    }
+
+    /**
+     * A factory that continues the branch of another factory expects that branch on GitHub. The commit comes from
+     * the branch in the clone, so the expectation is the commit that the worktree starts from.
+     */
+    public static void expectBranchOnGitHub(Path gatekeeperDirectory, Path clone, String branch) {
+        new ProcessGit().run(gatekeeperDirectory, "fetch", "-q", clone.toAbsolutePath().toString(),
+                "+refs/heads/" + branch + ":refs/remotes/" + GITHUB_REMOTE + "/" + branch);
     }
 
     private static void createParentDirectory(Path gatekeeperDirectory) {

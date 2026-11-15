@@ -24,7 +24,11 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.ownership.OwnershipGuard;
+import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -49,6 +53,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,6 +67,9 @@ class IssueWorkflowTest {
     private static final String REVIEW_RETRY_NOTE = "A review session failed; the factory runs the reviews again.";
     private static final String TEXT_CHANGED_SENTENCE = "The issue text changed after the label factory."
             + " Add the label factory:approve to accept the new text.";
+    private static final String UNKNOWN_COMMITS_NOTE = "The forward can fail when the branch on GitHub has"
+            + " commits that the factory does not know. Check the branch on GitHub. To let the factory replace the"
+            + " branch, delete the branch on GitHub, and then add the label factory:start-again.";
 
     @TempDir
     Path temporaryDirectory;
@@ -106,6 +114,10 @@ class IssueWorkflowTest {
     }
 
     private IssueWorkflow createWorkflow(String buildCommand) {
+        return createWorkflow(buildCommand, OwnershipGuard.none());
+    }
+
+    private IssueWorkflow createWorkflow(String buildCommand, OwnershipGuard ownershipGuard) {
         TargetRepository target = createTarget(buildCommand);
         FactoryConfiguration configuration = new FactoryConfiguration(target, "main",
                 new Limits(2, 2, Duration.ofSeconds(60), 0.90),
@@ -114,11 +126,12 @@ class IssueWorkflowTest {
                 temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         Merger merger = new Merger(git, gitHub, buildRunner, target, "main",
-                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO);
+                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO, OwnershipGuard.none());
         return new IssueWorkflow(configuration, gitHub, git, agent, new PromptLibrary(Optional.empty(), "main"),
                 buildRunner, merger, usage,
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
-                BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()));
+                BoardUpdates.IGNORED, new ContextTracker(), new PageRequests(Clock.systemUTC()),
+                ownershipGuard, new LostIssues());
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {
@@ -222,6 +235,53 @@ class IssueWorkflowTest {
         assertThat(run(githubRepository, "branch", "--list", "factory/issue-7")).contains("factory/issue-7");
         assertThat(gitHub.pullRequests()).hasSize(1);
         assertThat(worktree()).doesNotExist();
+    }
+
+    private String pushABranchOfAnEarlierOwnerToOrigin() {
+        Path person = createPersonClone();
+        run(person, "checkout", "-q", "-b", "factory/issue-7");
+        commitFile(person, "earlier.txt", "earlier\n", "Change of the earlier owner");
+        run(person, "push", "-q", "origin", "factory/issue-7");
+        return run(person, "rev-parse", "HEAD").trim();
+    }
+
+    @Test
+    void prepareContinuesThePushedBranch() throws ApiKeyDetectedException {
+        String pushedCommit = pushABranchOfAnEarlierOwnerToOrigin();
+        IssueRecord handedOver = queuedRecord().withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
+
+        IssueRecord record = createWorkflow("true").advance(handedOver);
+
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.handOver()).isEmpty();
+        assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
+    }
+
+    @Test
+    void prepareWithoutHandOverStartsFromTheMergeTarget() throws ApiKeyDetectedException {
+        pushABranchOfAnEarlierOwnerToOrigin();
+
+        IssueRecord record = createWorkflow("true").advance(queuedRecord());
+
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(git.headCommit(worktree())).isEqualTo(run(origin, "rev-parse", "main").trim());
+    }
+
+    @Test
+    void approvalOfAContinuationRunsTheReviewsAgain() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting =
+                waitForApprovalOfAMediumRisk(workflow).withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
+        run(worktree(), "push", "-q", origin.toString(), "HEAD:refs/heads/factory/issue-7");
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+
+        IssueRecord approved = workflow.advance(waiting);
+        IssueRecord prepared = workflow.advance(approved);
+
+        assertThat(approved.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(approved.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(approved.waitReason()).isEmpty();
+        assertThat(prepared.phase()).isEqualTo(Phase.BUILD);
     }
 
     @Test
@@ -785,6 +845,61 @@ class IssueWorkflowTest {
         assertThat(record.status()).isEqualTo(IssueStatus.DONE);
         assertThat(gitHub.squashMergeCalls()).hasSize(2);
         assertThat(gitHub.editedBodies()).noneMatch(body -> body.contains("Blocked"));
+    }
+
+    @Test
+    void buildDoesNotPushWhenAnotherAccountOwnsTheIssue() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        OwnershipGuard anotherAccountOwnsTheIssue = issueNumber -> {
+            throw new OwnershipLostException(issueNumber);
+        };
+        IssueWorkflow workflow = createWorkflow("true", anotherAccountOwnsTheIssue);
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(OwnershipLostException.class);
+
+        assertThat(run(temporaryDirectory.resolve("gatekeeper.git"), "branch", "--list")).isEmpty();
+        assertThat(run(githubRepository, "branch", "--list")).isEmpty();
+        assertThat(gitHub.pullRequests()).isEmpty();
+    }
+
+    @Test
+    void refusedForwardOfALostIssueCountsNoFailedCheck() throws ApiKeyDetectedException {
+        agent.thenChangeFile();
+        AtomicInteger ownerChecks = new AtomicInteger();
+        OwnershipGuard ownerChangesAfterThePush = issueNumber -> {
+            if (ownerChecks.incrementAndGet() > 2) {
+                throw new OwnershipLostException(issueNumber);
+            }
+        };
+        IssueWorkflow workflow = createWorkflow("true", ownerChangesAfterThePush);
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        ownerChecks.set(0);
+        run(clone, "push", "-q", githubRepository.toString(), "main:refs/heads/factory/issue-7");
+        String commitOfAnotherFactory = run(githubRepository, "rev-parse", "refs/heads/factory/issue-7");
+
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(OwnershipLostException.class);
+
+        assertThat(run(githubRepository, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(commitOfAnotherFactory);
+        assertThat(readRecordFromGitHub().failedForwardChecks()).isZero();
+        assertThat(readRecordFromGitHub().status()).isNotEqualTo(IssueStatus.BLOCKED);
+    }
+
+    @Test
+    void blockAfterAForwardOverUnknownCommitsTellsWhatToDo() throws ApiKeyDetectedException {
+        agent.thenChangeFile();
+        IssueWorkflow workflow = createWorkflow(countTheBuilds());
+        IssueRecord beforeBuild = advanceUntilPhase(workflow, queuedRecord(), Phase.BUILD);
+        run(clone, "push", "-q", githubRepository.toString(), "main:refs/heads/factory/issue-7");
+        String commitOfAnotherFactory = run(githubRepository, "rev-parse", "refs/heads/factory/issue-7");
+        assertThatThrownBy(() -> workflow.advance(beforeBuild)).isInstanceOf(GitHubException.class);
+        assertThatThrownBy(() -> workflow.advance(readRecordFromGitHub())).isInstanceOf(GitHubException.class);
+
+        IssueRecord record = workflow.advance(readRecordFromGitHub());
+
+        assertThat(record.status()).isEqualTo(IssueStatus.BLOCKED);
+        assertThat(record.notes()).contains(UNKNOWN_COMMITS_NOTE);
+        assertThat(run(githubRepository, "rev-parse", "refs/heads/factory/issue-7")).isEqualTo(commitOfAnotherFactory);
     }
 
     @Test

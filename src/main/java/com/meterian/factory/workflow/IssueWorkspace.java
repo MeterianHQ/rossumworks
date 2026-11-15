@@ -27,8 +27,26 @@ final class IssueWorkspace {
      * All steps run under the lock of the clone, because they write its shared refs and worktree metadata.
      */
     void create(int issueNumber, Path worktree) {
+        String mergeTargetBranch = configuration.mergeTargetBranch();
+        createFromBranch(issueNumber, worktree, mergeTargetBranch);
+    }
+
+    /**
+     * Makes the worktree like create, but starts at the branch of the issue that an earlier owner pushed. The
+     * gatekeeper then expects that commit on GitHub, so the next forward can replace it.
+     */
+    void createFromPushedBranch(int issueNumber, Path worktree) {
+        String branch = WorkspaceLayout.branch(issueNumber);
         Path clone = configuration.target().cloneDirectory();
-        CloneLock.run(clone, () -> createUnderLock(clone, issueNumber, worktree));
+        CloneLock.run(clone, () -> {
+            createUnderLock(clone, issueNumber, worktree, branch);
+            Gatekeeper.expectBranchOnGitHub(configuration.gatekeeperDirectory().toAbsolutePath(), clone, branch);
+        });
+    }
+
+    private void createFromBranch(int issueNumber, Path worktree, String startBranch) {
+        Path clone = configuration.target().cloneDirectory();
+        CloneLock.run(clone, () -> createUnderLock(clone, issueNumber, worktree, startBranch));
     }
 
     void remove(Path worktree) {
@@ -39,14 +57,14 @@ final class IssueWorkspace {
         });
     }
 
-    private void createUnderLock(Path clone, int issueNumber, Path worktree) {
+    private void createUnderLock(Path clone, int issueNumber, Path worktree, String startBranch) {
         Path gatekeeperDirectory = configuration.gatekeeperDirectory().toAbsolutePath();
         git.pruneWorktrees(clone);
         Gatekeeper.ensure(gatekeeperDirectory, configuration.target().sshUrl());
         git.setRemote(clone, GATEKEEPER_REMOTE, gatekeeperDirectory.toString());
-        git.fetch(clone, ORIGIN, configuration.mergeTargetBranch());
+        git.fetch(clone, ORIGIN, startBranch);
         removeIfPresent(clone, worktree);
-        String startPoint = ORIGIN + "/" + configuration.mergeTargetBranch();
+        String startPoint = ORIGIN + "/" + startBranch;
         git.addWorktree(clone, worktree, WorkspaceLayout.branch(issueNumber), startPoint);
         git.excludeFactoryFolder(worktree);
     }

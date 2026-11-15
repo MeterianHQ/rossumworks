@@ -151,6 +151,50 @@ class HttpGitHubClientTest {
     }
 
     @Test
+    void issueReadsTheAssignees() {
+        responder = request -> new Answer(200, "{\"number\":7,\"title\":\"T\",\"body\":\"B\",\"labels\":[],"
+                + "\"assignees\":[{\"login\":\"alice\"},{\"login\":\"bob\"}]}");
+
+        Issue issue = client.issue(7);
+
+        assertThat(issue.assignees()).isEqualTo(Set.of("alice", "bob"));
+    }
+
+    @Test
+    void addAssigneeSendsTheLogin() {
+        client.addAssignee(7, "alice");
+
+        RecordedRequest request = requests.get(0);
+        assertThat(request.method()).isEqualTo("POST");
+        assertThat(request.target()).isEqualTo("/repos/o/r/issues/7/assignees");
+        assertThat(request.body()).isEqualTo("{\"assignees\":[\"alice\"]}");
+    }
+
+    @Test
+    void removeAssigneeSendsTheLogin() {
+        client.removeAssignee(7, "alice");
+
+        RecordedRequest request = requests.get(0);
+        assertThat(request.method()).isEqualTo("DELETE");
+        assertThat(request.target()).isEqualTo("/repos/o/r/issues/7/assignees");
+        assertThat(request.body()).isEqualTo("{\"assignees\":[\"alice\"]}");
+    }
+
+    @Test
+    void assignmentEventsReadOnlyAssignedEvents() {
+        responder = request -> new Answer(200, "["
+                + "{\"id\":10,\"event\":\"labeled\",\"created_at\":\"2026-11-15T09:00:00Z\"},"
+                + "{\"id\":11,\"event\":\"assigned\",\"created_at\":\"2026-11-15T10:00:00Z\","
+                + "\"assignee\":{\"login\":\"alice\"}},"
+                + "{\"id\":12,\"event\":\"unassigned\",\"created_at\":\"2026-11-15T11:00:00Z\","
+                + "\"assignee\":{\"login\":\"alice\"}}]");
+
+        List<AssignmentEvent> events = client.assignmentEvents(7);
+
+        assertThat(events).isEqualTo(List.of(new AssignmentEvent(11, "alice", Instant.parse("2026-11-15T10:00:00Z"))));
+    }
+
+    @Test
     void removeLabelAcceptsAMissingLabel() {
         responder = request -> new Answer(404, "{\"message\":\"Label does not exist\"}");
 

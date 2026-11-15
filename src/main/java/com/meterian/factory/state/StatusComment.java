@@ -54,9 +54,28 @@ public final class StatusComment {
     private static Optional<IssueComment> findNewestStatusComment(List<IssueComment> comments, String workerLogin) {
         return comments.stream()
                 .filter(comment -> workerLogin.equals(comment.authorLogin()))
-                .filter(comment -> comment.body().startsWith(HEADLINE_START))
-                .filter(comment -> comment.body().contains(RECORD_START))
+                .filter(StatusComment::isStatusComment)
                 .max(Comparator.comparingLong(IssueComment::id));
+    }
+
+    /** Returns the id of the newest status comment of the worker. */
+    public static Optional<Long> findNewestStatusCommentId(List<IssueComment> comments, String workerLogin) {
+        return findNewestStatusComment(comments, workerLogin).map(IssueComment::id);
+    }
+
+    /** Reads the records of the status comments that other accounts wrote, the newest first. */
+    public static List<AuthoredRecord> findRecordsOfOtherAuthors(List<IssueComment> comments, String workerLogin) {
+        return comments.stream()
+                .filter(comment -> !workerLogin.equalsIgnoreCase(comment.authorLogin()))
+                .filter(StatusComment::isStatusComment)
+                .sorted(Comparator.comparingLong(IssueComment::id).reversed())
+                .flatMap(comment -> readRecord(comment.body()).stream()
+                        .map(record -> new AuthoredRecord(comment.id(), comment.authorLogin(), record)))
+                .toList();
+    }
+
+    private static boolean isStatusComment(IssueComment comment) {
+        return comment.body().startsWith(HEADLINE_START) && comment.body().contains(RECORD_START);
     }
 
     /** Makes one line of a text that cannot open or close a hidden block. */

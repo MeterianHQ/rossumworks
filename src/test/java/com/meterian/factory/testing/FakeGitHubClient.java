@@ -1,6 +1,7 @@
 package com.meterian.factory.testing;
 
 import com.meterian.factory.git.GitException;
+import com.meterian.factory.github.AssignmentEvent;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
@@ -9,6 +10,7 @@ import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.github.PullRequest;
 import com.meterian.factory.state.IssueStatus;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,6 +29,8 @@ public final class FakeGitHubClient implements GitHubClient {
 
     private final Map<Integer, Issue> issues = new TreeMap<>();
     private final Map<Integer, Set<String>> labels = new TreeMap<>();
+    private final Map<Integer, Set<String>> assignees = new TreeMap<>();
+    private final Map<Integer, List<AssignmentEvent>> assignmentEventsByIssue = new TreeMap<>();
     private final Map<Integer, List<IssueComment>> commentsByIssue = new TreeMap<>();
     private final List<PullRequest> pullRequests = new ArrayList<>();
     private final Set<Integer> mergedPullRequests = new HashSet<>();
@@ -35,12 +39,17 @@ public final class FakeGitHubClient implements GitHubClient {
     private final List<String> squashMergeShas = new ArrayList<>();
     private final Map<Integer, String> baseBranches = new TreeMap<>();
     private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
+    private final Map<String, String> branchHeads = new TreeMap<>();
     private SquashMergeSimulation squashMergeSimulation;
     private Path pullRequestRepository;
     private boolean failsTheNextSquashMergeAfterTheMerge;
     private boolean answersAnOldPullRequestHead;
     private String authenticatedLogin = "factory-bot";
     private long nextCommentId = 1000;
+    private long nextAssignmentEventId = 1;
+    private int assignmentEventReads;
+    private boolean ignoresTheAssignees;
+    private Runnable assigningAction;
     private int nextPullRequestNumber = 500;
     private boolean failsTheNextCommentEdit;
     private boolean failsTheNextCommentCreate;
@@ -65,12 +74,45 @@ public final class FakeGitHubClient implements GitHubClient {
     public synchronized void addIssue(int number, String title, String body) {
         issues.put(number, new Issue(number, title, body, Set.of()));
         labels.put(number, new LinkedHashSet<>());
+        assignees.put(number, new LinkedHashSet<>());
+        assignmentEventsByIssue.put(number, new ArrayList<>());
         commentsByIssue.put(number, new ArrayList<>());
     }
 
     /** A person edits the title and the body of the issue. */
     public synchronized void editIssue(int number, String title, String body) {
         issues.put(number, new Issue(number, title, body, Set.of()));
+    }
+
+    /** A person assigns the issue: the assignee and an "assigned" event appear. */
+    public synchronized void assignBy(int issueNumber, String assignee) {
+        if (assignees.get(issueNumber).add(assignee)) {
+            long id = nextAssignmentEventId++;
+            assignmentEventsByIssue.get(issueNumber)
+                    .add(new AssignmentEvent(id, assignee, Instant.EPOCH.plusSeconds(id)));
+        }
+    }
+
+    public synchronized void unassign(int issueNumber, String assignee) {
+        assignees.get(issueNumber).remove(assignee);
+    }
+
+    public synchronized Set<String> assigneesOf(int issueNumber) {
+        return Set.copyOf(assignees.get(issueNumber));
+    }
+
+    public synchronized int assignmentEventReads() {
+        return assignmentEventReads;
+    }
+
+    /** Then addAssignee does nothing, as GitHub does for a login without access. */
+    public synchronized void ignoreTheAssignees() {
+        ignoresTheAssignees = true;
+    }
+
+    /** The action runs once, after the next addAssignee. */
+    public synchronized void whenAssigning(Runnable action) {
+        assigningAction = action;
     }
 
     public synchronized long addCommentBy(int issueNumber, String author, String body) {
@@ -233,7 +275,8 @@ public final class FakeGitHubClient implements GitHubClient {
         if (issue == null) {
             throw new GitHubException("GitHub answered 404 for GET /issues/" + number);
         }
-        return new Issue(issue.number(), issue.title(), issue.body(), Set.copyOf(labels.get(number)));
+        return new Issue(issue.number(), issue.title(), issue.body(), Set.copyOf(labels.get(number)),
+                Set.copyOf(assignees.get(number)));
     }
 
     @Override
@@ -268,6 +311,29 @@ public final class FakeGitHubClient implements GitHubClient {
             comments.replaceAll(comment -> comment.id() == commentId
                     ? new IssueComment(commentId, comment.authorLogin(), body) : comment);
         }
+    }
+
+    @Override
+    public synchronized void addAssignee(int issueNumber, String login) {
+        if (!ignoresTheAssignees) {
+            assignBy(issueNumber, login);
+        }
+        if (assigningAction != null) {
+            Runnable action = assigningAction;
+            assigningAction = null;
+            action.run();
+        }
+    }
+
+    @Override
+    public synchronized void removeAssignee(int issueNumber, String login) {
+        unassign(issueNumber, login);
+    }
+
+    @Override
+    public synchronized List<AssignmentEvent> assignmentEvents(int issueNumber) {
+        assignmentEventReads++;
+        return List.copyOf(assignmentEventsByIssue.get(issueNumber));
     }
 
     @Override
@@ -324,7 +390,18 @@ public final class FakeGitHubClient implements GitHubClient {
         }
     }
 
+    /** A branch that GitHub has, without a repository. */
+    public synchronized void addBranchHead(String branch, String commit) {
+        branchHeads.put(branch, commit);
+    }
+
     private Optional<String> readBranchHead(String branch) {
+        if (branchHeads.containsKey(branch)) {
+            return Optional.of(branchHeads.get(branch));
+        }
+        if (pullRequestRepository == null) {
+            return Optional.empty();
+        }
         try {
             return Optional.of(TemporaryRepository.run(pullRequestRepository, "rev-parse", "--verify",
                     "refs/heads/" + branch));

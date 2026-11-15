@@ -10,6 +10,9 @@ import com.meterian.factory.state.WaitReason;
 final class ForwardCheckFailure {
 
     private static final int LIMIT = 3;
+    private static final String UNKNOWN_COMMITS_NOTE = "The forward can fail when the branch on GitHub has commits"
+            + " that the factory does not know. Check the branch on GitHub. To let the factory replace the branch,"
+            + " delete the branch on GitHub, and then add the label factory:start-again.";
 
     private final StatusPublisher statusPublisher;
 
@@ -27,7 +30,8 @@ final class ForwardCheckFailure {
             return counted.withStatus(IssueStatus.BLOCKED)
                     .withWaitReason(WaitReason.FAILURE)
                     .withNote("GitHub does not show the pushed commit " + pushedCommit + " on "
-                            + WorkspaceLayout.branch(issue.number()) + " after " + LIMIT + " tries.");
+                            + WorkspaceLayout.branch(issue.number()) + " after " + LIMIT + " tries.")
+                    .withNote(UNKNOWN_COMMITS_NOTE);
         }
         statusPublisher.publish(issue, before, counted);
         throw new GitHubException("GitHub does not have the pushed commit yet.");

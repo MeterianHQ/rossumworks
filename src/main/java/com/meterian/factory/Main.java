@@ -21,6 +21,9 @@ import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.GitHubOwnershipGuard;
+import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageProbe;
@@ -96,13 +99,13 @@ public final class Main {
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
-                       FactorySwitch factorySwitch) {
+                       FactorySwitch factorySwitch, LostIssues lostIssues) {
 
         static SharedState create(FactoryConfiguration configuration) {
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
                     new PageRequests(Clock.systemUTC()),
                     new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
-                    new FactorySwitch(configuration.workDirectory()));
+                    new FactorySwitch(configuration.workDirectory()), new LostIssues());
         }
     }
 
@@ -322,7 +325,8 @@ public final class Main {
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, shared.pageRequests(), workerLogin,
-                executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch());
+                executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
+                shared.lostIssues());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 () -> worker.issuesInWork().size(), worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
@@ -469,12 +473,13 @@ public final class Main {
                                                 LiveSessions liveSessions, SharedState shared) {
         Git git = new ProcessGit();
         String mergeTargetBranch = configuration.mergeTargetBranch();
+        OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), mergeTargetBranch,
-                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY);
+                configuration.gatekeeperDirectory().toAbsolutePath(), MERGE_RETRY_DELAY, ownershipGuard);
         PromptLibrary prompts = new PromptLibrary(configuration.promptDirectory(), mergeTargetBranch);
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, prompts, buildRunner, merger,
                 shared.usage(), layout, workerLogin, liveSessions, shared.board(), shared.contexts(),
-                shared.pageRequests());
+                shared.pageRequests(), ownershipGuard, shared.lostIssues());
     }
 }

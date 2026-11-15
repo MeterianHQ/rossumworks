@@ -1,6 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
@@ -35,6 +36,9 @@ public final class ApprovalCheck {
         }
         if (record.waitReason().equals(Optional.of(WaitReason.ISSUE_TEXT_CHANGED))) {
             return issueTextCheck.acceptNewText(issue, record);
+        }
+        if (record.handOver().equals(Optional.of(HandOver.CONTINUES_PUSHED_BRANCH))) {
+            return record.withoutWaitReason().withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.PREPARE);
         }
         return record.withoutWaitReason().withStatus(IssueStatus.IN_REVIEW).withPhase(Phase.MERGE);
     }

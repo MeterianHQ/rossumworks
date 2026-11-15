@@ -18,7 +18,10 @@ import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.merge.Merger;
+import com.meterian.factory.ownership.LostIssues;
+import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.Phase;
 import com.meterian.factory.state.StatusComment;
@@ -75,6 +78,8 @@ class GitHubRequestBudgetTest {
     /** The issue list and one read of the comments. The worker reads no events of the issue. */
     private static final int MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL = 2;
     private static final String EVENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/events";
+    private static final String ISSUE_REQUEST = "GET /repos/{o}/{r}/issues/{n}";
+    private static final String COMMENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/comments";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
     private static final Logger WORKER_LOGGER = Logger.getLogger(Worker.class.getName());
@@ -160,16 +165,17 @@ class GitHubRequestBudgetTest {
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
         Merger merger = new Merger(git, gitHub, buildRunner, configuration.target(), "main",
-                configuration.gatekeeperDirectory(), Duration.ZERO);
+                configuration.gatekeeperDirectory(), Duration.ZERO, OwnershipGuard.none());
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
+        LostIssues lostIssues = new LostIssues();
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent,
                 new PromptLibrary(Optional.empty(), "main"), buildRunner, merger,
                 new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
-                board, new ContextTracker(), pageRequests);
+                board, new ContextTracker(), pageRequests, OwnershipGuard.none(), lostIssues);
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, pageRequests, WORKER_LOGIN, executor,
-                liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")));
+                liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")), lostIssues);
     }
 
     private Optional<IssueRecord> readRecord() {
@@ -226,6 +232,46 @@ class GitHubRequestBudgetTest {
             assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL);
             assertThat(counts).doesNotContainKey(EVENTS_REQUEST);
         });
+    }
+
+    /** The factory works on the issue until the agent fails, and the issue then waits with a block. */
+    private void blockTheIssue() throws InterruptedException {
+        worker = createWorker(new FakeAgentRunner().thenChangeFile().thatFails());
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty()
+                && readRecord().filter(record -> record.status() == IssueStatus.BLOCKED).isPresent());
+    }
+
+    /** Counts the requests also when GitHub answers 304. */
+    private static int countAllAnswers(List<Map<String, Integer>> countsByPoll, String request) {
+        return countsByPoll.stream()
+                .mapToInt(counts -> counts.getOrDefault(request, 0) + counts.getOrDefault(request + NOT_MODIFIED, 0))
+                .sum();
+    }
+
+    @Test
+    void anIssueOfAnotherOwnerCostsNoIssueReadAndNoCommentsReadAfterTheRelease() throws InterruptedException {
+        blockTheIssue();
+        fakeGitHub.unassign(ISSUE, WORKER_LOGIN);
+        fakeGitHub.assignBy(ISSUE, "alice");
+        worker.pollOnce();
+        assertThat(readRecord().orElseThrow().handOver()).contains(HandOver.RELEASED);
+
+        List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
+
+        assertThat(countAllAnswers(countsByPoll, ISSUE_REQUEST)).isZero();
+        assertThat(countAllAnswers(countsByPoll, COMMENTS_REQUEST)).isZero();
+    }
+
+    @Test
+    void aStatusCommentOfAStrangerCostsOneReadOfTheEvents() throws InterruptedException {
+        blockTheIssue();
+        fakeGitHub.addCommentBy(ISSUE, "mallory", StatusComment.render(IssueRecord.queued(ISSUE), 2));
+
+        List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
+
+        assertThat(countAllAnswers(countsByPoll, EVENTS_REQUEST)).isEqualTo(1);
+        assertThat(readRecord().orElseThrow().status()).isEqualTo(IssueStatus.BLOCKED);
     }
 
     private static int sum(Map<String, Integer> counts) {
