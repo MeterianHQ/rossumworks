@@ -499,6 +499,30 @@ class WorkerTest {
     }
 
     @Test
+    void aStoppedIssueContinuesInItsNextPhaseAfterTheStart() throws InterruptedException {
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change in the phase\n");
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+        factorySwitch().requestStop();
+        phaseMayEnd.countDown();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+
+        factorySwitch().start();
+        worker.pollOnce();
+
+        waitUntil(() -> readRecord(ISSUE).orElseThrow().phase() != Phase.BUILD);
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().phase()).isNotIn(Phase.PREPARE, Phase.IMPLEMENT, Phase.BUILD);
+    }
+
+    @Test
     void startAgainSetsABlockedIssueBackToTheStart() {
         Worker worker = createWorker(new FakeAgentRunner(), 0);
         worker.pollOnce();

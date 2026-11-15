@@ -417,7 +417,8 @@ class BoardPageTest {
                 .contains("<div class=\"factory-state state-stopping\">")
                 .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
                 .contains("<p class=\"notice\">The factory is stopping. Each issue in work ends its current step, "
-                        + "moves to the next phase, and stops. No issue starts.</p>");
+                        + "moves to the next phase, and stops. No issue starts. "
+                        + "New issues stay free for other factories.</p>");
         assertThat(html).doesNotContain("/factory/stop");
     }
 
@@ -428,7 +429,8 @@ class BoardPageTest {
         assertThat(html).contains("<span class=\"factory-state-value\">Stopped</span>")
                 .contains("<div class=\"factory-state state-stopped\">")
                 .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
-                .contains("<p class=\"notice\">The factory is stopped. No issue starts. New issues wait in Queued.</p>");
+                .contains("<p class=\"notice\">The factory is stopped. No issue starts or continues. "
+                        + "New issues stay free for other factories.</p>");
     }
 
     @Test
