@@ -3,6 +3,7 @@ package com.meterian.factory.web;
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardSnapshot;
+import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.state.LivePlace;
 import java.time.Duration;
@@ -30,7 +31,7 @@ public record PageModel(
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
         boolean viewerOnThisMachine,
-        boolean pickUpPaused) {
+        FactoryState factoryState) {
 
     public PageModel {
         usageWindows = List.copyOf(usageWindows);

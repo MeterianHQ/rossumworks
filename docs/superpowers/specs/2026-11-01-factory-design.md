@@ -661,10 +661,13 @@ My decisions on "Block":
   PREPARE removes the worktree and resets the branch. A merged pull request
   moves the issue to Done, so the change never runs again.
 
-The header has one more button for the pick up: "Pause" and "Start". A
-pause stops only the start of an issue that the worker did not start yet.
-An issue in work continues, and each button of a card still works. A marker
-file in the work directory keeps the pause after a restart of the worker.
+The top right corner of the header shows the state of the factory:
+"Running", "Stopping", or "Stopped", with the button "Stop" or "Start". A
+stop interrupts no step. Each issue in work ends its current step, moves to
+its next phase, and then its loop stops. No issue starts while the factory
+is stopping or stopped. A new issue gets no record, so another factory can
+take it. The state is "Stopped" when no issue is in work. A
+marker file in the work directory keeps the stop after a restart.
 
 A button shows only when its action is possible, for example "Approve"
 only for the reason "merge needs approval". The worker checks the same

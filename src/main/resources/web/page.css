@@ -203,7 +203,39 @@ button {
     background: var(--surface-raised);
 }
 
-.pick-up button {
+/* The state of the factory is in the top right corner. Its color tells the state at a glance. */
+.factory-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-left: auto;
+    padding: 0.4rem 0.8rem;
+    border: 2px solid var(--factory-state-color);
+    border-radius: 8px;
+    background: var(--surface-raised);
+}
+
+.state-running {
+    --factory-state-color: var(--green);
+}
+
+.state-stopping {
+    --factory-state-color: var(--yellow);
+}
+
+.state-stopped {
+    --factory-state-color: var(--red);
+}
+
+.factory-state-value {
+    color: var(--factory-state-color);
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.factory-state button {
     margin-top: 0.25rem;
 }
 

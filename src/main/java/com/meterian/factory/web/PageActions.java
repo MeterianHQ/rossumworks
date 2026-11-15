@@ -4,7 +4,7 @@ import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.workflow.PageRequests;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
@@ -37,19 +37,19 @@ public final class PageActions {
     private final LiveSessions liveSessions;
     private final PhoneLinkSender phoneLinkSender;
     private final BoardState board;
-    private final PickUpSwitch pickUp;
+    private final FactorySwitch factorySwitch;
     private final Runnable earlyPollRequest;
     private final ReentrantLock actionLock = new ReentrantLock();
 
     /** @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll} */
     public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions,
-            PhoneLinkSender phoneLinkSender, BoardState board, PickUpSwitch pickUp, Runnable earlyPollRequest) {
+            PhoneLinkSender phoneLinkSender, BoardState board, FactorySwitch factorySwitch, Runnable earlyPollRequest) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
         this.phoneLinkSender = phoneLinkSender;
         this.board = board;
-        this.pickUp = pickUp;
+        this.factorySwitch = factorySwitch;
         this.earlyPollRequest = earlyPollRequest;
     }
 
@@ -77,15 +77,15 @@ public final class PageActions {
         }
     }
 
-    /** The page shows the new state at once. A pause needs no poll: the next poll only starts nothing new. */
-    public void pausePickUp() {
-        pickUp.pause();
+    /** The page shows the new state at once. A stop needs no poll: each loop ends after its current step. */
+    public void stopFactory() {
+        factorySwitch.requestStop();
         board.recordRequestChange();
     }
 
     /** The worker starts the waiting issues in about 2 seconds. */
-    public void resumePickUp() {
-        pickUp.resume();
+    public void startFactory() {
+        factorySwitch.start();
         board.recordRequestChange();
         earlyPollRequest.run();
     }

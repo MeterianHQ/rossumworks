@@ -6,7 +6,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.board.BoardState;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -172,7 +172,7 @@ class GitHubRequestBudgetTest {
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions, clock, board, new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused")));
+                liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")));
     }
 
     private Optional<IssueRecord> readRecord() {

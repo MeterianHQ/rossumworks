@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardSnapshot;
+import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.state.IssueRecord;
@@ -109,14 +110,14 @@ class BoardPageTest {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
         return new PageModel(snapshot, NOW, 2, 2, 2, IsolationMode.SAME_USER, POLL_INTERVAL, usageWindows,
                 usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces, "MeterianHQ/target",
-                viewerOnThisMachine, false);
+                viewerOnThisMachine, FactoryState.RUNNING);
     }
 
-    private static PageModel withPausedPickUp(PageModel model) {
+    private static PageModel withFactoryState(PageModel model, FactoryState factoryState) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.fixLoopLimit(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
                 model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), true);
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), factoryState);
     }
 
     private static IssueCard cardWithLabel(IssueRecord record, String label) {
@@ -398,23 +399,36 @@ class BoardPageTest {
     }
 
     @Test
-    void anActivePickUpHasAPauseButton() {
+    void aRunningFactoryShowsItsStateAndAStopButtonAtTheEndOfTheHeader() {
         String html = page.renderBoard(model(List.of()));
 
-        assertThat(html).contains("<span class=\"tile-label\">Pick up</span><span class=\"tile-value\">On</span>")
-                .contains("<form method=\"post\" action=\"/pick-up/pause\"><button>Pause</button></form>");
-        assertThat(html).doesNotContain("/pick-up/resume");
+        assertThat(html).contains("<div class=\"factory-state state-running\"><span class=\"tile-label\">Factory</span>"
+                        + "<span class=\"factory-state-value\">Running</span>"
+                        + "<form method=\"post\" action=\"/factory/stop\"><button>Stop</button></form></div>"
+                        + "</header>");
+        assertThat(html).doesNotContain("/factory/start").doesNotContain("The factory is");
     }
 
     @Test
-    void aPausedPickUpHasAStartButtonAndANotice() {
-        String html = page.renderBoard(withPausedPickUp(model(List.of())));
+    void aStoppingFactoryHasAStartButtonAndANotice() {
+        String html = page.renderBoard(withFactoryState(model(List.of()), FactoryState.STOPPING));
 
-        assertThat(html).contains("<span class=\"tile-label\">Pick up</span><span class=\"tile-value\">Paused</span>")
-                .contains("<form method=\"post\" action=\"/pick-up/resume\"><button>Start</button></form>")
-                .contains("<p class=\"notice\">Pick up is paused. New issues wait in Queued. "
-                        + "The issues in work continue.</p>");
-        assertThat(html).doesNotContain("/pick-up/pause");
+        assertThat(html).contains("<span class=\"factory-state-value\">Stopping</span>")
+                .contains("<div class=\"factory-state state-stopping\">")
+                .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
+                .contains("<p class=\"notice\">The factory is stopping. Each issue in work ends its current step, "
+                        + "moves to the next phase, and stops. No issue starts.</p>");
+        assertThat(html).doesNotContain("/factory/stop");
+    }
+
+    @Test
+    void aStoppedFactoryHasAStartButtonAndANotice() {
+        String html = page.renderBoard(withFactoryState(model(List.of()), FactoryState.STOPPED));
+
+        assertThat(html).contains("<span class=\"factory-state-value\">Stopped</span>")
+                .contains("<div class=\"factory-state state-stopped\">")
+                .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
+                .contains("<p class=\"notice\">The factory is stopped. No issue starts. New issues wait in Queued.</p>");
     }
 
     @Test
