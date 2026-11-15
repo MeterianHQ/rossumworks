@@ -79,6 +79,8 @@ DONE) gets no stop.
 - When the branch does not exist, the new owner starts the issue from the beginning.
 - The work before the first push stays on the first machine. The Claude session stays there too.
 - The new owner keeps a block and a wait of the earlier record.
+- The new owner keeps the issue text that the earlier owner accepted. When the text changed, the issue waits for
+  `factory:approve` before the next agent phase. A record without the hash of the text counts as a change.
 - A wait for the merge approval stays only when the pushed branch exists. After the approval, the factory builds
   and reviews again. Then it asks for the approval a second time. Without the branch, the issue starts from the
   beginning.
@@ -90,8 +92,17 @@ DONE) gets no stop.
 
 ### Give an issue to another person
 
-Add the new assignee and remove the old assignee in one edit. Or add the new assignee first, and then remove
-the old assignee. If you remove the old assignee first, a factory can pick up the issue without assignee.
+Change the assignee in one edit: remove the old assignee and add the new assignee in the same change. On the
+GitHub page, open the "Assignees" menu, clear the old account, select the new account, and then close the menu.
+
+Do not change the assignee in two separate edits:
+
+- If you add the new assignee first, the issue has two assignees for a short time. The old assignee has the
+  earlier "assigned" event, so it stays the owner. The factory of the new assignee removes its own assignee. Then
+  you remove the old assignee, and the issue has no assignee.
+- If you remove the old assignee first, the issue has no assignee. Any factory can then pick up the issue.
+
+An issue without assignee goes to the first factory that polls. Assign the issue again in one edit.
 
 ### Upgrade
 
