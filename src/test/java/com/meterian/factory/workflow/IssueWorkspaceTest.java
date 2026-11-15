@@ -84,4 +84,29 @@ class IssueWorkspaceTest {
                 .noneMatch(result -> result instanceof MergeResult.Failed failed
                         && failed.reason().startsWith("The fetch"));
     }
+
+    @Test
+    void createFromPushedBranchStartsAtTheBranchOnOrigin() {
+        Path origin = createBare(temporaryDirectory.resolve("origin.git"));
+        Path clone = createClone(origin, temporaryDirectory.resolve("clone"));
+        Path pusher = temporaryDirectory.resolve("pusher");
+        run(temporaryDirectory, "clone", "-q", origin.toString(), pusher.toString());
+        run(pusher, "config", "user.name", "Factory Test");
+        run(pusher, "config", "user.email", "factory-test@example.com");
+        run(pusher, "checkout", "-q", "-b", "factory/issue-7");
+        commitFile(pusher, "pushed.txt", "pushed\n", "Change pushed by the earlier owner");
+        run(pusher, "push", "-q", "origin", "factory/issue-7");
+        String pushedCommit = run(pusher, "rev-parse", "HEAD").trim();
+        TargetRepository target = new TargetRepository("MeterianHQ", "sample", clone, "true", Map.of());
+        FactoryConfiguration configuration = new FactoryConfiguration(target, "main", Limits.createDefaults(),
+                List.of("bbossola"), IsolationMode.SAME_USER, ClaudeSettings.createDefaults(),
+                temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"), Optional.empty(),
+                temporaryDirectory.resolve("live"), Optional.empty(),
+                FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+        Path worktree = temporaryDirectory.resolve("work").resolve("issue-7");
+
+        new IssueWorkspace(configuration, git).createFromPushedBranch(7, worktree);
+
+        assertThat(git.headCommit(worktree)).isEqualTo(pushedCommit);
+    }
 }

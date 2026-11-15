@@ -25,6 +25,7 @@ import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.merge.Merger;
 import com.meterian.factory.prompt.PromptLibrary;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.LiveSession;
@@ -222,6 +223,53 @@ class IssueWorkflowTest {
         assertThat(run(githubRepository, "branch", "--list", "factory/issue-7")).contains("factory/issue-7");
         assertThat(gitHub.pullRequests()).hasSize(1);
         assertThat(worktree()).doesNotExist();
+    }
+
+    private String pushABranchOfAnEarlierOwnerToOrigin() {
+        Path person = createPersonClone();
+        run(person, "checkout", "-q", "-b", "factory/issue-7");
+        commitFile(person, "earlier.txt", "earlier\n", "Change of the earlier owner");
+        run(person, "push", "-q", "origin", "factory/issue-7");
+        return run(person, "rev-parse", "HEAD").trim();
+    }
+
+    @Test
+    void prepareContinuesThePushedBranch() throws ApiKeyDetectedException {
+        String pushedCommit = pushABranchOfAnEarlierOwnerToOrigin();
+        IssueRecord handedOver = queuedRecord().withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
+
+        IssueRecord record = createWorkflow("true").advance(handedOver);
+
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.handOver()).isEmpty();
+        assertThat(git.headCommit(worktree())).isEqualTo(pushedCommit);
+    }
+
+    @Test
+    void prepareWithoutHandOverStartsFromTheMergeTarget() throws ApiKeyDetectedException {
+        pushABranchOfAnEarlierOwnerToOrigin();
+
+        IssueRecord record = createWorkflow("true").advance(queuedRecord());
+
+        assertThat(record.phase()).isEqualTo(Phase.IMPLEMENT);
+        assertThat(git.headCommit(worktree())).isEqualTo(run(origin, "rev-parse", "main").trim());
+    }
+
+    @Test
+    void approvalOfAContinuationRunsTheReviewsAgain() throws ApiKeyDetectedException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord waiting =
+                waitForApprovalOfAMediumRisk(workflow).withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
+        run(worktree(), "push", "-q", origin.toString(), "HEAD:refs/heads/factory/issue-7");
+        gitHub.addLabelBy(ISSUE, APPROVE_LABEL, "bbossola");
+
+        IssueRecord approved = workflow.advance(waiting);
+        IssueRecord prepared = workflow.advance(approved);
+
+        assertThat(approved.phase()).isEqualTo(Phase.PREPARE);
+        assertThat(approved.status()).isEqualTo(IssueStatus.IN_PROGRESS);
+        assertThat(approved.waitReason()).isEmpty();
+        assertThat(prepared.phase()).isEqualTo(Phase.BUILD);
     }
 
     @Test

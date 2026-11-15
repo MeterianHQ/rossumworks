@@ -26,6 +26,7 @@ import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.RiskResult;
 import com.meterian.factory.prompt.RiskResultReader;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
@@ -197,6 +198,10 @@ public final class IssueWorkflow {
     }
 
     private IssueRecord prepare(IssueRecord record, Path worktree) {
+        if (record.handOver().equals(Optional.of(HandOver.CONTINUES_PUSHED_BRANCH))) {
+            workspace.createFromPushedBranch(record.issueNumber(), worktree);
+            return record.withoutHandOver().withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.BUILD);
+        }
         workspace.create(record.issueNumber(), worktree);
         return record.withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
     }
