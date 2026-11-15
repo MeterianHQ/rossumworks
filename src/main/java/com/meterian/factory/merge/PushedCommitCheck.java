@@ -54,7 +54,7 @@ public final class PushedCommitCheck {
     /** A failed forward is not a failure of the step: the check after it decides. */
     private void forwardAgain(String pushedCommit, String branch) {
         try {
-            git.pushCommit(gatekeeperDirectory, GITHUB_REMOTE, pushedCommit, branch);
+            git.forwardCommit(gatekeeperDirectory, GITHUB_REMOTE, pushedCommit, branch);
         } catch (GitException exception) {
             LOGGER.log(System.Logger.Level.WARNING, "The new forward of {0} failed: {1}", branch,
                     exception.getMessage());

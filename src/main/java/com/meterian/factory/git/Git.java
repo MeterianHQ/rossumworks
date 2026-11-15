@@ -64,6 +64,12 @@ public interface Git {
     /** Force-pushes the commit to the branch of the remote. */
     void pushCommit(Path worktree, String remote, String commit, String branch);
 
+    /**
+     * Pushes the commit to the branch of the remote only when the branch on the remote is at the commit of the
+     * remote-tracking branch, or is missing when no remote-tracking branch exists.
+     */
+    void forwardCommit(Path repository, String remote, String commit, String branch);
+
     void excludeFactoryFolder(Path worktree);
 
     /** Sets the URL of the remote. It adds the remote or replaces the URL. */

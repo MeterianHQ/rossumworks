@@ -31,9 +31,17 @@ final class IssueWorkspace {
         createFromBranch(issueNumber, worktree, mergeTargetBranch);
     }
 
-    /** Makes the worktree like create, but starts at the branch of the issue that an earlier owner pushed. */
+    /**
+     * Makes the worktree like create, but starts at the branch of the issue that an earlier owner pushed. The
+     * gatekeeper then expects that commit on GitHub, so the next forward can replace it.
+     */
     void createFromPushedBranch(int issueNumber, Path worktree) {
-        createFromBranch(issueNumber, worktree, WorkspaceLayout.branch(issueNumber));
+        String branch = WorkspaceLayout.branch(issueNumber);
+        Path clone = configuration.target().cloneDirectory();
+        CloneLock.run(clone, () -> {
+            createUnderLock(clone, issueNumber, worktree, branch);
+            Gatekeeper.expectBranchOnGitHub(configuration.gatekeeperDirectory().toAbsolutePath(), clone, branch);
+        });
     }
 
     private void createFromBranch(int issueNumber, Path worktree, String startBranch) {

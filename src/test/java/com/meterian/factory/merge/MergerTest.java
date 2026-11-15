@@ -483,7 +483,7 @@ class MergerTest {
         Path secondWorktree = temporaryDirectory.resolve("worktree-8");
         git.addWorktree(clone, secondWorktree, "factory/issue-8", "origin/main");
         commitFile(secondWorktree, "d.txt", "other feature\n", "Other feature");
-        run(secondWorktree, "push", "-q", github.toString(), "HEAD:refs/heads/factory/issue-8");
+        run(secondWorktree, "push", "-q", gatekeeper.toString(), "HEAD:refs/heads/factory/issue-8");
         PullRequest secondPullRequest = gitHub.createPullRequest("factory/issue-8", "main", "Title", "Body");
         IssueRecord secondRecord = reviewedRecord(8, secondWorktree, secondPullRequest);
         AtomicReference<MergeResult> secondResult = new AtomicReference<>();

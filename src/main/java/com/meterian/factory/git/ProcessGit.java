@@ -188,11 +188,22 @@ public final class ProcessGit implements Git {
 
     @Override
     public void pushCommit(Path worktree, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
+    }
+
+    @Override
+    public void forwardCommit(Path repository, String remote, String commit, String branch) {
+        verifyFactoryBranch(branch);
+        String reference = "refs/heads/" + branch;
+        runOverTheNetwork(repository, "push", "--force-with-lease=" + reference, remote, commit + ":" + reference);
+    }
+
+    private static void verifyFactoryBranch(String branch) {
         if (!branch.startsWith(FACTORY_BRANCH_PREFIX)) {
             throw new GitException("git push refused: the branch " + branch + " does not start with "
                     + FACTORY_BRANCH_PREFIX);
         }
-        runOverTheNetwork(worktree, "push", "--force", remote, commit + ":refs/heads/" + branch);
     }
 
     @Override

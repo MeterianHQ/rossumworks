@@ -1588,7 +1588,7 @@ class WorkerTest {
         gitHub.unassign(ISSUE, ALICE);
     }
 
-    /** The factory of alice pushed the branch of the issue to the target repository. */
+    /** The factory of alice pushed the branch of the issue to the target repository: origin and GitHub. */
     private String pushTheBranchOfAlice() {
         Path aliceClone = temporaryDirectory.resolve("alice");
         run(temporaryDirectory, "clone", "-q", temporaryDirectory.resolve("origin.git").toString(),
@@ -1598,6 +1598,8 @@ class WorkerTest {
         run(aliceClone, "checkout", "-q", "-b", WorkspaceLayout.branch(ISSUE));
         commitFile(aliceClone, "alice.txt", "alice\n", "Change of the factory of alice");
         run(aliceClone, "push", "-q", "origin", WorkspaceLayout.branch(ISSUE));
+        run(aliceClone, "push", "-q", temporaryDirectory.resolve("github.git").toString(),
+                WorkspaceLayout.branch(ISSUE));
         String pushedCommit = run(aliceClone, "rev-parse", "HEAD").trim();
         gitHub.addBranchHead(WorkspaceLayout.branch(ISSUE), pushedCommit);
         return pushedCommit;
