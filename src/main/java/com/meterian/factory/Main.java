@@ -7,7 +7,7 @@ import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
 import com.meterian.factory.board.BoardState;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
@@ -69,8 +69,6 @@ import java.util.function.IntSupplier;
 /** The command line: run --config <file>, or hash-password. */
 public final class Main {
 
-    private static final String PICK_UP_MARKER_NAME = "pick-up-paused";
-
     static final int EXIT_SUCCESS = 0;
     static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
@@ -101,13 +99,13 @@ public final class Main {
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
-                       PickUpSwitch pickUp) {
+                       FactorySwitch factorySwitch) {
 
         static SharedState create(FactoryConfiguration configuration) {
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
                     new PageRequests(Clock.systemUTC()),
                     new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
-                    new PickUpSwitch(configuration.workDirectory().resolve(PICK_UP_MARKER_NAME)));
+                    new FactorySwitch(configuration.workDirectory()));
         }
     }
 
@@ -328,7 +326,7 @@ public final class Main {
         PhaseStopper phaseStopper = new PhaseStopper(agentRunner, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, phaseStopper, requests, workerLogin, executor,
-                liveSessions, Clock.systemUTC(), shared.board(), shared.pickUp());
+                liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 createPhoneLinkSender(gitHub, configuration), () -> worker.issuesInWork().size(),
                 worker::requestEarlyPoll, claudeHome);
@@ -393,13 +391,13 @@ public final class Main {
                                                Runnable earlyPollRequest, Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
-                new PageModelSource(shared.board(), shared.pickUp(), shared.usage(), shared.contexts(),
+                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, issuesInWork,
                         Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, phoneLinkSender, shared.board(),
-                        shared.pickUp(), earlyPollRequest)));
+                        shared.factorySwitch(), earlyPollRequest)));
     }
 
     /** A web server that cannot start stops the worker before its first poll. */

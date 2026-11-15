@@ -10,7 +10,7 @@ import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.IssueCard;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -97,7 +97,7 @@ class WorkerTest {
     @TempDir
     Path temporaryDirectory;
 
-    private PickUpSwitch pickUpSwitch;
+    private FactorySwitch factorySwitch;
 
     private final PageRequests pageRequests = new PageRequests(Clock.systemUTC());
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T09:00:00Z"));
@@ -138,11 +138,11 @@ class WorkerTest {
         }
     }
 
-    private PickUpSwitch pickUp() {
-        if (pickUpSwitch == null) {
-            pickUpSwitch = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
+    private FactorySwitch factorySwitch() {
+        if (factorySwitch == null) {
+            factorySwitch = new FactorySwitch(temporaryDirectory.resolve("work"));
         }
-        return pickUpSwitch;
+        return factorySwitch;
     }
 
     private void addLabeledIssue(int number) {
@@ -195,7 +195,7 @@ class WorkerTest {
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, phaseStopper, requests, WORKER_LOGIN, executor,
-                liveSessions, Clock.systemUTC(), board, pickUp());
+                liveSessions, Clock.systemUTC(), board, factorySwitch());
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -417,44 +417,85 @@ class WorkerTest {
     }
 
     @Test
-    void aPausedPickUpKeepsANewIssueInQueued() {
+    void aStoppedFactoryLeavesANewIssueUntouched() {
         FakeAgentRunner agent = new FakeAgentRunner();
         Worker worker = createWorker(agent, 2);
-        pickUp().pause();
+        factorySwitch().requestStop();
 
         worker.pollOnce();
 
-        assertThat(gitHub.statusOf(ISSUE)).contains(IssueStatus.QUEUED);
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+        assertThat(gitHub.statusOf(ISSUE)).isEmpty();
+        assertThat(findCard(board, ISSUE)).isEmpty();
         assertThat(worker.issuesInWork()).isEmpty();
         assertThat(agent.requests()).isEmpty();
     }
 
     @Test
-    void anIssueStartsAtTheFirstPollAfterTheResume() throws InterruptedException {
+    void aStoppedFactoryLeavesANewIssueOfAnotherAccountWithoutANote() {
+        gitHub.addIssue(8, "Change the greeting 8", "The greeting must change.");
+        gitHub.addLabelBy(8, FACTORY_LABEL, "mallory");
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+        factorySwitch().requestStop();
+
+        worker.pollOnce();
+
+        assertThat(gitHub.commentsOf(8)).isEmpty();
+    }
+
+    @Test
+    void anIssueStartsAtTheFirstPollAfterTheStart() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
-        pickUp().pause();
+        factorySwitch().requestStop();
         Worker worker = createWorker(agent, 2);
         worker.pollOnce();
-        pickUp().resume();
+        factorySwitch().start();
         worker.pollOnce();
         waitUntil(() -> !agent.requests().isEmpty());
         waitForTheLoops();
     }
 
     @Test
-    void aPausedPickUpLetsAStartedIssueContinue() throws InterruptedException {
-        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
-        pickUp().pause();
-        Worker worker = createWorker(agent, 2);
-        worker.pollOnce();
+    void aStoppedFactoryDoesNotStartAnIssueThatIsAlreadyStarted() {
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
         IssueRecord started = readRecord(ISSUE).orElseThrow().withAgentSessionStarted()
                 .withStatus(IssueStatus.IN_PROGRESS).withPhase(Phase.IMPLEMENT);
         gitHub.editComment(started.statusCommentId().orElseThrow(), StatusComment.render(started, 2));
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 2);
+        factorySwitch().requestStop();
 
         worker.pollOnce();
 
-        waitUntil(() -> !agent.requests().isEmpty());
+        assertThat(worker.issuesInWork()).isEmpty();
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void aStopEndsTheLoopAfterTheCurrentStepAndItsMove() throws InterruptedException {
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change in the phase\n");
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+
+        factorySwitch().requestStop();
+        phaseMayEnd.countDown();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        worker.pollOnce();
         waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.stoppedIssues()).isEmpty();
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(record.phase()).isEqualTo(Phase.BUILD);
+        assertThat(record.status()).isEqualTo(IssueStatus.IN_PROGRESS);
     }
 
     @Test
@@ -1241,6 +1282,27 @@ class WorkerTest {
         waitForTheLoops();
 
         assertThat(pageRequests.isRemembered(ISSUE, BLOCK_LABEL)).isTrue();
+        assertThat(updates.requestChanges()).isEqualTo(1);
+    }
+
+    @Test
+    void theLastIssueOfAStoppingFactoryTellsThePage() throws InterruptedException {
+        CountingBoardUpdates updates = new CountingBoardUpdates();
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+        });
+        Worker worker = createWorker(agent, createConfiguration(2, Duration.ofSeconds(60)), updates);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+
+        factorySwitch().requestStop();
+        phaseMayEnd.countDown();
+        waitForTheLoops();
+
+        assertThat(worker.issuesInWork()).isEmpty();
         assertThat(updates.requestChanges()).isEqualTo(1);
     }
 

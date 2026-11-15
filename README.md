@@ -259,18 +259,36 @@ The page makes no GitHub request of its own. It shows the state from the last po
 usually makes only one request: it adds one label. When the label is already on the issue, the action makes
 two requests: it removes the label and adds it again.
 
-### Pick up
+### Stop and start the factory
 
-The header has a tile "Pick up" with one button. **Pause** stops the pick up, and **Start** turns it on again. The
-worker then starts the waiting issues in about 2 seconds.
+The top right corner of the page shows the state of the factory. The color tells the state at a glance.
 
-While the pick up is paused:
+| State | Color | Meaning |
+|---|---|---|
+| Running | Green | The worker starts and moves the issues. |
+| Stopping | Yellow | The owner clicked **Stop**. At least one issue is still in work. |
+| Stopped | Red | The owner clicked **Stop**, and no issue is in work. |
 
-- A new `factory` label still puts the issue in Queued, but the agent does not start. You can prepare a set of issues.
-- An issue that the worker started continues through its phases. Enter, Approve, Block, and Continue still work.
-- Start again also waits, because it makes the issue new. Its card stays in Queued until you click **Start**.
+**Stop** interrupts no step. Each issue in work does these steps:
 
-A pause stays after a restart of the worker. The marker file is `<work-directory>/pick-up-paused`.
+1. The current step runs to its end, for example the agent session or the build.
+2. The worker publishes the record, so the issue moves to its next phase.
+3. The loop of the issue stops. The card stays in its column.
+
+When the last issue stops, the state changes from Stopping to Stopped. **Start** turns the factory on again. The
+worker then continues the stopped issues and starts the waiting issues in about 2 seconds.
+
+While the factory is stopping or stopped:
+
+- No issue starts or continues. This includes the stopped issues and Start again.
+- The worker does not touch a new issue with the `factory` label. It writes no record and no comment, and the
+  issue gets no card. So another factory can take the issue. The worker takes it at the first poll after **Start**,
+  if no other factory took it first.
+- Block works at once. Enter opens the live conversation.
+- An Approve and a `/factory:continue` wait until you click **Start**.
+
+A stop stays after a restart of the worker. The marker file is `<work-directory>/factory-stopped`. The marker
+`pick-up-paused` of the earlier "Pick up" button also keeps the factory stopped. **Start** removes both files.
 
 ### Known limits
 

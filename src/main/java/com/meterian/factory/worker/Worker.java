@@ -3,7 +3,7 @@ package com.meterian.factory.worker;
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
@@ -64,7 +64,7 @@ public final class Worker {
     private final LiveRecordCheck liveRecordCheck;
     private final RateLimitWait rateLimitWait;
     private final BoardUpdates board;
-    private final PickUpSwitch pickUp;
+    private final FactorySwitch factorySwitch;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
     private final PollWait pollWait;
     private final Set<Integer> issuesInWork = new HashSet<>();
@@ -77,7 +77,7 @@ public final class Worker {
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
                   PhaseStopper phaseStopper, RequestReader requests, String workerLogin, ExecutorService executor,
-                  LiveSessions liveSessions, Clock clock, BoardUpdates board, PickUpSwitch pickUp) {
+                  LiveSessions liveSessions, Clock clock, BoardUpdates board, FactorySwitch factorySwitch) {
         this.configuration = configuration;
         this.gitHub = gitHub;
         this.workflow = workflow;
@@ -86,7 +86,7 @@ public final class Worker {
         this.workerLogin = workerLogin;
         this.executor = executor;
         this.board = board;
-        this.pickUp = pickUp;
+        this.factorySwitch = factorySwitch;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, configuration.limits().fixLoops(), board);
         this.restartPreparation = new RestartPreparation(gitHub, layout);
@@ -100,7 +100,8 @@ public final class Worker {
 
     /**
      * Reads the labeled issues once: block requests, intake, and the start of the issues up to the limit. In a
-     * wait for the reset of the GitHub rate limit, the poll sends no request.
+     * wait for the reset of the GitHub rate limit, the poll sends no request. A stopped factory starts no issue,
+     * and it leaves a new issue untouched, so that another factory can take it.
      */
     public void pollOnce() {
         if (isStopped() || rateLimitWait.isWaiting()) {
@@ -118,7 +119,7 @@ public final class Worker {
             }
             for (IssueRecord record : startable) {
                 verifyEnoughRequestsRemain();
-                if (!waitsForThePickUp(record)) {
+                if (!factorySwitch.isStopRequested()) {
                     startIssue(record);
                 }
             }
@@ -129,12 +130,6 @@ public final class Worker {
         } finally {
             logRequestCounts();
         }
-    }
-
-    /** Only an issue that the worker did not start yet waits. An issue in work continues through its phases. */
-    private boolean waitsForThePickUp(IssueRecord record) {
-        return pickUp.isPaused() && record.status() == IssueStatus.QUEUED && record.phase() == Phase.PREPARE
-                && !record.agentSessionStarted();
     }
 
     /**
@@ -265,7 +260,7 @@ public final class Worker {
         }
         Optional<IssueRecord> record = StatusComment.findRecord(comments, workerLogin);
         if (record.isEmpty()) {
-            return takeIntoQueue(issue, comments, labelActors);
+            return factorySwitch.isStopRequested() ? Optional.empty() : takeIntoQueue(issue, comments, labelActors);
         }
         IssueRecord afterStartAgain = startAgainRequests.isRequested(issue, labelActors)
                 ? startAgainRequests.startAgain(issue, record.get()) : record.get();
@@ -383,14 +378,15 @@ public final class Worker {
 
     /**
      * Keeps the result of a step only when no block and no stop came during the step, or when it is final. A request
-     * of factory:enter stops the current step, and the loop enters on the record that it kept.
+     * of factory:enter stops the current step, and the loop enters on the record that it kept. A stop of the factory
+     * interrupts no step: the loop ends after the step and the publish of its record.
      */
     private void runIssue(IssueRecord start) {
         int issueNumber = start.issueNumber();
         IssueRecord kept = start;
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
-            while (mayContinue(issueNumber) && !isEnterRequested(issueNumber)) {
+            while (mayContinue(issueNumber) && !isEnterRequested(issueNumber) && !factorySwitch.isStopRequested()) {
                 IssueRecord next = workflow.advance(kept);
                 if (!mayContinue(issueNumber) && !FinalStepResult.isFinal(kept, next)) {
                     interruptedResult = Optional.of(next);
@@ -460,12 +456,16 @@ public final class Worker {
         }
     }
 
+    /** A stopping factory shows "Stopped" at once when its last issue ends. */
     private void releaseIssue(IssueRecord kept, Optional<IssueRecord> interruptedResult) {
         boolean isBlocked;
         synchronized (this) {
             issuesInWork.remove(kept.issueNumber());
             enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
+        }
+        if (factorySwitch.isStopRequested()) {
+            board.recordRequestChange();
         }
         if (isBlocked) {
             // A block during the enter of the loop came before the session was open.

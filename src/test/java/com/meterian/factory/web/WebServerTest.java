@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveSessionException;
 import com.meterian.factory.board.BoardState;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
@@ -92,12 +92,12 @@ class WebServerTest {
     private volatile Optional<RuntimeException> sendFailure = Optional.empty();
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
-    private PickUpSwitch pickUp;
+    private FactorySwitch factorySwitch;
     private WebServer server;
 
     @BeforeEach
     void startServer() throws IOException {
-        pickUp = new PickUpSwitch(temporaryDirectory.resolve("pick-up-paused"));
+        factorySwitch = new FactorySwitch(temporaryDirectory.resolve("work"));
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
         PageActions actions = createPageActions();
@@ -150,7 +150,7 @@ class WebServerTest {
                 ClaudeSettings.createDefaults(), workDirectory, temporaryDirectory.resolve("gatekeeper.git"),
                 Optional.empty(), temporaryDirectory.resolve("live"), Optional.empty(),
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, pickUp, new UsageTracker(0.90, clock), new ContextTracker(),
+        return new PageModelSource(board, factorySwitch, new UsageTracker(0.90, clock), new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration, () -> 1, clock);
     }
@@ -367,44 +367,44 @@ class WebServerTest {
     }
 
     @Test
-    void theOwnerPausesThePickUp() {
-        HttpResponse<String> answer = postForm("/pick-up/pause", logIn(), "");
+    void theOwnerStopsTheFactory() {
+        HttpResponse<String> answer = postForm("/factory/stop", logIn(), "");
 
         assertThat(answer.statusCode()).isEqualTo(303);
         assertThat(answer.headers().firstValue("Location")).contains("/");
-        assertThat(pickUp.isPaused()).isTrue();
+        assertThat(factorySwitch.isStopRequested()).isTrue();
     }
 
     @Test
-    void theOwnerStartsThePickUpAgainAndTheWorkerPollsEarly() {
-        pickUp.pause();
+    void theOwnerStartsTheFactoryAgainAndTheWorkerPollsEarly() {
+        factorySwitch.requestStop();
 
-        HttpResponse<String> answer = postForm("/pick-up/resume", logIn(), "");
+        HttpResponse<String> answer = postForm("/factory/start", logIn(), "");
 
         assertThat(answer.statusCode()).isEqualTo(303);
-        assertThat(pickUp.isPaused()).isFalse();
+        assertThat(factorySwitch.isStopRequested()).isFalse();
         assertThat(earlyPollRequests).hasValue(1);
     }
 
     @Test
-    void thePickUpNeedsALogin() {
-        HttpResponse<String> answer = postForm("/pick-up/pause", Optional.empty(), "");
+    void theFactorySwitchNeedsALogin() {
+        HttpResponse<String> answer = postForm("/factory/stop", Optional.empty(), "");
 
         assertThat(answer.statusCode()).isEqualTo(401);
-        assertThat(pickUp.isPaused()).isFalse();
+        assertThat(factorySwitch.isStopRequested()).isFalse();
     }
 
     @Test
-    void thePickUpRefusesAnotherOrigin() {
-        HttpResponse<String> answer = post("/pick-up/pause", logIn(), "https://other.example");
+    void theFactorySwitchRefusesAnotherOrigin() {
+        HttpResponse<String> answer = post("/factory/stop", logIn(), "https://other.example");
 
         assertThat(answer.statusCode()).isEqualTo(403);
-        assertThat(pickUp.isPaused()).isFalse();
+        assertThat(factorySwitch.isStopRequested()).isFalse();
     }
 
     @Test
-    void thePickUpKnowsOnlyTwoActions() {
-        assertThat(postForm("/pick-up/other", logIn(), "").statusCode()).isEqualTo(404);
+    void theFactorySwitchKnowsOnlyTwoActions() {
+        assertThat(postForm("/factory/other", logIn(), "").statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -809,7 +809,7 @@ class WebServerTest {
 
     private PageActions createPageActions() {
         return new PageActions(createLabelWriter(), pageRequests, liveSessions, this::recordSentLink, board,
-                pickUp, earlyPollRequests::incrementAndGet);
+                factorySwitch, earlyPollRequests::incrementAndGet);
     }
 
     @Test

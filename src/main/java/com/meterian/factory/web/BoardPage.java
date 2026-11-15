@@ -2,6 +2,7 @@ package com.meterian.factory.web;
 
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardSnapshot;
+import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.state.IssueStatus;
 import java.time.Duration;
@@ -11,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Writes the HTML of the page and of its board. The board has the header and the columns, so that one
@@ -58,14 +60,13 @@ public final class BoardPage {
                 .append("<span class=\"repository\">").append(Html.escape(model.repositoryFullName()))
                 .append("</span></div>");
         appendHealth(html, model);
+        appendFactoryState(html, model.factoryState());
         html.append("</header>");
         if (isLastCheckOld(model)) {
             html.append("<p class=\"warning\">The last GitHub check is old.</p>");
         }
-        if (model.pickUpPaused()) {
-            html.append("<p class=\"notice\">Pick up is paused. New issues wait in Queued. "
-                    + "The issues in work continue.</p>");
-        }
+        describeFactoryState(model.factoryState())
+                .ifPresent(notice -> html.append("<p class=\"notice\">").append(notice).append("</p>"));
         model.usageResumesAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
                 .append(Html.escape("New phases start again at " + formatTime(resumesAt) + "."))
                 .append("</p>"));
@@ -78,7 +79,6 @@ public final class BoardPage {
         appendTile(html, "Last GitHub check", board.lastCheckAt().map(this::formatTime).orElse("none yet"));
         appendTile(html, "Issues in work", model.issuesInWork() + " of " + model.parallelLimit());
         appendTile(html, "Isolation", describeIsolation(model));
-        appendPickUpTile(html, model.pickUpPaused());
         model.usageWindows().forEach(window -> appendUsageTile(html, window));
         html.append("</div>");
     }
@@ -88,11 +88,23 @@ public final class BoardPage {
                 .append("</span><span class=\"tile-value\">").append(Html.escape(value)).append("</span></div>");
     }
 
-    private void appendPickUpTile(StringBuilder html, boolean paused) {
-        html.append("<div class=\"tile pick-up\"><span class=\"tile-label\">Pick up</span>")
-                .append("<span class=\"tile-value\">").append(paused ? "Paused" : "On").append("</span>")
-                .append("<form method=\"post\" action=\"/pick-up/").append(paused ? "resume" : "pause")
-                .append("\"><button>").append(paused ? "Start" : "Pause").append("</button></form></div>");
+    /** The state is the last item of the header, so it shows in the top right corner. */
+    private void appendFactoryState(StringBuilder html, FactoryState state) {
+        boolean running = state == FactoryState.RUNNING;
+        html.append("<div class=\"factory-state state-").append(toClassName(state)).append("\">")
+                .append("<span class=\"tile-label\">Factory</span>")
+                .append("<span class=\"factory-state-value\">").append(state.displayName()).append("</span>")
+                .append("<form method=\"post\" action=\"/factory/").append(running ? "stop" : "start")
+                .append("\"><button>").append(running ? "Stop" : "Start").append("</button></form></div>");
+    }
+
+    private Optional<String> describeFactoryState(FactoryState state) {
+        return switch (state) {
+            case RUNNING -> Optional.empty();
+            case STOPPING -> Optional.of("The factory is stopping. Each issue in work ends its current step, "
+                    + "moves to the next phase, and stops. No issue starts.");
+            case STOPPED -> Optional.of("The factory is stopped. No issue starts. New issues wait in Queued.");
+        };
     }
 
     /** The meter turns yellow at 70% and red at 90%, as the browser shows the low and high ranges. */
@@ -140,8 +152,8 @@ public final class BoardPage {
         html.append("</div></section>");
     }
 
-    private static String toClassName(IssueStatus status) {
-        return status.name().toLowerCase(Locale.ROOT).replace('_', '-');
+    private static String toClassName(Enum<?> value) {
+        return value.name().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
     /** The cards go by issue number. The Done cards go by the date of the merge, the newest first. */

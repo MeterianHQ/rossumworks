@@ -6,7 +6,8 @@ import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.IssueCard;
-import com.meterian.factory.board.PickUpSwitch;
+import com.meterian.factory.board.FactorySwitch;
+import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 public final class PageModelSource {
 
     private final BoardState board;
-    private final PickUpSwitch pickUp;
+    private final FactorySwitch factorySwitch;
     private final UsageTracker usage;
     private final ContextTracker contexts;
     private final LiveContextReader liveContexts;
@@ -36,11 +37,11 @@ public final class PageModelSource {
     private final IntSupplier issuesInWork;
     private final Clock clock;
 
-    public PageModelSource(BoardState board, PickUpSwitch pickUp, UsageTracker usage, ContextTracker contexts,
+    public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, ContextTracker contexts,
             LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
             WorkspaceLayout layout, FactoryConfiguration configuration, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
-        this.pickUp = pickUp;
+        this.factorySwitch = factorySwitch;
         this.usage = usage;
         this.contexts = contexts;
         this.liveContexts = liveContexts;
@@ -59,12 +60,13 @@ public final class PageModelSource {
      */
     public PageModel read(boolean viewerOnThisMachine) {
         BoardSnapshot snapshot = board.snapshot();
-        return new PageModel(snapshot, clock.instant(), issuesInWork.getAsInt(),
+        int issuesInWorkNow = issuesInWork.getAsInt();
+        return new PageModel(snapshot, clock.instant(), issuesInWorkNow,
                 configuration.limits().parallelIssues(), configuration.limits().fixLoops(),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
                 readEnterPlaces(snapshot), configuration.target().fullName(), viewerOnThisMachine,
-                pickUp.isPaused());
+                FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow));
     }
 
     private Map<Integer, ContextUsage> readContexts(BoardSnapshot snapshot) {
