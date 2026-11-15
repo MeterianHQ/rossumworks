@@ -105,6 +105,10 @@ script starts the worker with the latest release of the factory:
 3. It goes to the root of the clone and runs `java -jar <the jar> run`. It gives its arguments to `run`, for
    example `.factory/run.sh --config <work folder>/worker.yaml`.
 
+`create` copies its own jar into `~/.claude-ai-factory/jars`, with the same file name. Then the first run of the
+script needs no download when that jar is the latest release. `create` does not overwrite a jar in the folder.
+When the copy fails, `create` shows the problem and ends with success.
+
 When the download fails, the script uses the newest jar in `~/.claude-ai-factory/jars`. When that folder has no
 jar, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. When the repository
 already has a `.factory`, `create` adds no script, and it shows the `java -jar` command.

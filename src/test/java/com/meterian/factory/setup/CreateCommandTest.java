@@ -50,6 +50,7 @@ class CreateCommandTest {
     private Path currentFolder;
     private Path home;
     private Path programs;
+    private Optional<Path> runningJar = Optional.empty();
 
     @BeforeEach
     void createRepositories() throws IOException {
@@ -205,6 +206,56 @@ class CreateCommandTest {
     }
 
     @Test
+    void copiesTheRunningJarIntoTheCacheOfTheRunScript() throws IOException {
+        pushToMain("package.json", "{}\n");
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+
+        int exitCode = runCreate(answering("", "", "", "", "y"));
+
+        Path cachedJar = home.resolve(".claude-ai-factory/jars/claude-ai-factory-0.1.0.jar");
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(cachedJar).hasContent("jar");
+        assertThat(outputText()).contains("The command copied the jar to " + cachedJar + ".");
+    }
+
+    @Test
+    void keepsAJarThatIsInTheCacheAlready() throws IOException {
+        pushToMain(".factory/factory.yaml", "build: {}\n");
+        Path cachedJar = home.resolve(".claude-ai-factory/jars/claude-ai-factory-0.1.0.jar");
+        Files.createDirectories(cachedJar.getParent());
+        Files.writeString(cachedJar, "cached");
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+
+        int exitCode = runCreate(answering("", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(cachedJar).hasContent("cached");
+        assertThat(outputText()).doesNotContain("copied the jar");
+    }
+
+    @Test
+    void aFailedCopyOfTheJarGivesTheProblemAndEndsWithSuccess() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Files.createDirectories(home.resolve(".claude-ai-factory"));
+        Files.writeString(home.resolve(".claude-ai-factory/jars"), "not a folder");
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+
+        int exitCode = runCreate(answering("", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(outputText()).contains("Cannot copy the jar to " + home.resolve(".claude-ai-factory/jars"));
+    }
+
+    @Test
+    void withoutARunningJarTheCacheStaysEmpty() {
+        pushToMain("package.json", "{}\n");
+
+        runCreate(answering("", "", "", "", "y"));
+
+        assertThat(home.resolve(".claude-ai-factory/jars")).doesNotExist();
+    }
+
+    @Test
     void thePullRequestHasTheExecutableRunScript() {
         pushToMain("package.json", "{}\n");
 
@@ -338,7 +389,7 @@ class CreateCommandTest {
         CreateCommand command = new CreateCommand(console, environment,
                 new PrintStream(outputBytes, true, StandardCharsets.UTF_8),
                 new PrintStream(errorBytes, true, StandardCharsets.UTF_8),
-                () -> Optional.of("token"), git, new LocalGitHub(), currentFolder, home);
+                () -> Optional.of("token"), git, new LocalGitHub(), currentFolder, home, runningJar);
         return command.run(List.of(arguments));
     }
 

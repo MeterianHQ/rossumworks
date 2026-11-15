@@ -11,11 +11,9 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.PullRequest;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.net.URISyntaxException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.CodeSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,16 +46,19 @@ public final class CreateCommand {
     private final GitHubConnector gitHubConnector;
     private final Path currentFolder;
     private final Path home;
+    private final Optional<Path> runningJar;
 
     /**
      * @param ghToken         the token of gh, when the environment has no FACTORY_GITHUB_TOKEN
      * @param gitHubConnector the client and the clone URL of the repository on GitHub
      * @param currentFolder   the folder whose remote origin gives the default repository
-     * @param home            the folder of the default work folder
+     * @param home            the folder of the default work folder and of the jar cache
+     * @param runningJar      the jar of this process, that create copies into the jar cache
      */
     public CreateCommand(SetupConsole console, Map<String, String> environment, PrintStream output,
                          PrintStream errors, StartChecks.TokenSource ghToken, Git git,
-                         GitHubConnector gitHubConnector, Path currentFolder, Path home) {
+                         GitHubConnector gitHubConnector, Path currentFolder, Path home,
+                         Optional<Path> runningJar) {
         this.console = console;
         this.environment = environment;
         this.output = output;
@@ -67,6 +68,7 @@ public final class CreateCommand {
         this.gitHubConnector = gitHubConnector;
         this.currentFolder = currentFolder;
         this.home = home;
+        this.runningJar = runningJar;
     }
 
     public int run(List<String> arguments) {
@@ -115,6 +117,7 @@ public final class CreateCommand {
         writeWorkerFile(settings);
         PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files);
         Optional<String> assignmentProblem = setup.assignPullRequest(pullRequest, owner);
+        copyRunningJarToCache();
         showResult(settings, files, Optional.of(pullRequest), assignmentProblem);
         return Main.EXIT_SUCCESS;
     }
@@ -127,8 +130,22 @@ public final class CreateCommand {
             return Main.EXIT_SUCCESS;
         }
         writeWorkerFile(settings);
+        copyRunningJarToCache();
         showResult(settings, Map.of(), Optional.empty(), Optional.empty());
         return Main.EXIT_SUCCESS;
+    }
+
+    /** The run script then needs no download. A failed copy only gives the problem: the download still works. */
+    private void copyRunningJarToCache() {
+        if (runningJar.isEmpty()) {
+            return;
+        }
+        JarCache cache = new JarCache(home);
+        try {
+            cache.copy(runningJar.get()).ifPresent(copy -> output.println("The command copied the jar to " + copy + "."));
+        } catch (IOException exception) {
+            output.println("Cannot copy the jar to " + cache.directory() + ": " + exception.getMessage());
+        }
     }
 
     private String path() {
@@ -236,17 +253,6 @@ public final class CreateCommand {
 
     /** The path of the running jar. Outside a jar, for example in a test, the name of the jar. */
     public static String findJarPath() {
-        try {
-            CodeSource source = Main.class.getProtectionDomain().getCodeSource();
-            if (source != null) {
-                Path location = Path.of(source.getLocation().toURI());
-                if (location.toString().endsWith(".jar")) {
-                    return location.toString();
-                }
-            }
-        } catch (URISyntaxException | IllegalArgumentException | SecurityException exception) {
-            return DEFAULT_JAR;
-        }
-        return DEFAULT_JAR;
+        return RunningJar.find().map(Path::toString).orElse(DEFAULT_JAR);
     }
 }
