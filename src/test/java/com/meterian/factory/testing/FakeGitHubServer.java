@@ -41,6 +41,7 @@ public final class FakeGitHubServer implements AutoCloseable {
     private static final Pattern ISSUE_COMMENTS = Pattern.compile("/issues/(\\d+)/comments");
     private static final Pattern COMMENT = Pattern.compile("/issues/comments/(\\d+)");
     private static final Pattern ISSUE_LABELS = Pattern.compile("/issues/(\\d+)/labels");
+    private static final Pattern ISSUE_ASSIGNEES = Pattern.compile("/issues/(\\d+)/assignees");
     private static final Pattern ISSUE_LABEL = Pattern.compile("/issues/(\\d+)/labels/(.+)");
     private static final Pattern PULL_REQUEST = Pattern.compile("/pulls/(\\d+)");
     private static final Pattern BRANCH = Pattern.compile("/branches/([^/]+)");
@@ -172,7 +173,7 @@ public final class FakeGitHubServer implements AutoCloseable {
             case "GET" -> answerRead(route, query);
             case "POST" -> answerCreate(route, payload);
             case "PATCH" -> answerEdit(route, payload);
-            case "DELETE" -> answerDelete(route);
+            case "DELETE" -> answerDelete(route, payload);
             case "PUT" -> answerMerge(route, payload);
             default -> notFound();
         };
@@ -231,6 +232,11 @@ public final class FakeGitHubServer implements AutoCloseable {
             payload.path("labels").forEach(label -> gitHub.addLabel(issueNumber, label.asText()));
             return ok(mapper.createArrayNode());
         }
+        if ((matcher = ISSUE_ASSIGNEES.matcher(route)).matches()) {
+            int issueNumber = number(matcher);
+            payload.path("assignees").forEach(login -> gitHub.addAssignee(issueNumber, login.asText()));
+            return new Answer(201, toIssueJson(gitHub.issue(issueNumber)));
+        }
         if (route.equals("/pulls")) {
             PullRequest created = gitHub.createPullRequest(payload.path("head").asText(),
                     payload.path("base").asText(), payload.path("title").asText(), payload.path("body").asText());
@@ -252,7 +258,13 @@ public final class FakeGitHubServer implements AutoCloseable {
         return notFound();
     }
 
-    private Answer answerDelete(String route) {
+    private Answer answerDelete(String route, JsonNode payload) {
+        Matcher assigneesMatcher = ISSUE_ASSIGNEES.matcher(route);
+        if (assigneesMatcher.matches()) {
+            int issueNumber = number(assigneesMatcher);
+            payload.path("assignees").forEach(login -> gitHub.removeAssignee(issueNumber, login.asText()));
+            return ok(toIssueJson(gitHub.issue(issueNumber)));
+        }
         Matcher matcher = ISSUE_LABEL.matcher(route);
         if (!matcher.matches()) {
             return notFound();
@@ -295,6 +307,9 @@ public final class FakeGitHubServer implements AutoCloseable {
         ArrayNode labels = json.putArray("labels");
         gitHub.labelsOf(issue.number()).stream().sorted()
                 .forEach(label -> labels.add(mapper.createObjectNode().put("name", label)));
+        ArrayNode assignees = json.putArray("assignees");
+        gitHub.assigneesOf(issue.number()).stream().sorted()
+                .forEach(login -> assignees.add(mapper.createObjectNode().put("login", login)));
         return json;
     }
 

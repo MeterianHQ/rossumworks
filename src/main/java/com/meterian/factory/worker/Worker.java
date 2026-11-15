@@ -10,6 +10,10 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.ownership.IssueClaim;
+import com.meterian.factory.ownership.Ownership;
+import com.meterian.factory.ownership.OwnershipLostException;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.IssueStatus;
 import com.meterian.factory.state.Phase;
@@ -34,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /** Polls GitHub, takes the labeled issues into the queue, and runs each issue in a loop on the executor. */
 public final class Worker {
@@ -61,6 +66,9 @@ public final class Worker {
     private final StartAgainRequests startAgainRequests;
     private final LiveRecordCheck liveRecordCheck;
     private final RateLimitWait rateLimitWait;
+    private final IssueClaim issueClaim;
+    private final OwnershipRelease ownershipRelease;
+    private final OwnershipTakeover ownershipTakeover;
     private final BoardUpdates board;
     private final FactorySwitch factorySwitch;
     private final CountDownLatch stopSignal = new CountDownLatch(1);
@@ -70,6 +78,8 @@ public final class Worker {
     private final Set<Integer> blockedIssues = new HashSet<>();
     /** The issues in work with a request of factory:enter. The worker stops the step, and the loop then enters. */
     private final Set<Integer> enterRequestedIssues = new HashSet<>();
+    /** The issues in work that another account owns now. The loop starts no next step, and then releases it. */
+    private final Set<Integer> issuesOfAnotherOwner = new HashSet<>();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -92,6 +102,9 @@ public final class Worker {
         this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.rateLimitWait = new RateLimitWait(clock);
+        this.issueClaim = new IssueClaim(gitHub, workerLogin);
+        this.ownershipRelease = new OwnershipRelease(gitHub, statusPublisher, workerLogin);
+        this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin);
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
     }
 
@@ -108,9 +121,9 @@ public final class Worker {
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
-            List<Issue> labeledIssues = readLabeledIssues();
-            board.recordPoll(labeledIssues);
-            for (Issue issue : labeledIssues) {
+            List<Issue> ownedIssues = claimOwnedIssues(readLabeledIssues());
+            board.recordPoll(ownedIssues);
+            for (Issue issue : ownedIssues) {
                 verifyEnoughRequestsRemain();
                 checkIssue(issue).ifPresent(startable::add);
             }
@@ -213,10 +226,49 @@ public final class Worker {
                 .toList();
     }
 
-    /** A failure keeps the issue out of work for this poll only. The next issue still gets its check. */
+    /** Only the issues that the worker owns stay. The board then shows no card for the other issues. */
+    private List<Issue> claimOwnedIssues(List<Issue> labeledIssues) {
+        List<Issue> ownedIssues = new ArrayList<>();
+        for (Issue issue : labeledIssues) {
+            verifyEnoughRequestsRemain();
+            checkOneIssue(issue, () -> claimIssue(issue)).ifPresent(ownedIssues::add);
+        }
+        return ownedIssues;
+    }
+
+    private Optional<Issue> claimIssue(Issue issue) {
+        Ownership ownership = issueClaim.claim(issue);
+        if (ownership == Ownership.OWNED_BY_ANOTHER) {
+            leaveIssueOfAnotherOwner(issue);
+        }
+        return Optional.of(issue).filter(claimed -> ownership == Ownership.OWNED);
+    }
+
+    /**
+     * A running step ends normally, and the loop then releases the issue. A block in progress goes first: a later
+     * poll releases the issue.
+     */
+    private void leaveIssueOfAnotherOwner(Issue issue) {
+        synchronized (this) {
+            if (issuesInWork.contains(issue.number())) {
+                issuesOfAnotherOwner.add(issue.number());
+                return;
+            }
+            if (blockedIssues.contains(issue.number())) {
+                return;
+            }
+        }
+        ownershipRelease.release(issue);
+    }
+
     private Optional<IssueRecord> checkIssue(Issue issue) {
+        return checkOneIssue(issue, () -> findStartableRecord(issue));
+    }
+
+    /** A failure keeps the issue out of work for this poll only. The next issue still gets its check. */
+    private <T> Optional<T> checkOneIssue(Issue issue, Supplier<Optional<T>> check) {
         try {
-            return findStartableRecord(issue);
+            return check.get();
         } catch (GitHubRateLimitException exception) {
             throw exception;
         } catch (GitHubException exception) {
@@ -251,17 +303,37 @@ public final class Worker {
             blockBrokenRecord(issue);
             return Optional.empty();
         }
-        Optional<IssueRecord> record = StatusComment.findRecord(comments, workerLogin);
-        if (record.isEmpty()) {
+        Optional<IssueRecord> ownRecord = StatusComment.findRecord(comments, workerLogin);
+        IssueRecord record;
+        if (isTakeOverNeeded(ownRecord, comments)) {
+            record = ownershipTakeover.takeOver(issue, comments, ownRecord);
+        } else if (ownRecord.isEmpty()) {
             return factorySwitch.isStopRequested() ? Optional.empty() : Optional.of(takeIntoQueue(issue));
+        } else {
+            record = ownRecord.get();
         }
         IssueRecord afterStartAgain = StartAgainRequests.isRequested(issue)
-                ? startAgainRequests.startAgain(issue, record.get()) : record.get();
+                ? startAgainRequests.startAgain(issue, record) : record;
         IssueRecord current = EnterRequests.isRequested(issue) ? enterRequests.enter(afterStartAgain)
                 : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> isStartable(issue, found));
+    }
+
+    private boolean isTakeOverNeeded(Optional<IssueRecord> ownRecord, List<IssueComment> comments) {
+        return isReleased(ownRecord) || ownRecord.isEmpty() && continuesTheWorkOfAnotherAuthor(comments);
+    }
+
+    /** A stopped factory leaves a new issue untouched, as for an issue without any record. */
+    private boolean continuesTheWorkOfAnotherAuthor(List<IssueComment> comments) {
+        return !factorySwitch.isStopRequested()
+                && StatusComment.findNewestRecordOfAnotherAuthor(comments, workerLogin).isPresent();
+    }
+
+    /** The own record of a factory that stopped earlier is out of date, so the factory continues as a new owner. */
+    private static boolean isReleased(Optional<IssueRecord> ownRecord) {
+        return ownRecord.flatMap(IssueRecord::handOver).filter(handOver -> handOver == HandOver.RELEASED).isPresent();
     }
 
     /** The card shows the waiting state of an accepted label also when the label comes from the GitHub app. */
@@ -393,6 +465,8 @@ public final class Worker {
             }
         } catch (ApiKeyDetectedException exception) {
             stopOnApiKey(issueNumber, exception);
+        } catch (OwnershipLostException exception) {
+            rememberIssueOfAnotherOwner(issueNumber);
         } catch (GitHubException exception) {
             logGitHubFailure("The step of the issue #" + issueNumber, exception);
         } catch (RuntimeException exception) {
@@ -406,7 +480,12 @@ public final class Worker {
     }
 
     private synchronized boolean mayContinue(int issueNumber) {
-        return !isStopped() && !blockedIssues.contains(issueNumber);
+        return !isStopped() && !blockedIssues.contains(issueNumber) && !issuesOfAnotherOwner.contains(issueNumber);
+    }
+
+    /** The guard refused a change on GitHub. This is not a failure, so the issue gets no block. */
+    private synchronized void rememberIssueOfAnotherOwner(int issueNumber) {
+        issuesOfAnotherOwner.add(issueNumber);
     }
 
     private synchronized boolean isEnterRequested(int issueNumber) {
@@ -446,10 +525,12 @@ public final class Worker {
     /** A stopping factory shows "Stopped" at once when its last issue ends. */
     private void releaseIssue(IssueRecord kept, Optional<IssueRecord> interruptedResult) {
         boolean isBlocked;
+        boolean isOwnedByAnother;
         synchronized (this) {
             issuesInWork.remove(kept.issueNumber());
             enterRequestedIssues.remove(kept.issueNumber());
             isBlocked = blockedIssues.contains(kept.issueNumber());
+            isOwnedByAnother = issuesOfAnotherOwner.remove(kept.issueNumber()) && !isBlocked;
         }
         if (factorySwitch.isStopRequested()) {
             board.recordRequestChange();
@@ -458,6 +539,8 @@ public final class Worker {
             // A block during the enter of the loop came before the session was open.
             phaseStopper.closeLiveSession(kept.issueNumber());
             finishBlock(kept.issueNumber(), Optional.of(kept), interruptedResult);
+        } else if (isOwnedByAnother) {
+            releaseToAnotherOwner(kept.issueNumber());
         } else if (interruptedResult.isPresent()) {
             restoreKeptRecord(kept, interruptedResult.get());
         }
@@ -508,6 +591,15 @@ public final class Worker {
     /** The record can miss the phase DONE when the publish after the merge failed. GitHub knows the truth. */
     private boolean isMergedOnGitHub(IssueRecord record) {
         return record.phase() == Phase.DONE || record.pullRequestNumber().map(gitHub::isMerged).orElse(false);
+    }
+
+    /** The release writes over the record on GitHub, so the interrupted result needs no restore. */
+    private void releaseToAnotherOwner(int issueNumber) {
+        try {
+            ownershipRelease.release(gitHub.issue(issueNumber));
+        } catch (GitHubException exception) {
+            logGitHubFailure("The release of the issue #" + issueNumber, exception);
+        }
     }
 
     /** The stop came during a step, so the record from before the step goes back to GitHub. */
