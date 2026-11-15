@@ -132,12 +132,22 @@ public final class TmuxLiveSessions implements LiveSessions {
         tmux.run("new-session", "-d", "-s", sessionName(issueNumber), "-x", SCREEN_WIDTH, "-y", SCREEN_HEIGHT,
                 "-c", worktree.toString(), "--", "/bin/bash", launchScript.toString());
         turnOffRemainOnExit(issueNumber);
+        turnOnTheMouse(issueNumber);
     }
 
     /** A configuration with remain-on-exit on must not keep a session that ended. */
     private void turnOffRemainOnExit(int issueNumber) throws LiveSessionException {
+        setSessionOption(issueNumber, "remain-on-exit", "off");
+    }
+
+    /** Without the mouse, the wheel and PgUp/PgDn do not scroll the history of the terminal. */
+    private void turnOnTheMouse(int issueNumber) throws LiveSessionException {
+        setSessionOption(issueNumber, "mouse", "on");
+    }
+
+    private void setSessionOption(int issueNumber, String option, String value) throws LiveSessionException {
         try {
-            tmux.run("set-option", "-t", windowTarget(issueNumber), "remain-on-exit", "off");
+            tmux.run("set-option", "-t", windowTarget(issueNumber), option, value);
         } catch (LiveSessionException exception) {
             if (hasSession(issueNumber)) {
                 throw exception;

@@ -280,6 +280,14 @@ class TmuxLiveSessionsTest {
     }
 
     @Test
+    void theSessionTurnsOnTheMouseSoThatTheWheelScrolls() throws Exception {
+        sessionsFor(Map.of(), System.getenv(), SUCCESS_TIMEOUT)
+                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
+
+        assertThat(runTmux("show-options", "-t", "factory-issue-" + ISSUE_NUMBER, "-v", "mouse")).isEqualTo("on");
+    }
+
+    @Test
     void aSessionThatEndsIsNotKeptByRemainOnExit() throws Exception {
         runTmux("new-session", "-d", "-s", "keeper", "sleep 60");
         runTmux("set-option", "-g", "remain-on-exit", "on");
