@@ -68,11 +68,11 @@ only: the record in the status comment keeps the state. The worker removes the o
 1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
    refuses to start when it is set.
 2. Log in with `gh auth login`. Or set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account.
-3. Download `claude-ai-factory-<version>.jar` from the
+3. Download `claude-ai-factory-$VERSION.jar` from the
    [GitHub releases](https://github.com/MeterianHQ/claude-ai-factory/releases). Or build the jar with
-   `./mvnw verify`.
+   `./mvnw verify`. In this README, `$VERSION` is the version of the jar, for example `0.2.0`.
 4. Go to a clone of the target repository. Run `java -jar <path of the jar> create`, for example
-   `java -jar ~/claude-ai-factory/target/claude-ai-factory-0.3.0-SNAPSHOT.jar create`. Answer the questions.
+   `java -jar ~/claude-ai-factory/target/claude-ai-factory-$VERSION.jar create`. Answer the questions.
    Enter takes the default answer.
 5. Merge the PR `factory/setup`.
 6. In the same clone, run the command that `create` shows, for example `.factory/run.sh`.
@@ -174,7 +174,7 @@ Two retries of a technical failure stay inside an action. Set them with a system
 | A review session fails, for example `claude` stops. The reviews run again. | `factory.retries.review-session` | `2` |
 | After a push, GitHub does not show the commit yet. The next poll checks again. | `factory.retries.forward-check` | `3` |
 
-For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-0.3.0-SNAPSHOT.jar run`.
+For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-$VERSION.jar run`.
 The value is the number of tries, and the first try counts. So the value `2` gives one try and one retry.
 After the last try, the issue goes to the `block` target of its workflow. A value that is not a whole number
 of 1 or more stops the worker at the start, with exit code 1. The message names the property.
@@ -408,7 +408,7 @@ configuration, the worker serves no page.
 
 The command `create` writes the section `web` for you. To set the password by hand, do these steps:
 
-1. Make the hash of a password: `java -jar target/claude-ai-factory-0.3.0-SNAPSHOT.jar hash-password`.
+1. Make the hash of a password: `java -jar target/claude-ai-factory-$VERSION.jar hash-password`.
    The command asks for the password two times. The password must have 12 characters or more.
 2. Copy the output line `password-hash: pbkdf2-sha256:...` into the `web` section of the configuration:
 
