@@ -106,8 +106,18 @@ class SetupQuestionsTest {
 
         WebPage page = questions(console, Map.of(), false).askWeb(options()).orElseThrow();
 
-        assertTrue(PasswordHash.parse(page.passwordHash()).matches(PASSWORD.toCharArray()));
+        assertTrue(PasswordHash.parse(page.passwordHash().orElseThrow()).matches(PASSWORD.toCharArray()));
         assertFalse(page.toString().contains(PASSWORD));
+    }
+
+    @Test
+    void anEmptyPasswordGivesAPageWithoutAPassword() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.withPasswords("");
+
+        WebPage page = questions(console, Map.of(), false).askWeb(options()).orElseThrow();
+
+        assertEquals(Optional.empty(), page.passwordHash());
+        assertEquals(1, console.questions.stream().filter(question -> question.contains("assword")).count());
     }
 
     @Test
@@ -117,7 +127,7 @@ class SetupQuestionsTest {
 
         WebPage page = questions.askWeb(options()).orElseThrow();
 
-        assertTrue(PasswordHash.parse(page.passwordHash()).matches(PASSWORD.toCharArray()));
+        assertTrue(PasswordHash.parse(page.passwordHash().orElseThrow()).matches(PASSWORD.toCharArray()));
     }
 
     @Test

@@ -20,8 +20,10 @@ import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
 import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.web.CardFingerprint;
+import com.meterian.factory.web.NoPasswordLogin;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
+import com.meterian.factory.web.login.PasswordLogin;
 import com.meterian.factory.workflow.RetrySettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -438,7 +440,12 @@ class MainTest {
             + "Another device on the LAN can read the password and the cookie.";
 
     private static WebSettings webSettings(String address, int port) {
-        return new WebSettings(address, port, PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS));
+        return new WebSettings(address, port,
+                Optional.of(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS)));
+    }
+
+    private static WebSettings webSettingsWithoutPassword(String address) {
+        return new WebSettings(address, 8090, Optional.empty());
     }
 
     private FactoryConfiguration configuration(Optional<WebSettings> web) {
@@ -462,6 +469,20 @@ class MainTest {
         assertThat(Main.findWebWarning(webSettings("192.168.1.20", 8090))).contains(LAN_WARNING);
         assertThat(Main.findWebWarning(webSettings("127.0.0.1", 8090))).isEmpty();
         assertThat(Main.findWebWarning(webSettings("::1", 8090))).isEmpty();
+    }
+
+    @Test
+    void tellsWhenThePageHasNoPassword() {
+        assertThat(Main.findWebWarning(webSettingsWithoutPassword("127.0.0.1")))
+                .contains("The web page has no password.");
+        assertThat(Main.findWebWarning(webSettingsWithoutPassword("0.0.0.0"))).contains(
+                "The web page is open to the LAN without a password. Every device on the LAN can use the page.");
+    }
+
+    @Test
+    void aPageWithoutAPasswordHasNoLogin() {
+        assertThat(Main.createLogin(webSettingsWithoutPassword("127.0.0.1"))).isInstanceOf(NoPasswordLogin.class);
+        assertThat(Main.createLogin(webSettings("127.0.0.1", 8090))).isInstanceOf(PasswordLogin.class);
     }
 
     @Test

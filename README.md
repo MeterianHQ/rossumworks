@@ -128,7 +128,7 @@ A parameter gives the answer and removes the question:
 |---|---|---|
 | `--repository owner/name` | The starting repository on GitHub. | The GitHub repository of `git remote get-url origin` in the current folder. |
 | `--work-directory <path>` | The work folder. | `~/.claude-ai-factory/<owner>-<name>` |
-| `--web <address:port>` | The address of the web page. `create` then asks for the password two times, and writes only its hash. | `127.0.0.1:8090` |
+| `--web <address:port>` | The address of the web page. `create` then asks for the password two times, and writes only its hash. Push Enter at the first question for no password. | `127.0.0.1:8090` |
 | `--no-web` | No web page. | |
 | `--terminal-command "<command>"` | The terminal command of the live mode. | `gnome-terminal --` when it is installed, else none. |
 | `--build-command "<command>"` | The build command of `.factory`. | `./mvnw verify` with `mvnw`, `./gradlew build` with `gradlew`, `npm test` with `package.json`, else a question. |
@@ -426,7 +426,7 @@ The command `create` writes the section `web` for you. To set the password by ha
 web:
   address: 127.0.0.1    # optional; 0.0.0.0 opens the page to the LAN
   port: 8090            # optional
-  password-hash: "pbkdf2-sha256:600000:..."
+  password-hash: "pbkdf2-sha256:600000:..."   # optional; without it the page has no login
 ```
 
 3. Start the worker. It writes the address of the page, for example `The web page is at http://127.0.0.1:8090/`.
@@ -435,9 +435,23 @@ web:
 The configuration holds only the hash, never the password. When the port is in use, the worker stops with
 exit code 1.
 
+### No password
+
+Push Enter at the password question of `create` to get a page without a password. `create` then writes the
+`web` section without `password-hash`. To remove the password by hand, remove the line `password-hash`.
+
+The page then has no login. At the start, the worker writes `The web page has no password.` On an address that is
+not a loopback address, it writes a warning: every device on the LAN can use the page.
+
+Warning: the page can approve a merge, block an issue, and enter a live session. Without a password, every
+program and every person that can reach the address can do these actions. Use no password only on a loopback
+address, for example `127.0.0.1`. The page still refuses a POST from another site.
+
+Without a terminal, `create` still needs the password in `FACTORY_WEB_PASSWORD`, or `--no-web`.
+
 ### Login
 
-The page asks for the password once on each device. A correct password gives a session cookie for 30 days.
+With a password, the page asks for the password once on each device. A correct password gives a session cookie for 30 days.
 The page, the board, and the events all need the login. After 5 wrong passwords, the worker refuses new
 attempts for 15 minutes, also the correct password.
 

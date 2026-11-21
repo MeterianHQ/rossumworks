@@ -75,7 +75,7 @@ class CreateCommandTest {
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(console.questions).containsExactly("The starting repository (owner/name)", "The work folder",
-                "The web page address (address:port, or none for no page)", "Password for the web page: ",
+                "The web page address (address:port, or none for no page)", "Password for the web page (Enter for no password): ",
                 "Repeat the password: ", "The build command", "Write the files and open the pull request?");
         FactoryConfiguration configuration = ConfigurationLoader.load(workerFile());
         assertThat(configuration.repository()).isEqualTo(new RepositoryName("owner", "project"));

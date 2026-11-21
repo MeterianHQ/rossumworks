@@ -20,4 +20,4 @@ claude:                 # optional
 # web:                  # optional; without it the worker serves no page
 #   address: 127.0.0.1  # optional; 0.0.0.0 opens the page to the LAN
 #   port: 8090          # optional
-#   password-hash: "pbkdf2-sha256:600000:..."   # required in the section; make it with hash-password
+#   password-hash: "pbkdf2-sha256:600000:..."   # optional; make it with hash-password; without it the page has no login

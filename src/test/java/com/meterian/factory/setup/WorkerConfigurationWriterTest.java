@@ -29,7 +29,7 @@ class WorkerConfigurationWriterTest {
         List<String> terminal = List.of("my term #1", "-e: \"x\"", "back\\slash");
         WorkerSettings settings = new WorkerSettings(
                 new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
-                Optional.of(new WebPage("0.0.0.0", 9001, hash)),
+                Optional.of(new WebPage("0.0.0.0", 9001, Optional.of(hash))),
                 Optional.of(terminal), Optional.of("/opt/jdk #21: home"));
 
         WorkerConfigurationWriter.write(settings);
@@ -41,7 +41,7 @@ class WorkerConfigurationWriterTest {
         assertThat(configuration.web()).isPresent();
         assertThat(configuration.web().get().address()).isEqualTo("0.0.0.0");
         assertThat(configuration.web().get().port()).isEqualTo(9001);
-        assertThat(configuration.web().get().passwordHash().format()).isEqualTo(hash);
+        assertThat(configuration.web().get().passwordHash().orElseThrow().format()).isEqualTo(hash);
         assertThat(configuration.terminalCommand()).isEqualTo(terminal);
         assertThat(configuration.buildEnvironment()).containsEntry("JAVA_HOME", "/opt/jdk #21: home");
     }
@@ -58,6 +58,19 @@ class WorkerConfigurationWriterTest {
         assertThat(configuration.web()).isEmpty();
         assertThat(configuration.buildEnvironment()).isEmpty();
         assertThat(configuration.terminalCommand()).isEqualTo(FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
+    }
+
+    @Test
+    void aPageWithoutAPasswordLoadsWithoutAPasswordHash() throws IOException, ConfigurationException {
+        WorkerSettings settings = new WorkerSettings(
+                new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
+                Optional.of(new WebPage("127.0.0.1", 8090, Optional.empty())), Optional.empty(), Optional.empty());
+
+        WorkerConfigurationWriter.write(settings);
+        FactoryConfiguration configuration = ConfigurationLoader.load(settings.configurationFile());
+
+        assertThat(configuration.web()).isPresent();
+        assertThat(configuration.web().get().passwordHash()).isEmpty();
     }
 
     @Test

@@ -92,8 +92,8 @@ class WebServerTest {
         PasswordLogin login = new PasswordLogin(PasswordHash.create(PASSWORD.toCharArray(), FAST_ITERATIONS), clock,
                 new SecureRandom());
         PageActions actions = createPageActions();
-        WebSettings settings = new WebSettings("127.0.0.1", 0, PasswordHash.create(PASSWORD.toCharArray(),
-                FAST_ITERATIONS));
+        WebSettings settings = new WebSettings("127.0.0.1", 0, Optional.of(PasswordHash.create(PASSWORD.toCharArray(),
+                FAST_ITERATIONS)));
         server = new WebServer(settings, login, createModelSource(), new BoardPage(ZoneOffset.UTC), board, actions);
         server.start();
     }
@@ -260,6 +260,39 @@ class WebServerTest {
         assertThat(page.headers().firstValue("Location")).contains("/login");
         assertThat(get("/board", Optional.empty()).statusCode()).isEqualTo(401);
         assertThat(get("/events", Optional.empty()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void aPageWithoutAPasswordOpensWithoutTheLogin() throws IOException {
+        startServerWithoutPassword();
+        recordCard(mergeWaitsForApproval());
+
+        HttpResponse<String> page = get("/", Optional.empty());
+        HttpResponse<String> login = get("/login", Optional.empty());
+
+        assertThat(page.statusCode()).isEqualTo(200);
+        assertThat(page.body()).contains("#12");
+        assertThat(login.statusCode()).isEqualTo(303);
+        assertThat(login.headers().firstValue("Location")).contains("/");
+    }
+
+    @Test
+    void aPageWithoutAPasswordRefusesAPostFromAnotherSite() throws IOException {
+        startServerWithoutPassword();
+        recordCard(mergeWaitsForApproval());
+
+        HttpResponse<String> answer = post("/issues/12/approve", Optional.empty(), "http://evil.example");
+
+        assertThat(answer.statusCode()).isEqualTo(403);
+        assertThat(labelCalls).isEmpty();
+    }
+
+    private void startServerWithoutPassword() throws IOException {
+        server.stop();
+        WebSettings settings = new WebSettings("127.0.0.1", 0, Optional.empty());
+        server = new WebServer(settings, new NoPasswordLogin(), createModelSource(), new BoardPage(ZoneOffset.UTC),
+                board, createPageActions());
+        server.start();
     }
 
     @Test

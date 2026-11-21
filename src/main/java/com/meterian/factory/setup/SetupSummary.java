@@ -31,6 +31,10 @@ final class SetupSummary {
     }
 
     private static String describeWebPage(Optional<WebPage> web) {
-        return web.map(page -> page.address() + ":" + page.port() + ", with a password").orElse("none");
+        return web.map(page -> page.address() + ":" + page.port() + describePassword(page)).orElse("none");
+    }
+
+    private static String describePassword(WebPage page) {
+        return page.passwordHash().isPresent() ? ", with a password" : ", without a password";
     }
 }

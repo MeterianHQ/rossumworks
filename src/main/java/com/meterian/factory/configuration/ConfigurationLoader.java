@@ -186,8 +186,16 @@ public final class ConfigurationLoader {
         return port;
     }
 
-    private static PasswordHash readPasswordHash(ConfigurationSection section) throws ConfigurationException {
-        String text = section.requireText("password-hash");
+    private static Optional<PasswordHash> readPasswordHash(ConfigurationSection section)
+            throws ConfigurationException {
+        Optional<String> text = section.findText("password-hash");
+        if (text.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(parsePasswordHash(text.get()));
+    }
+
+    private static PasswordHash parsePasswordHash(String text) throws ConfigurationException {
         PasswordHash hash;
         try {
             hash = PasswordHash.parse(text);

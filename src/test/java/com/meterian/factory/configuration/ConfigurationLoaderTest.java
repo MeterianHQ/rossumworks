@@ -245,7 +245,16 @@ class ConfigurationLoaderTest {
         WebSettings web = configuration.web().orElseThrow();
         assertThat(web.address()).isEqualTo("127.0.0.1");
         assertThat(web.port()).isEqualTo(8090);
-        assertThat(web.passwordHash().format()).isEqualTo(hash);
+        assertThat(web.passwordHash().orElseThrow().format()).isEqualTo(hash);
+    }
+
+    @Test
+    void aWebSectionWithoutAPasswordHashGivesAPageWithoutALogin() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + "web:\n  port: 9000\n");
+
+        WebSettings web = configuration.web().orElseThrow();
+        assertThat(web.port()).isEqualTo(9000);
+        assertThat(web.passwordHash()).isEmpty();
     }
 
     @Test
@@ -255,13 +264,6 @@ class ConfigurationLoaderTest {
 
         assertThat(configuration.web().orElseThrow().address()).isEqualTo("0.0.0.0");
         assertThat(configuration.web().orElseThrow().port()).isEqualTo(9000);
-    }
-
-    @Test
-    void aWebSectionNeedsAPasswordHash() {
-        assertThatThrownBy(() -> load(REQUIRED_KEYS + "web:\n  port: 8090\n"))
-                .isInstanceOf(ConfigurationException.class)
-                .hasMessage("Configuration key web.password-hash is missing.");
     }
 
     @Test

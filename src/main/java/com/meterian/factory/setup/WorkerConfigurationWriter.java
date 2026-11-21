@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** Writes the file worker.yaml. It never overwrites a file. */
@@ -52,9 +53,17 @@ public final class WorkerConfigurationWriter {
             text.append("web:\n");
             text.append("  address: ").append(YamlText.quote(page.address())).append('\n');
             text.append("  port: ").append(page.port()).append('\n');
-            text.append("  password-hash: ").append(YamlText.quote(page.passwordHash())).append('\n');
+            appendPasswordHash(text, page.passwordHash());
         } else {
             text.append("# web:\n#   address: 127.0.0.1\n#   port: 8090\n#   password-hash: \"...\"\n");
+        }
+    }
+
+    private static void appendPasswordHash(StringBuilder text, Optional<String> passwordHash) {
+        if (passwordHash.isPresent()) {
+            text.append("  password-hash: ").append(YamlText.quote(passwordHash.get())).append('\n');
+        } else {
+            text.append("  # No password-hash: the page has no login.\n");
         }
     }
 

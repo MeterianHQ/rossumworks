@@ -35,7 +35,9 @@ import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.BoardPage;
 import com.meterian.factory.web.LabelWriter;
+import com.meterian.factory.web.NoPasswordLogin;
 import com.meterian.factory.web.PageActions;
+import com.meterian.factory.web.PageLogin;
 import com.meterian.factory.web.PageModelSource;
 import com.meterian.factory.web.WebServer;
 import com.meterian.factory.web.login.PasswordHash;
@@ -90,6 +92,9 @@ public final class Main {
     private static final String CLAUDE_HOME_VARIABLE = "CLAUDE_CONFIG_DIR";
     private static final String LAN_WARNING = "The web page is open to the LAN with plain HTTP. "
             + "Another device on the LAN can read the password and the cookie.";
+    private static final String NO_PASSWORD_NOTE = "The web page has no password.";
+    private static final String LAN_WITHOUT_PASSWORD_WARNING = "The web page is open to the LAN without a password. "
+            + "Every device on the LAN can use the page.";
 
     /** A check before the start failed. The message tells the owner what to do. */
     public static final class StartupException extends Exception {
@@ -348,7 +353,7 @@ public final class Main {
                                                IntSupplier issuesInWork, Runnable earlyPollRequest,
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
-                new PasswordLogin(settings.passwordHash(), Clock.systemDefaultZone(), new SecureRandom()),
+                createLogin(settings),
                 new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
@@ -356,6 +361,13 @@ public final class Main {
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(), shared.factorySwitch(),
                         earlyPollRequest, definitions)));
+    }
+
+    /** Without a password hash, the page has no login. */
+    static PageLogin createLogin(WebSettings settings) {
+        return settings.passwordHash()
+                .<PageLogin>map(hash -> new PasswordLogin(hash, Clock.systemDefaultZone(), new SecureRandom()))
+                .orElseGet(NoPasswordLogin::new);
     }
 
     /** A web server that cannot start stops the worker before its first poll. */
@@ -393,9 +405,16 @@ public final class Main {
         return "http://" + host + ":" + port + "/";
     }
 
-    /** Only a loopback address keeps the plain HTTP on this computer. An address that is not known also warns. */
+    /**
+     * Only a loopback address keeps the plain HTTP on this computer. An address that is not known also warns. A
+     * page without a password always gets a line.
+     */
     static Optional<String> findWebWarning(WebSettings settings) {
-        return isLoopbackAddress(settings.address()) ? Optional.empty() : Optional.of(LAN_WARNING);
+        boolean isLoopback = isLoopbackAddress(settings.address());
+        if (settings.passwordHash().isEmpty()) {
+            return Optional.of(isLoopback ? NO_PASSWORD_NOTE : LAN_WITHOUT_PASSWORD_WARNING);
+        }
+        return isLoopback ? Optional.empty() : Optional.of(LAN_WARNING);
     }
 
     private static boolean isLoopbackAddress(String address) {

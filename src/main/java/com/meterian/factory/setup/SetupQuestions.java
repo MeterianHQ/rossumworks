@@ -115,8 +115,9 @@ public final class SetupQuestions {
         throw new SetupException("The port of the web page must be a number from 1 to " + MAXIMUM_PORT + ".");
     }
 
-    private String readPasswordHash() throws SetupException {
-        return console.isInteractive() ? askPasswordHash() : readPasswordHashFromEnvironment();
+    /** In a terminal, an empty password gives a page without a login. */
+    private Optional<String> readPasswordHash() throws SetupException {
+        return console.isInteractive() ? askPasswordHash() : Optional.of(readPasswordHashFromEnvironment());
     }
 
     private String readPasswordHashFromEnvironment() throws SetupException {
@@ -138,16 +139,19 @@ public final class SetupQuestions {
         }
     }
 
-    private String askPasswordHash() throws SetupException {
+    private Optional<String> askPasswordHash() throws SetupException {
         while (true) {
-            char[] typed = console.readPassword("Password for the web page: ")
+            char[] typed = console.readPassword("Password for the web page (Enter for no password): ")
                     .orElseThrow(() -> new SetupException(SetupConsole.INPUT_ENDED));
+            if (typed.length == 0) {
+                return Optional.empty();
+            }
             char[] repeated = console.readPassword("Repeat the password: ")
                     .orElseThrow(() -> new SetupException(SetupConsole.INPUT_ENDED));
             try {
                 Optional<String> problem = PasswordRules.verify(typed, repeated);
                 if (problem.isEmpty()) {
-                    return PasswordHash.create(typed).format();
+                    return Optional.of(PasswordHash.create(typed).format());
                 }
                 console.show(problem.get());
             } finally {

@@ -1,5 +1,7 @@
 package com.meterian.factory.setup;
 
-/** The page of the worker: where it listens and the hash of the password. */
-public record WebPage(String address, int port, String passwordHash) {
+import java.util.Optional;
+
+/** The page of the worker: where it listens and the hash of the password. Without a hash, it has no login. */
+public record WebPage(String address, int port, Optional<String> passwordHash) {
 }
