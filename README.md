@@ -83,12 +83,12 @@ does not exist, the worker does not start, and the message tells you to run `cre
 not the default, give the file: `run --config <work folder>/worker.yaml`. `create` then shows this command.
 
 `create` checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`. It clones the
-repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. The default answer is
-"no". After a yes, it writes `<work folder>/worker.yaml`. When the default branch has no `.factory`, it then
-pushes the branch `factory/setup` through the gatekeeper. It opens a PR and assigns it to the login of the
-token. When the assignment fails, `create` shows the problem, keeps `worker.yaml`, and ends with success.
-Then assign the PR by hand. Until the merge of the PR, the worker takes no issue, and the page shows the reason.
-`create` never pushes to the default branch, and it never overwrites a file.
+repository into `<work folder>/repository`, shows a summary, and asks for a confirmation. Only `y` or `n` is an
+answer: Enter or another answer asks again. After a yes, it writes `<work folder>/worker.yaml`. When the default
+branch has no `.factory`, it then pushes the branch `factory/setup` through the gatekeeper. It opens a PR and
+assigns it to the login of the token. When the assignment fails, `create` shows the problem, keeps
+`worker.yaml`, and ends with success. Then assign the PR by hand. Until the merge of the PR, the worker takes no
+issue, and the page shows the reason. `create` never pushes to the default branch, and it never overwrites a file.
 
 The default `.factory` holds `factory.yaml` and the prompt files that it uses. `create` does not copy
 `prompts/resume.md` of the jar, because the default workflow does not use it.

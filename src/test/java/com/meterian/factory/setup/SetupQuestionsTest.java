@@ -229,11 +229,30 @@ class SetupQuestionsTest {
     }
 
     @Test
-    void theConfirmationDefaultIsNo() throws SetupException {
-        FakeSetupConsole console = FakeSetupConsole.answering("");
+    void anEmptyConfirmationAsksAgain() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.answering("", "maybe", "y");
+
+        assertTrue(questions(console, Map.of(), false).confirm(options(), "The summary"));
+        assertEquals(List.of("The summary", "Answer y or n.", "Answer y or n."), console.lines);
+        assertEquals(3, console.questions.size());
+    }
+
+    @Test
+    void noRefusesTheConfirmation() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.answering("N");
 
         assertFalse(questions(console, Map.of(), false).confirm(options(), "The summary"));
-        assertEquals(List.of("The summary"), console.lines);
+        assertEquals(List.of("Write the files and open the pull request? [y/n]"), console.questions);
+    }
+
+    @Test
+    void theEndOfInputStopsTheConfirmation() {
+        FakeSetupConsole console = FakeSetupConsole.endingInput(List.of(""), List.of());
+
+        SetupException exception = assertThrows(SetupException.class,
+                () -> questions(console, Map.of(), false).confirm(options(), "The summary"));
+
+        assertEquals(SetupConsole.INPUT_ENDED, exception.getMessage());
     }
 
     @Test
@@ -251,12 +270,13 @@ class SetupQuestionsTest {
     }
 
     @Test
-    void theConfirmationOfTheWorkerFileDefaultIsNo() throws SetupException {
-        FakeSetupConsole console = FakeSetupConsole.answering("");
+    void noRefusesTheConfirmationOfTheWorkerFile() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.answering("", "n");
 
         assertFalse(questions(console, Map.of(), false).confirmWorkerFile(options(), "The summary"));
-        assertEquals(List.of("Write the file worker.yaml?"), console.questions);
-        assertEquals(List.of("The summary"), console.lines);
+        assertEquals(List.of("Write the file worker.yaml? [y/n]", "Write the file worker.yaml? [y/n]"),
+                console.questions);
+        assertEquals(List.of("The summary", "Answer y or n."), console.lines);
     }
 
     @Test

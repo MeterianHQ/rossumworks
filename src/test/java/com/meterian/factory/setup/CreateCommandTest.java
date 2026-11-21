@@ -76,7 +76,7 @@ class CreateCommandTest {
         assertThat(exitCode).isEqualTo(0);
         assertThat(console.questions).containsExactly("The starting repository (owner/name)", "The work folder",
                 "The web page address (address:port, or none for no page)", "Password for the web page (Enter for no password): ",
-                "Repeat the password: ", "The build command", "Write the files and open the pull request?");
+                "Repeat the password: ", "The build command", "Write the files and open the pull request? [y/n]");
         FactoryConfiguration configuration = ConfigurationLoader.load(workerFile());
         assertThat(configuration.repository()).isEqualTo(new RepositoryName("owner", "project"));
         assertThat(configuration.workDirectory()).isEqualTo(workDirectory());
@@ -113,8 +113,8 @@ class CreateCommandTest {
         int exitCode = runCreate(console);
 
         assertThat(exitCode).isEqualTo(0);
-        assertThat(console.questions).contains("Write the file worker.yaml?")
-                .doesNotContain("The build command", "Write the files and open the pull request?");
+        assertThat(console.questions).contains("Write the file worker.yaml? [y/n]")
+                .doesNotContain("The build command", "Write the files and open the pull request? [y/n]");
         ConfigurationLoader.load(workerFile());
         assertThat(branchesOfGitHub()).isEqualTo("refs/heads/main");
         assertThat(gitHub.pullRequests()).isEmpty();

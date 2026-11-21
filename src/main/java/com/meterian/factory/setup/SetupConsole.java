@@ -15,8 +15,5 @@ public interface SetupConsole {
     /** Reads a password without echo. */
     Optional<char[]> readPassword(String prompt);
 
-    /** Asks a yes or no question. An empty answer is no. */
-    boolean confirm(String question) throws SetupException;
-
     void show(String line);
 }

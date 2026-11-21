@@ -61,13 +61,6 @@ final class FakeSetupConsole implements SetupConsole {
         return passwords.isEmpty() ? Optional.empty() : Optional.of(passwords.remove(0).toCharArray());
     }
 
-    @Override
-    public boolean confirm(String question) throws SetupException {
-        questions.add(question);
-        String answer = nextAnswer();
-        return answer.equalsIgnoreCase("y");
-    }
-
     private String nextAnswer() throws SetupException {
         if (answers.isEmpty() && endsWhenAnswersRunOut) {
             throw new SetupException(SetupConsole.INPUT_ENDED);

@@ -7,8 +7,10 @@ import com.meterian.factory.web.login.PasswordRules;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /** The questions of the create command, with their defaults. Without a console, a default or a parameter answers. */
@@ -21,6 +23,9 @@ public final class SetupQuestions {
     static final String DEFAULT_TERMINAL_COMMAND = "gnome-terminal --";
     private static final int MAXIMUM_PORT = 65535;
     private static final String HOME_SIGN = "~";
+    private static final String YES_OR_NO_HINT = " [y/n]";
+    private static final Set<String> YES_ANSWERS = Set.of("y", "yes");
+    private static final Set<String> NO_ANSWERS = Set.of("n", "no");
 
     private final SetupConsole console;
     private final Map<String, String> environment;
@@ -208,7 +213,7 @@ public final class SetupQuestions {
             throw new SetupException("The command needs a confirmation. Give --yes.");
         }
         console.show(summary);
-        return console.confirm("Write the files and open the pull request?");
+        return askYesOrNo("Write the files and open the pull request?");
     }
 
     /** The confirmation when the repository already has a .factory. Without a console, no --yes is necessary. */
@@ -217,6 +222,20 @@ public final class SetupQuestions {
             return true;
         }
         console.show(summary);
-        return console.confirm("Write the file worker.yaml?");
+        return askYesOrNo("Write the file worker.yaml?");
+    }
+
+    /** An empty answer or another answer asks again, so that only an explicit answer decides. */
+    private boolean askYesOrNo(String question) throws SetupException {
+        while (true) {
+            String answer = console.ask(question + YES_OR_NO_HINT, "").strip().toLowerCase(Locale.ROOT);
+            if (YES_ANSWERS.contains(answer)) {
+                return true;
+            }
+            if (NO_ANSWERS.contains(answer)) {
+                return false;
+            }
+            console.show("Answer y or n.");
+        }
     }
 }

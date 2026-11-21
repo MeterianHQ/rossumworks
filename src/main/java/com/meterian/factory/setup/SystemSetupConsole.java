@@ -62,15 +62,6 @@ public final class SystemSetupConsole implements SetupConsole {
     }
 
     @Override
-    public boolean confirm(String question) throws SetupException {
-        String answer = console.readLine("%s [y/N]: ", question);
-        if (answer == null) {
-            throw new SetupException(INPUT_ENDED);
-        }
-        return answer.strip().equalsIgnoreCase("y") || answer.strip().equalsIgnoreCase("yes");
-    }
-
-    @Override
     public void show(String line) {
         System.out.println(line);
     }
