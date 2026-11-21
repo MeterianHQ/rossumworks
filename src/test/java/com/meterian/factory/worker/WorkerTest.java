@@ -471,6 +471,58 @@ class WorkerTest {
     }
 
     @Test
+    void leavesAnIssueWithTheLabelHumanUntouched() {
+        FakeAgentRunner agent = new FakeAgentRunner();
+        Worker worker = createWorker(agent, 2);
+        gitHub.addLabel(ISSUE, "human");
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(gitHub.commentsOf(ISSUE)).isEmpty();
+        assertThat(gitHub.columnOf(ISSUE)).isEmpty();
+        assertThat(gitHub.issue(ISSUE).assignees()).isEmpty();
+        assertThat(findCard(board, ISSUE)).isEmpty();
+        assertThat(worker.issuesInWork()).isEmpty();
+        assertThat(agent.requests()).isEmpty();
+    }
+
+    @Test
+    void thePollCreatesTheLabelHuman() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+
+        worker.pollOnce();
+
+        assertThat(gitHub.createdLabels()).contains("human");
+    }
+
+    @Test
+    void theLabelHumanEndsTheLoopAfterTheCurrentActionAndItsMove() throws InterruptedException {
+        CountDownLatch phaseStarted = new CountDownLatch(1);
+        CountDownLatch phaseMayEnd = new CountDownLatch(1);
+        FakeAgentRunner agent = new FakeAgentRunner().then(request -> {
+            phaseStarted.countDown();
+            awaitQuietly(phaseMayEnd);
+            Files.writeString(request.workingDirectory().resolve("work.txt"), "change in the phase\n");
+        });
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        awaitQuietly(phaseStarted);
+
+        gitHub.addLabel(ISSUE, "human");
+        phaseMayEnd.countDown();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(agent.stoppedIssues()).isEmpty();
+        assertThat(agent.requests()).hasSize(1);
+        assertThat(record.state()).isEqualTo("build");
+        assertThat(findCard(board, ISSUE)).isEmpty();
+    }
+
+    @Test
     void anIssueStartsAtTheFirstPollAfterTheStart() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
         factorySwitch().requestStop();

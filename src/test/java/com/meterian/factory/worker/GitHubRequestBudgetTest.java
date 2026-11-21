@@ -395,7 +395,7 @@ class GitHubRequestBudgetTest {
         worker.pollOnce();
 
         assertThat(pollLines()).hasSize(1).first().asString()
-                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=6, .*");
+                .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=7, .*");
     }
 
     private List<String> pollLines() {

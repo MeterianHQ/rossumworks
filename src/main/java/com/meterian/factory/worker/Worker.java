@@ -48,6 +48,7 @@ public final class Worker {
 
     private static final System.Logger LOGGER = System.getLogger(Worker.class.getName());
     private static final String FACTORY_LABEL = "factory";
+    private static final String HUMAN_LABEL = "human";
     private static final String APPROVE_LABEL = "factory:approve";
     private static final String BLOCK_LABEL = "factory:block";
     private static final String BROKEN_RECORD_NOTE =
@@ -266,11 +267,14 @@ public final class Worker {
         gitHub.ensureLabel(EnterRequests.ENTER_LABEL, "fbca04", "The owner enters the session of the agent.");
         gitHub.ensureLabel(StartAgainRequests.START_AGAIN_LABEL, "5319e7",
                 "The owner starts a blocked issue again and discards the earlier work.");
+        gitHub.ensureLabel(HUMAN_LABEL, "d4c5f9", "A person works on this issue. The factory does not.");
         labelsEnsured = true;
     }
 
+    /** An issue with the label human is for a person only, so the factory does not see it. */
     private List<Issue> readLabeledIssues() {
         return gitHub.openIssuesWithLabel(FACTORY_LABEL).stream()
+                .filter(issue -> !isForAHuman(issue))
                 .sorted(Comparator.comparingInt(Issue::number))
                 .toList();
     }
@@ -538,7 +542,8 @@ public final class Worker {
         Optional<IssueRecord> interruptedResult = Optional.empty();
         try {
             while (mayContinue(issueNumber) && !isEnterRequested(issueNumber) && !factorySwitch.isStopRequested()) {
-                if (!isOwnedBeforeTheAction(issueNumber)) {
+                Issue issue = gitHub.issue(issueNumber);
+                if (isForAHuman(issue) || !isOwnedBeforeTheAction(issue)) {
                     break;
                 }
                 IssueRecord next = workflow.advance(kept);
@@ -583,13 +588,17 @@ public final class Worker {
         return !isStopped() && !blockedIssues.contains(issueNumber) && !issuesOfAnotherOwner.contains(issueNumber);
     }
 
+    private static boolean isForAHuman(Issue issue) {
+        return issue.labels().contains(HUMAN_LABEL);
+    }
+
     /** The assignee can change between two polls, so each action checks the owner first. */
-    private boolean isOwnedBeforeTheAction(int issueNumber) {
-        Ownership ownership = issueClaim.claim(gitHub.issue(issueNumber));
+    private boolean isOwnedBeforeTheAction(Issue issue) {
+        Ownership ownership = issueClaim.claim(issue);
         if (ownership == Ownership.OWNED) {
-            forgetEarlierLoss(issueNumber);
+            forgetEarlierLoss(issue.number());
         } else if (ownership == Ownership.OWNED_BY_ANOTHER) {
-            rememberIssueOfAnotherOwner(issueNumber);
+            rememberIssueOfAnotherOwner(issue.number());
         }
         return ownership == Ownership.OWNED;
     }

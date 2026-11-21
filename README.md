@@ -61,7 +61,7 @@ value of the machine replaces a value of `.factory` with the same name.
 ## Setup
 
 The factory needs no GitHub Project. The worker creates its labels in the target repository: `factory`,
-`factory:approve`, `factory:block`, `factory:enter`, and `factory:start-again`. It creates the label of each column,
+`factory:approve`, `factory:block`, `factory:enter`, `factory:start-again`, and `human`. It creates the label of each column,
 `factory:is:<column>`, on its first use, for example `factory:is:in-review`. The label of a column is for display
 only: the record in the status comment keeps the state. The worker removes the old labels `factory:status:<name>`.
 
@@ -145,6 +145,16 @@ Add the label `factory` to an issue to give it to the factory. The factory does 
 label. It acts on each request label that it finds on an issue: `factory`, `factory:block`, `factory:enter`,
 `factory:approve`, and `factory:start-again`. GitHub permissions control the labels: usually, only an account with
 triage access or more can add a label. Neither `.factory` nor `worker.yaml` has a list of accounts.
+
+### The label human
+
+An issue with the label `human` is for a person only. The factory does not pick up the issue, also when it has
+the label `factory`. The factory does not assign itself, writes nothing on the issue, and shows no card for it.
+The worker creates the label `human` at its first poll, together with its other labels.
+
+An action that runs when the label comes continues to its end. Then the factory starts no next action. Add the
+label `factory:block` to stop the running action at once. Remove the label `human` to give the issue back to the
+factory.
 
 Warning: two other paths add labels. They can give work to the factory from any account:
 
