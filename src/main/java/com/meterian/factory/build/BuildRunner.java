@@ -75,7 +75,7 @@ public final class BuildRunner {
             int exitCode = process.waitFor();
             endProcessGroup(process);
             reading.get(READ_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            return new BuildOutcome(exitCode == 0, tail.text());
+            return BuildOutcome.createExited(exitCode, tail.text());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return new BuildOutcome(false, "The build was interrupted.");

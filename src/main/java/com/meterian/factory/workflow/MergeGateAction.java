@@ -4,6 +4,7 @@ import com.meterian.factory.definition.ActionDefinition;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.MergeMode;
 import com.meterian.factory.definition.StateDefinition;
+import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.merge.MergeChecks;
 import com.meterian.factory.merge.MergeDecision;
@@ -13,6 +14,7 @@ import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 final class MergeGateAction implements Action {
 
@@ -35,6 +37,7 @@ final class MergeGateAction implements Action {
     @Override
     public ActionResult run(Issue issue, IssueRecord record, Path worktree) {
         if (isMergedOnGitHub(record)) {
+            reportMerge(record);
             return ActionResult.endWith(
                     record.withNote(MERGED_NOTE).withBuiltTree(services.git().treeHash(worktree)), "merged");
         }
@@ -78,8 +81,11 @@ final class MergeGateAction implements Action {
     private ActionResult mergePullRequest(Issue issue, IssueRecord record, Path worktree) {
         MergeResult result = version.merger().merge(worktree, record);
         return switch (result) {
-            case MergeResult.Merged merged -> ActionResult.endWith(withMergedNotes(record, merged)
-                    .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()), "merged");
+            case MergeResult.Merged merged -> {
+                reportMerge(record);
+                yield ActionResult.endWith(withMergedNotes(record, merged)
+                        .withoutFailedForwardChecks().withBuiltTree(merged.builtTreeHash()), "merged");
+            }
             case MergeResult.NeedsNewReviews needsNewReviews ->
                     ActionResult.endWith(record.withoutReviews(), "needs-new-reviews");
             case MergeResult.NeedsFix needsFix -> openMergeForTheFix(record, worktree, needsFix);
@@ -105,6 +111,20 @@ final class MergeGateAction implements Action {
 
     private boolean changesDefinitionFolder(Path worktree) {
         return services.git().changesPath(worktree, version.mergeTargetReference(), DEFINITION_FOLDER);
+    }
+
+    /** The merge is final, so a failure to read the merge commit only leaves the commit out of the event. */
+    private void reportMerge(IssueRecord record) {
+        int pullRequestNumber = record.pullRequestNumber().orElseThrow();
+        Optional<String> mergeCommit;
+        try {
+            mergeCommit = services.gitHub().mergeCommit(pullRequestNumber);
+        } catch (GitHubException exception) {
+            mergeCommit = Optional.empty();
+        }
+        String url = "https://github.com/" + services.configuration().repository().fullName() + "/pull/"
+                + pullRequestNumber;
+        services.events().writePullRequestMerge(record.issueNumber(), url, mergeCommit);
     }
 
     private boolean isMergedOnGitHub(IssueRecord record) {

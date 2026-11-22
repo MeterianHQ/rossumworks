@@ -16,6 +16,8 @@ import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -106,13 +108,14 @@ public final class Main {
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
-                       FactorySwitch factorySwitch, LostIssues lostIssues) {
+                       FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
 
         static SharedState create(FactoryConfiguration configuration) {
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
                     new PageRequests(Clock.systemUTC()),
                     new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
-                    new FactorySwitch(configuration.workDirectory()), new LostIssues());
+                    new FactorySwitch(configuration.workDirectory()), new LostIssues(),
+                    new WorkerEvents(EventsFile.inWorkFolder(configuration.workDirectory()), Clock.systemUTC()));
         }
     }
 
@@ -291,7 +294,7 @@ public final class Main {
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, shared.pageRequests(),
                 workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
-                shared.lostIssues());
+                shared.lostIssues(), shared.events());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
                 definitions, definitions::warning,
                 worker::countUsedSlots, worker::requestEarlyPoll, claudeHome);
@@ -477,6 +480,6 @@ public final class Main {
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
                 buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
                 shared.board(), shared.contexts(), shared.pageRequests(), retries, ownershipGuard,
-                shared.lostIssues());
+                shared.lostIssues(), shared.events());
     }
 }

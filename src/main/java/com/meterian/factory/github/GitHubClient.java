@@ -64,6 +64,9 @@ public interface GitHubClient {
     /** Returns the tree hash of the merge commit of a merged pull request. Empty when GitHub has no merge commit. */
     Optional<String> mergeCommitTree(int pullRequestNumber);
 
+    /** Returns the commit hash of the merge commit of a merged pull request. Empty when GitHub has no merge commit. */
+    Optional<String> mergeCommit(int pullRequestNumber);
+
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
 

@@ -1,7 +1,6 @@
 package com.meterian.factory.worker;
 
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.state.ActionType;
@@ -16,9 +15,12 @@ final class RestartPreparation {
     private final GitHubClient gitHub;
     private final WorkspaceLayout layout;
     private final DefinitionLookup definitions;
+    private final WorkerMove workerMove;
 
-    RestartPreparation(GitHubClient gitHub, WorkspaceLayout layout, DefinitionLookup definitions) {
+    RestartPreparation(GitHubClient gitHub, WorkspaceLayout layout, DefinitionLookup definitions,
+                       WorkerMove workerMove) {
         this.gitHub = gitHub;
+        this.workerMove = workerMove;
         this.layout = layout;
         this.definitions = definitions;
     }
@@ -41,7 +43,7 @@ final class RestartPreparation {
             return record;
         }
         if (record.pullRequestNumber().map(gitHub::isMerged).orElse(false)) {
-            return moveTo(record, workflow.finishState());
+            return workerMove.moveTo(workflow, record, workflow.finishState());
         }
         IssueRecord cleared = record.withSessionId(UUID.randomUUID())
                 .withoutReviews()
@@ -49,10 +51,6 @@ final class RestartPreparation {
                 .withoutRisk()
                 .withoutBuiltTree()
                 .withoutLive();
-        return moveTo(cleared, workflow.state(workflow.start()));
-    }
-
-    private static IssueRecord moveTo(IssueRecord record, StateDefinition state) {
-        return record.withMove(state.name(), state.actionType(), state.column());
+        return workerMove.moveTo(workflow, cleared, workflow.state(workflow.start()));
     }
 }

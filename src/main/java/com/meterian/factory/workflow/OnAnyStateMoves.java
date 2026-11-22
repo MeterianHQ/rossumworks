@@ -4,6 +4,7 @@ import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.OnAnyState;
 import com.meterian.factory.definition.Target;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.state.IssueRecord;
 import java.util.Optional;
 import java.util.function.Function;
@@ -18,11 +19,14 @@ public final class OnAnyStateMoves {
 
     private final DefinitionLookup definitions;
     private final WorkspaceLayout layout;
-    private final MoveRunner moveRunner = new MoveRunner();
+    private final WorkerEvents events;
+    private final MoveRunner moveRunner;
 
-    public OnAnyStateMoves(DefinitionLookup definitions, WorkspaceLayout layout) {
+    public OnAnyStateMoves(DefinitionLookup definitions, WorkspaceLayout layout, WorkerEvents events) {
         this.definitions = definitions;
         this.layout = layout;
+        this.events = events;
+        this.moveRunner = new MoveRunner(events);
     }
 
     /**
@@ -34,6 +38,7 @@ public final class OnAnyStateMoves {
         try {
             definition = definitions.definitionOf(record);
         } catch (IllegalStateException exception) {
+            events.writeBlock(record.issueNumber(), note);
             return record.withNewestNote(note).withMove(record.state(), Optional.empty(), BLOCKED_COLUMN);
         }
         if (record.state().equals(definition.workflow().onAnyState().block())) {

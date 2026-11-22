@@ -5,6 +5,7 @@ import com.meterian.factory.definition.OnAnyState;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.Target;
 import com.meterian.factory.definition.WorkflowDefinition;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
@@ -13,10 +14,19 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
-/** Moves an issue to the next state of its workflow, with the rules of the engine for each move (spec 6.6). */
+/**
+ * Moves an issue to the next state of its workflow, with the rules of the engine for each move (spec 6.6). Each
+ * move writes an event, and a move to the block target also writes the reason of the block.
+ */
 final class MoveRunner {
 
     private static final String CONTINUE_EVENT = "continue";
+
+    private final MoveReport moveReport;
+
+    MoveRunner(WorkerEvents events) {
+        this.moveReport = new MoveReport(events);
+    }
 
     /** Moves the issue by the on: entry of the event. The reason of the event becomes a note. */
     IssueRecord move(FactoryDefinition definition, ActionResult.Event event, Path worktree) {
@@ -48,8 +58,19 @@ final class MoveRunner {
         IssueRecord moved = prompted.withMove(destination.name(), destination.actionType(), destination.column())
                 .withoutFailedReviewRounds().withoutFailedForwardChecks();
         IssueRecord withPrevious = destination.waitsForYou() ? moved : moved.withPreviousState(destination.name());
-        return isReturnFromConversation(source, event, destination)
+        IssueRecord entered = isReturnFromConversation(source, event, destination)
                 ? withPrevious.withAfterConversation() : withPrevious.withoutAfterConversation();
+        reportMove(workflow, entered, source, event);
+        return entered;
+    }
+
+    private void reportMove(WorkflowDefinition workflow, IssueRecord entered, StateDefinition source,
+            Optional<ActionResult.Event> event) {
+        if (event.isPresent()) {
+            moveReport.writeMoveByEvent(workflow, event.get(), entered);
+        } else {
+            moveReport.writeMove(workflow, source.name(), entered);
+        }
     }
 
     private static StateDefinition resolve(WorkflowDefinition workflow, IssueRecord record, Target target) {

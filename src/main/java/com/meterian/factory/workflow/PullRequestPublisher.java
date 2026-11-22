@@ -1,5 +1,6 @@
 package com.meterian.factory.workflow;
 
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
@@ -18,13 +19,15 @@ final class PullRequestPublisher {
     private final String mergeTargetBranch;
     private final PushedCommitCheck pushedCommitCheck;
     private final OwnershipGuard ownershipGuard;
+    private final WorkerEvents events;
 
     PullRequestPublisher(GitHubClient gitHub, Git git, String mergeTargetBranch, Path gatekeeperDirectory,
-                         OwnershipGuard ownershipGuard) {
+                         OwnershipGuard ownershipGuard, WorkerEvents events) {
         this.gitHub = gitHub;
         this.git = git;
         this.mergeTargetBranch = mergeTargetBranch;
         this.ownershipGuard = ownershipGuard;
+        this.events = events;
         this.pushedCommitCheck = new PushedCommitCheck(git, gitHub, gatekeeperDirectory);
     }
 
@@ -60,7 +63,10 @@ final class PullRequestPublisher {
 
     private PullRequest createPullRequest(Issue issue, String branch, Path worktree) {
         String body = PullRequestDescription.bodyFor(issue.number(), worktree);
-        return gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
+        PullRequest pullRequest =
+                gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
+        events.writePullRequestOpen(issue.number(), pullRequest.url());
+        return pullRequest;
     }
 
     /** A missing or empty description keeps the last description in the body. */

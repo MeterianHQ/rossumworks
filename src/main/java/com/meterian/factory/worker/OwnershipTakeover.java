@@ -1,7 +1,6 @@
 package com.meterian.factory.worker;
 
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
@@ -29,9 +28,11 @@ final class OwnershipTakeover {
     private final String workerLogin;
     private final DefinitionLookup definitions;
     private final OnAnyStateMoves onAnyStateMoves;
+    private final WorkerMove workerMove;
 
     OwnershipTakeover(GitHubClient gitHub, StatusPublisher statusPublisher, String workerLogin,
-                      DefinitionLookup definitions, OnAnyStateMoves onAnyStateMoves) {
+                      DefinitionLookup definitions, OnAnyStateMoves onAnyStateMoves, WorkerMove workerMove) {
+        this.workerMove = workerMove;
         this.gitHub = gitHub;
         this.statusPublisher = statusPublisher;
         this.workerLogin = workerLogin;
@@ -107,7 +108,7 @@ final class OwnershipTakeover {
         }
         return findMergeGateEvent(earlierWorkflow, earlierRecord.state())
                 .flatMap(workflow::findMergeGateTarget).map(workflow::state)
-                .map(approvalState -> moveTo(record, approvalState))
+                .map(approvalState -> workerMove.moveTo(workflow, record, approvalState))
                 .orElse(record);
     }
 
@@ -130,9 +131,5 @@ final class OwnershipTakeover {
         } catch (IllegalStateException exception) {
             return Optional.empty();
         }
-    }
-
-    private static IssueRecord moveTo(IssueRecord record, StateDefinition state) {
-        return record.withMove(state.name(), state.actionType(), state.column());
     }
 }

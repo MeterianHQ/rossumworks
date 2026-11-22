@@ -33,7 +33,7 @@ record VersionServices(PromptLibrary prompts, BuildSettings build, List<String> 
                 new ConflictResolution(services.git(), mergeTargetBranch),
                 new IssueWorkspace(configuration, services.git(), mergeTargetBranch),
                 new PullRequestPublisher(services.gitHub(), services.git(), mergeTargetBranch, gatekeeperDirectory,
-                        services.ownershipGuard()),
+                        services.ownershipGuard(), services.events()),
                 new ReviewedCommit(services.git(), clone, mergeTargetBranch),
                 new ReviewRound(services.phaseRunner(), prompts, definition.allowedTools()));
     }

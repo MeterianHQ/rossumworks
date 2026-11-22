@@ -36,6 +36,7 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.ActionType;
+import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -107,6 +108,7 @@ class WorkerTest {
     private final BoardState board = new BoardState(clock);
 
     private final Git git = new ProcessGit();
+    private final CollectedEvents events = new CollectedEvents();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeLiveSessions liveSessions = new FakeLiveSessions();
     private final List<ExecutorService> executors = new ArrayList<>();
@@ -194,13 +196,15 @@ class WorkerTest {
                 new UsageTracker(0.90, Clock.systemUTC()),
                 new WorkspaceLayout(configuration.workDirectory()), WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests,
-                com.meterian.factory.workflow.RetrySettings.defaults(), ownershipGuard, lostIssues);
+                com.meterian.factory.workflow.RetrySettings.defaults(), ownershipGuard, lostIssues,
+                events.workerEvents());
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, configuration.limits().parallelIssues()));
         executors.add(executor);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner,
                 new WorkspaceLayout(configuration.workDirectory()), liveSessions);
         return new Worker(configuration, gitHub, workflow, versions, phaseStopper, pageRequests, WORKER_LOGIN,
-                executor, liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues);
+                executor, liveSessions, Clock.systemUTC(), board, factorySwitch(), lostIssues,
+                events.workerEvents());
     }
 
     /** Waits until the loops of the worker end. The worker gets no new loop after this call. */
@@ -639,6 +643,23 @@ class WorkerTest {
         assertThat(gitHub.columnOf(ISSUE)).contains("queued");
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(START_AGAIN_LABEL);
         assertThat(statusComments(ISSUE)).hasSize(1);
+    }
+
+    @Test
+    void startAgainWritesTheMoveBackToTheStart() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        writeBlockedRecordWithEarlierWork();
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+
+        worker.pollOnce();
+
+        assertThat(events.ofType("move")).singleElement().satisfies(line -> {
+            assertThat(line.path("from").asText()).isEqualTo("blocked");
+            assertThat(line.path("to").asText()).isEqualTo("prepare");
+            assertThat(line.path("column").asText()).isEqualTo("queued");
+            assertThat(line.has("event")).isFalse();
+        });
     }
 
     @Test
@@ -1081,6 +1102,26 @@ class WorkerTest {
     }
 
     @Test
+    void aRestartWithoutTheWorktreeOfAMergedIssueWritesTheMoveToDone() throws InterruptedException {
+        gitHub.failTheCommentEditAfterTheMerge();
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        run(clone, "worktree", "remove", "--force", worktree().toString());
+        int earlierMoves = events.ofType("move").size();
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(events.ofType("move").subList(earlierMoves, events.ofType("move").size())).first()
+                .satisfies(line -> {
+                    assertThat(line.path("from").asText()).isEqualTo("merge");
+                    assertThat(line.path("to").asText()).isEqualTo("done");
+                    assertThat(line.has("event")).isFalse();
+                });
+    }
+
+    @Test
     void aRestartWithoutTheWorktreeOfAMergedIssueEndsDone() throws InterruptedException {
         gitHub.failTheCommentEditAfterTheMerge();
         createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
@@ -1098,6 +1139,32 @@ class WorkerTest {
         assertThat(secondAgent.requests()).isEmpty();
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(FACTORY_LABEL);
+    }
+
+    @Test
+    void writesTheStartAndOneStopOfTheWorker() throws InterruptedException {
+        Worker worker = createWorker(new FakeAgentRunner(), createConfiguration(1, Duration.ofMillis(50)));
+        Thread loop = Thread.ofVirtual().start(() -> {
+            try {
+                worker.runUntilStopped();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertTimeoutPreemptively(TIME_BOUND, () -> {
+            while (events.ofType("worker").isEmpty()) {
+                Thread.sleep(10);
+            }
+        });
+
+        worker.shutDown(TIME_BOUND);
+        worker.shutDown(TIME_BOUND);
+        loop.join(TIME_BOUND);
+
+        assertThat(events.ofType("worker")).extracting(line -> line.path("event").asText())
+                .containsExactly("start", "stop");
+        assertThat(events.ofType("worker").getFirst().path("repository").asText())
+                .isEqualTo(createRepositoryName().fullName());
     }
 
     @Test

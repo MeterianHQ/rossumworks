@@ -5,23 +5,30 @@ import com.meterian.factory.agent.AgentRunner;
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.usage.ContextTracker;
 import com.meterian.factory.usage.UsageTracker;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Runs one agent phase and records the usage windows of its report, and the context of the agent in charge. */
 final class PhaseRunner {
 
+    private static final String USAGE_WAIT_REASON = "usage limit";
+
     private final AgentRunner agentRunner;
     private final UsageTracker usage;
     private final ContextTracker contexts;
+    private final WorkerEvents events;
 
-    PhaseRunner(AgentRunner agentRunner, UsageTracker usage, ContextTracker contexts) {
+    PhaseRunner(AgentRunner agentRunner, UsageTracker usage, ContextTracker contexts, WorkerEvents events) {
         this.agentRunner = agentRunner;
         this.usage = usage;
         this.contexts = contexts;
+        this.events = events;
     }
 
     /** Runs a phase of the agent in charge of the issue. */
@@ -42,8 +49,11 @@ final class PhaseRunner {
         return agentRunner.hasSavedSession(sessionId, worktree);
     }
 
+    /** A phase that may not start reports the wait for the usage limit. */
     boolean mayStartPhase() {
-        return usage.mayStartPhase();
+        Optional<Instant> resumeTime = usage.resumesAt();
+        resumeTime.ifPresent(until -> events.writeWait(USAGE_WAIT_REASON, until));
+        return resumeTime.isEmpty();
     }
 
     private SessionReport runAndRecordUsage(PhaseRequest request) throws AgentException, ApiKeyDetectedException {

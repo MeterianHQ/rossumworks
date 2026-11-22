@@ -2,7 +2,6 @@ package com.meterian.factory.worker;
 
 import com.meterian.factory.definition.DefinitionVersion;
 import com.meterian.factory.definition.DefinitionVersions;
-import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
@@ -30,9 +29,12 @@ final class StartAgainRequests {
     private final StatusPublisher statusPublisher;
     private final DefinitionVersions definitions;
     private final IssueDefinitionFacts facts;
+    private final WorkerMove workerMove;
 
-    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionVersions definitions) {
+    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionVersions definitions,
+                       WorkerMove workerMove) {
         this.gitHub = gitHub;
+        this.workerMove = workerMove;
         this.statusPublisher = statusPublisher;
         this.definitions = definitions;
         this.facts = new IssueDefinitionFacts(definitions);
@@ -65,7 +67,7 @@ final class StartAgainRequests {
             return record.withNote(NO_EFFECT_NOTE);
         }
         if (record.pullRequestNumber().map(gitHub::isMerged).orElse(false)) {
-            return moveTo(record, workflow.finishState()).withNote(MERGED_NOTE);
+            return workerMove.moveTo(workflow, record, workflow.finishState()).withNote(MERGED_NOTE);
         }
         return definitions.current()
                 .map(current -> createQueuedRecord(issue, record, current))
@@ -77,15 +79,13 @@ final class StartAgainRequests {
      * earlier work stays. The issue takes the current version of the definition, so a correction of .factory
      * reaches it. All the counts of the limits are 0.
      */
-    private static IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
-        IssueRecord queued = IssueRecord.queued(issue.number(), current.definition().workflow().start())
+    private IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
+        WorkflowDefinition workflow = current.definition().workflow();
+        IssueRecord queued = IssueRecord.queued(issue.number(), workflow.start())
                 .withDefinitionCommit(current.commit())
                 .withIssueTextHash(IssueText.computeHash(issue))
                 .withNote(STARTED_AGAIN_NOTE);
+        workerMove.writeMoveOfAnotherState(workflow, record, queued);
         return record.statusCommentId().map(queued::withStatusComment).orElse(queued);
-    }
-
-    private static IssueRecord moveTo(IssueRecord record, StateDefinition state) {
-        return record.withMove(state.name(), state.actionType(), state.column());
     }
 }

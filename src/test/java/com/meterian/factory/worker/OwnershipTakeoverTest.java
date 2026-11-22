@@ -17,8 +17,10 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.RecordStates;
+import com.meterian.factory.workflow.MoveReport;
 import com.meterian.factory.workflow.OnAnyStateMoves;
 import com.meterian.factory.workflow.StatusPublisher;
 import com.meterian.factory.workflow.WorkspaceLayout;
@@ -55,8 +57,10 @@ class OwnershipTakeoverTest {
         DefinitionLookup definitions = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, definitions, BoardUpdates.IGNORED,
                 new LostIssues());
-        OnAnyStateMoves onAnyStateMoves = new OnAnyStateMoves(definitions, new WorkspaceLayout(temporaryDirectory));
-        takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN, definitions, onAnyStateMoves);
+        OnAnyStateMoves onAnyStateMoves = new OnAnyStateMoves(definitions, new WorkspaceLayout(temporaryDirectory),
+                CollectedEvents.discarded());
+        takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN, definitions, onAnyStateMoves,
+                new WorkerMove(new MoveReport(CollectedEvents.discarded())));
     }
 
     @Test
@@ -226,8 +230,10 @@ class OwnershipTakeoverTest {
         DefinitionLookup definitions = DefinitionLookup.builtInOnly(definition);
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, WORKER_LOGIN, definitions, BoardUpdates.IGNORED,
                 new LostIssues());
-        OnAnyStateMoves onAnyStateMoves = new OnAnyStateMoves(definitions, new WorkspaceLayout(temporaryDirectory));
-        takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN, definitions, onAnyStateMoves);
+        OnAnyStateMoves onAnyStateMoves = new OnAnyStateMoves(definitions, new WorkspaceLayout(temporaryDirectory),
+                CollectedEvents.discarded());
+        takeover = new OwnershipTakeover(gitHub, statusPublisher, WORKER_LOGIN, definitions, onAnyStateMoves,
+                new WorkerMove(new MoveReport(CollectedEvents.discarded())));
     }
 
     private IssueRecord takeOverFrom(IssueRecord earlierRecord) {

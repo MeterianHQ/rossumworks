@@ -252,14 +252,20 @@ public final class HttpGitHubClient implements GitHubClient {
 
     @Override
     public Optional<String> mergeCommitTree(int pullRequestNumber) {
-        JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null)
-                .path("merge_commit_sha");
-        if (!mergeCommit.isTextual()) {
+        Optional<String> mergeCommit = mergeCommit(pullRequestNumber);
+        if (mergeCommit.isEmpty()) {
             return Optional.empty();
         }
-        JsonNode tree = send("GET", repositoryPath + "/git/commits/" + mergeCommit.asText(), null)
+        JsonNode tree = send("GET", repositoryPath + "/git/commits/" + mergeCommit.get(), null)
                 .path("tree").path("sha");
         return tree.isTextual() ? Optional.of(tree.asText()) : Optional.empty();
+    }
+
+    @Override
+    public Optional<String> mergeCommit(int pullRequestNumber) {
+        JsonNode mergeCommit = send("GET", repositoryPath + "/pulls/" + pullRequestNumber, null)
+                .path("merge_commit_sha");
+        return mergeCommit.isTextual() ? Optional.of(mergeCommit.asText()) : Optional.empty();
     }
 
     @Override
