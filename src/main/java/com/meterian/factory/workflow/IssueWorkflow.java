@@ -12,6 +12,7 @@ import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.Target;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.GitHubClient;
@@ -27,6 +28,7 @@ import com.meterian.factory.usage.UsageTracker;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +59,9 @@ public final class IssueWorkflow {
     private final LiveRecordPublisher livePublisher;
     private final UnknownSessionCloser unknownSessionCloser;
     private final OnAnyStateMoves onAnyStateMoves;
-    private final MoveRunner moveRunner = new MoveRunner();
-    private final LimitCheck limitCheck = new LimitCheck(moveRunner);
+    private final MoveRunner moveRunner;
+    private final LimitCheck limitCheck;
+    private final ActionEndReport actionEndReport;
     private final ActionServices services;
     /** The notes of the review round of the current action, by issue number. Each issue thread uses its own entry. */
     private final Map<Integer, List<ReviewNote>> reviewNotesToPublish = new ConcurrentHashMap<>();
@@ -70,6 +73,7 @@ public final class IssueWorkflow {
      * @param mergeRetryDelay the wait between two attempts of a squash merge
      * @param ownershipGuard  the check that this factory still owns the issue before a change on GitHub
      * @param lostIssues      the issues that another account owns now
+     * @param events          the lines of the file events.jsonl, for a monitoring agent
      */
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          DefinitionLookup definitions,
@@ -77,24 +81,27 @@ public final class IssueWorkflow {
                          WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
                          PageRequests pageRequests, RetrySettings retrySettings, OwnershipGuard ownershipGuard,
-                         LostIssues lostIssues) {
+                         LostIssues lostIssues, WorkerEvents events) {
         this.gitHub = gitHub;
+        this.moveRunner = new MoveRunner(events);
+        this.limitCheck = new LimitCheck(moveRunner);
+        this.actionEndReport = new ActionEndReport(events, Clock.systemUTC());
         this.definitions = definitions;
         this.layout = layout;
         this.liveSessions = liveSessions;
         this.ownerApproval = new OwnerApproval(gitHub);
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board, lostIssues);
         this.issueTextCheck = new IssueTextCheck(ownerApproval);
-        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, usage, contexts);
+        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, usage, contexts, events);
         this.liveMode = new LiveMode(git, gitHub, liveSessions, pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
-        this.onAnyStateMoves = new OnAnyStateMoves(definitions, layout);
+        this.onAnyStateMoves = new OnAnyStateMoves(definitions, layout, events);
         ForwardCheckFailure forwardCheckFailure =
                 new ForwardCheckFailure(statusPublisher, retrySettings.forwardChecks(), ownershipGuard);
         this.services = new ActionServices(configuration, gitHub, git, buildRunner, mergeRetryDelay, ownerApproval,
                 statusPublisher, forwardCheckFailure, phaseRunner, liveMode, liveSessions, reviewNotesToPublish,
-                retrySettings, ownershipGuard);
+                retrySettings, ownershipGuard, events);
     }
 
     /** The review notes go to the pull request only after the record of their round is on GitHub. */
@@ -263,7 +270,7 @@ public final class IssueWorkflow {
         FactoryDefinition definition = actionSet.definition();
         Action action = actionSet.actionOf(record.action());
         if (isInTheFinishState(record)) {
-            return applyResult(definition, action.run(issue, record, worktree), worktree);
+            return applyResult(definition, actionEndReport.run(action, issue, record, worktree), worktree);
         }
         if (issueTextCheck.hasChanged(issue, record)) {
             return onAnyStateMoves.moveToTextChangedTarget(record);
@@ -271,7 +278,7 @@ public final class IssueWorkflow {
         if (!record.actionStarted()) {
             return startAction(issue, record, actionSet, worktree);
         }
-        return applyResult(definition, action.run(issue, record, worktree), worktree);
+        return applyResult(definition, actionEndReport.run(action, issue, record, worktree), worktree);
     }
 
     /** An entry counts only when the action starts, so a limit that refuses the entry does not count it. */
@@ -284,8 +291,9 @@ public final class IssueWorkflow {
         }
         IssueRecord started = LimitCheck.countEntry(definition, record).withActionStarted();
         Action action = actionSet.actionOf(record.action());
-        Optional<ActionResult> startResult = action.start(issue, started);
-        ActionResult result = startResult.isPresent() ? startResult.get() : action.run(issue, started, worktree);
+        Optional<ActionResult> startResult = actionEndReport.start(action, issue, started);
+        ActionResult result = startResult.isPresent() ? startResult.get()
+                : actionEndReport.run(action, issue, started, worktree);
         return applyResult(definition, result, worktree);
     }
 

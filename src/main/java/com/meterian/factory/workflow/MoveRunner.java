@@ -1,22 +1,35 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.definition.FactoryDefinition;
+import com.meterian.factory.definition.LimitDefinition;
 import com.meterian.factory.definition.OnAnyState;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.Target;
 import com.meterian.factory.definition.WorkflowDefinition;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.PendingPrompt;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
-/** Moves an issue to the next state of its workflow, with the rules of the engine for each move (spec 6.6). */
+/**
+ * Moves an issue to the next state of its workflow, with the rules of the engine for each move (spec 6.6). Each
+ * move writes an event, and a move to the block target also writes the reason of the block.
+ */
 final class MoveRunner {
 
     private static final String CONTINUE_EVENT = "continue";
+
+    private final WorkerEvents events;
+
+    MoveRunner(WorkerEvents events) {
+        this.events = events;
+    }
 
     /** Moves the issue by the on: entry of the event. The reason of the event becomes a note. */
     IssueRecord move(FactoryDefinition definition, ActionResult.Event event, Path worktree) {
@@ -48,8 +61,30 @@ final class MoveRunner {
         IssueRecord moved = prompted.withMove(destination.name(), destination.actionType(), destination.column())
                 .withoutFailedReviewRounds().withoutFailedForwardChecks();
         IssueRecord withPrevious = destination.waitsForYou() ? moved : moved.withPreviousState(destination.name());
-        return isReturnFromConversation(source, event, destination)
+        IssueRecord entered = isReturnFromConversation(source, event, destination)
                 ? withPrevious.withAfterConversation() : withPrevious.withoutAfterConversation();
+        reportMove(workflow, entered, source, event);
+        return entered;
+    }
+
+    private void reportMove(WorkflowDefinition workflow, IssueRecord entered, StateDefinition source,
+            Optional<ActionResult.Event> event) {
+        events.issueMoved(entered.issueNumber(), source.name(), event.map(ActionResult.Event::event),
+                entered.state(), entered.column(), describeEntries(workflow, entered));
+        String blockTarget = workflow.onAnyState().block();
+        if (entered.state().equals(blockTarget) && !source.name().equals(blockTarget)) {
+            events.issueBlocked(entered.issueNumber(), entered.newestNote().orElse(""));
+        }
+    }
+
+    /** The count and the limit of each state with a limit, in the order of the workflow, for example "1/3". */
+    private static Map<String, String> describeEntries(WorkflowDefinition workflow, IssueRecord record) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (StateDefinition state : workflow.states().values()) {
+            Optional<LimitDefinition> limit = state.limit();
+            limit.ifPresent(found -> entries.put(state.name(), record.entriesOf(state.name()) + "/" + found.entries()));
+        }
+        return entries;
     }
 
     private static StateDefinition resolve(WorkflowDefinition workflow, IssueRecord record, Target target) {

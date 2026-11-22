@@ -7,6 +7,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meterian.factory.agent.ApiKeyDetectedException;
 import com.meterian.factory.agent.PhaseRequest;
@@ -38,6 +39,7 @@ import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.RecordStates;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.LiveSession;
@@ -86,6 +88,7 @@ class IssueWorkflowTest {
     Path temporaryDirectory;
 
     private final Git git = new ProcessGit();
+    private final CollectedEvents events = new CollectedEvents();
     private final FakeGitHubClient gitHub = new FakeGitHubClient();
     private final FakeAgentRunner agent = new FakeAgentRunner();
     private final UsageTracker usage = new UsageTracker(0.90, Clock.systemUTC());
@@ -158,7 +161,8 @@ class IssueWorkflowTest {
         return new IssueWorkflow(configuration, gitHub, git, agent, withTheBuildOfTheTest,
                 buildRunner, Duration.ZERO, usage,
                 new WorkspaceLayout(temporaryDirectory.resolve("work")), WORKER_LOGIN, liveSessions,
-                BoardUpdates.IGNORED, new ContextTracker(), pageRequests, retries, ownershipGuard, new LostIssues());
+                BoardUpdates.IGNORED, new ContextTracker(), pageRequests, retries, ownershipGuard, new LostIssues(),
+                events.workerEvents());
     }
 
     private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {
@@ -262,6 +266,97 @@ class IssueWorkflowTest {
         assertThat(run(githubRepository, "branch", "--list", "factory/issue-7")).contains("factory/issue-7");
         assertThat(gitHub.pullRequests()).hasSize(1);
         assertThat(worktree()).doesNotExist();
+    }
+
+    @Test
+    void writesTheEventsOfALowRiskIssueToDone() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        JsonNode toBuild = findMoveTo("build");
+        assertThat(toBuild.path("issue").asInt()).isEqualTo(ISSUE);
+        assertThat(toBuild.path("from").asText()).isEqualTo("implement");
+        assertThat(toBuild.path("event").asText()).isEqualTo("changed");
+        assertThat(toBuild.path("column").asText()).isEqualTo("in-progress");
+        assertThat(toBuild.path("entries").path("implement").asText()).isEqualTo("1/3");
+        assertThat(toBuild.path("entries").path("review").asText()).isEqualTo("0/10");
+        assertThat(findActionEnd("coding").path("prompt").asText()).isEqualTo("implement");
+        assertThat(findActionEnd("coding").path("result").asText()).isEqualTo("changed");
+        assertThat(findActionEnd("build").path("exit_code").asInt()).isZero();
+        JsonNode reviews = findActionEnd("reviews");
+        assertThat(reviews.path("result").asText()).isEqualTo("approved");
+        assertThat(reviews.path("reviews").path("correctness").path("verdict").asText()).isEqualTo("approve");
+        assertThat(reviews.path("reviews").path("correctness").path("findings").asInt()).isZero();
+        JsonNode risk = findActionEnd("risk");
+        assertThat(risk.path("risk").asText()).isEqualTo("low");
+        assertThat(risk.path("small").asBoolean()).isTrue();
+        assertThat(risk.path("duration_s").isNumber()).isTrue();
+        int pullRequestNumber = gitHub.pullRequests().getFirst().number();
+        assertThat(events.ofType("pr")).extracting(line -> line.path("event").asText())
+                .containsExactly("opened", "merged");
+        assertThat(events.ofType("pr").getLast().path("url").asText()).isEqualTo("https://github.com/"
+                + createRepositoryName().fullName() + "/pull/" + pullRequestNumber);
+        assertThat(events.ofType("pr").getLast().path("commit").asText()).isEqualTo("merge-of-" + pullRequestNumber);
+        assertThat(findMoveTo("done").path("event").asText()).isEqualTo("merged");
+    }
+
+    @Test
+    void writesTheFindingsOfARejectingReviewAndThePromptFix() throws ApiKeyDetectedException {
+        agent.thenChangeFile()
+                .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
+                .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        JsonNode rejected = events.ofType("action-end").stream()
+                .filter(line -> line.path("result").asText().equals("rejected")).findFirst().orElseThrow();
+        assertThat(rejected.path("reviews").path("security").path("verdict").asText()).isEqualTo("reject");
+        assertThat(rejected.path("reviews").path("security").path("findings").asInt()).isEqualTo(1);
+        assertThat(events.ofType("action-end").stream().filter(line -> line.path("action").asText().equals("coding")))
+                .extracting(line -> line.path("prompt").asText()).containsExactly("implement", "fix");
+    }
+
+    @Test
+    void writesTheBlockAndTheExitCodeOfAFailedBuild() throws ApiKeyDetectedException {
+        agent.thenChangeFile().thenChangeFile().thenChangeFile();
+
+        advanceUntilWaiting(createWorkflow("false"), queuedRecord());
+
+        assertThat(findActionEnd("build").path("result").asText()).isEqualTo("failed");
+        assertThat(findActionEnd("build").path("exit_code").asInt()).isEqualTo(1);
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The state implement reached its limit of 3 entries."));
+        assertThat(findMoveTo("blocked").has("event")).isFalse();
+    }
+
+    @Test
+    void writesTheReasonOfAMergeGateThatNeedsTheOwner() throws ApiKeyDetectedException {
+        waitForApprovalOfAMediumRisk(createWorkflow("true"));
+
+        JsonNode mergeGate = findActionEnd("merge-gate");
+        assertThat(mergeGate.path("result").asText()).isEqualTo("needs-approval");
+        assertThat(mergeGate.path("reason").asText()).isEqualTo("The merge needs approval.");
+    }
+
+    @Test
+    void writesTheFirstLineOfAQuestion() throws ApiKeyDetectedException {
+        agent.thenAskQuestion("Which greeting do you want?\n\nThe issue names two.");
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        assertThat(events.ofType("question")).singleElement().satisfies(line -> assertThat(
+                line.path("first_line").asText()).isEqualTo("Which greeting do you want?"));
+    }
+
+    private JsonNode findMoveTo(String stateName) {
+        return events.ofType("move").stream().filter(line -> line.path("to").asText().equals(stateName))
+                .findFirst().orElseThrow();
+    }
+
+    private JsonNode findActionEnd(String actionName) {
+        return events.ofType("action-end").stream().filter(line -> line.path("action").asText().equals(actionName))
+                .findFirst().orElseThrow();
     }
 
     private String pushABranchOfAnEarlierOwnerToOrigin() {

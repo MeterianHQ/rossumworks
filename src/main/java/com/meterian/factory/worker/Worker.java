@@ -9,6 +9,8 @@ import com.meterian.factory.definition.ColumnNames;
 import com.meterian.factory.definition.DefinitionVersion;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.StateDefinition;
+import com.meterian.factory.events.FactoryVersion;
+import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
@@ -41,6 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /** Polls GitHub, takes the labeled issues into the queue, and runs each issue in a loop on the executor. */
@@ -94,14 +97,17 @@ public final class Worker {
     /** The issues with a release in progress. The poll neither releases nor starts them again. */
     private final Set<Integer> releasesInProgress = new HashSet<>();
     private final LiveSessionSlots liveSessionSlots = new LiveSessionSlots();
+    private final WorkerEvents events;
+    private final AtomicBoolean stopReported = new AtomicBoolean();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
                   DefinitionVersions definitions, PhaseStopper phaseStopper, PageRequests pageRequests,
                   String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
-                  BoardUpdates board, FactorySwitch factorySwitch, LostIssues lostIssues) {
+                  BoardUpdates board, FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
         this.configuration = configuration;
+        this.events = events;
         this.gitHub = gitHub;
         this.workflow = workflow;
         this.definitions = definitions;
@@ -114,13 +120,13 @@ public final class Worker {
         this.lostIssues = lostIssues;
         this.layout = new WorkspaceLayout(configuration.workDirectory());
         this.statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board, lostIssues);
-        this.onAnyStateMoves = new OnAnyStateMoves(definitions, layout);
+        this.onAnyStateMoves = new OnAnyStateMoves(definitions, layout, events);
         this.restartPreparation = new RestartPreparation(gitHub, layout, definitions);
         this.enterRequests = new EnterRequests(gitHub, workflow);
         this.startAgainRequests = new StartAgainRequests(gitHub, statusPublisher, definitions);
         this.liveRecordCheck = new LiveRecordCheck(liveSessions, statusPublisher);
         this.liveSessions = liveSessions;
-        this.rateLimitWait = new RateLimitWait(clock);
+        this.rateLimitWait = new RateLimitWait(clock, events);
         this.issueClaim = new IssueClaim(gitHub, workerLogin);
         this.ownershipRelease = new OwnershipRelease(gitHub, statusPublisher, workerLogin);
         this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin, definitions,
@@ -184,6 +190,7 @@ public final class Worker {
 
     /** Polls at the poll interval, and after each early poll request, until the worker stops. */
     public void runUntilStopped() throws InterruptedException {
+        events.workerStarted(FactoryVersion.current(), configuration.repository().fullName());
         while (!isStopped()) {
             pollOnce();
             pollWait.awaitNextPoll();
@@ -224,6 +231,14 @@ public final class Worker {
             return false;
         } finally {
             executor.shutdownNow();
+            reportStopOnce();
+        }
+    }
+
+    /** The main thread and the shutdown hook can both stop the worker. Only the first stop writes the event. */
+    private void reportStopOnce() {
+        if (stopReported.compareAndSet(false, true)) {
+            events.workerStopped(FactoryVersion.current(), configuration.repository().fullName());
         }
     }
 

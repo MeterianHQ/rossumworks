@@ -12,6 +12,8 @@ import java.util.Optional;
  */
 final class ImplementPrompt {
 
+    private static final String CONTINUE_PROMPT_NAME = "continue";
+
     private ImplementPrompt() {
     }
 
@@ -29,6 +31,17 @@ final class ImplementPrompt {
             return Optional.of(prompts.implement(issue));
         }
         return renderWithTheFindings(prompts, pendingPrompt, folder);
+    }
+
+    /** The name of the prompt that choose gives for the record: implement, continue, fix, or resume. */
+    static String nameOf(IssueRecord record) {
+        if (!record.agentSessionStarted()) {
+            return PendingPrompt.IMPLEMENT.name().toLowerCase();
+        }
+        if (record.afterConversation()) {
+            return CONTINUE_PROMPT_NAME;
+        }
+        return record.pendingPrompt().orElse(PendingPrompt.IMPLEMENT).name().toLowerCase();
     }
 
     /** A conversation in a fix must not lose the findings: the pending prompt follows the prompt continue. */

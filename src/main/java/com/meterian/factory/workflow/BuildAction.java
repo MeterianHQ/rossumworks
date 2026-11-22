@@ -6,6 +6,7 @@ import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 final class BuildAction implements Action {
@@ -25,8 +26,10 @@ final class BuildAction implements Action {
         }
         String headCommit = services.git().headCommit(worktree);
         String treeHash = services.git().treeHashOf(worktree, headCommit);
+        Optional<Integer> exitCode = Optional.empty();
         if (!isBuiltWithALostForward(record, treeHash)) {
             BuildOutcome outcome = services.buildRunner().run(worktree, version.build());
+            exitCode = outcome.exitCode();
             if (outcome.stopped()) {
                 return ActionResult.stay(record);
             }
@@ -36,7 +39,7 @@ final class BuildAction implements Action {
             }
             if (!outcome.passed()) {
                 Finding failure = new Finding("The build failed", outcome.outputTail());
-                return ActionResult.endWithFindings(record, "failed", List.of(failure));
+                return withExitCode(ActionResult.endWithFindings(record, "failed", List.of(failure)), exitCode);
             }
         }
         withdrawTheApprovalAsTheOwner(record.issueNumber());
@@ -49,7 +52,12 @@ final class BuildAction implements Action {
         if (!published.isOnGitHub()) {
             return services.forwardCheckFailure().count(issue, record, built, headCommit, treeHash);
         }
-        return ActionResult.endWith(built.withoutFailedForwardChecks(), "passed");
+        return withExitCode(ActionResult.endWith(built.withoutFailedForwardChecks(), "passed"), exitCode);
+    }
+
+    /** A build that did not run, or that did not end by itself, has no exit code. */
+    private static ActionResult withExitCode(ActionResult.Event event, Optional<Integer> exitCode) {
+        return exitCode.map(code -> event.withActionFields(Map.of("exit_code", code))).orElse(event);
     }
 
     /** The approval label can be for a new owner, so a factory that lost the issue does not remove it. */

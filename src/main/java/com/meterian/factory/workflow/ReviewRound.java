@@ -12,7 +12,9 @@ import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.Verdict;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Runs the reviews of the definition on one tree, each in a new session. A result for another tree is a reject. */
 final class ReviewRound {
@@ -20,16 +22,18 @@ final class ReviewRound {
     /**
      * The record with the verdicts, the findings of the rejecting reviews, and the notes of all reviews, or a
      * session that failed or that the worker stopped.
+     *
+     * @param findingCounts the count of the findings of each review, by review name, in the order of the reviews
      */
     record Outcome(IssueRecord record, List<Finding> findings, List<ReviewNote> notes, List<String> reviewNames,
-                   boolean sessionFailed, boolean sessionStopped) {
+                   Map<String, Integer> findingCounts, boolean sessionFailed, boolean sessionStopped) {
 
         static Outcome failedSession(IssueRecord record) {
-            return new Outcome(record, List.of(), List.of(), List.of(), true, false);
+            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), true, false);
         }
 
         static Outcome stoppedSession(IssueRecord record) {
-            return new Outcome(record, List.of(), List.of(), List.of(), false, true);
+            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), false, true);
         }
 
         boolean allApprove() {
@@ -52,6 +56,7 @@ final class ReviewRound {
         IssueRecord reviewed = record.withoutReviews();
         List<Finding> findings = new ArrayList<>();
         List<ReviewNote> notes = new ArrayList<>();
+        Map<String, Integer> findingCounts = new LinkedHashMap<>();
         List<String> reviewNames = prompts.reviewNames();
         for (String reviewName : reviewNames) {
             SessionReport report = runReview(issue, reviewName, worktree, treeHash);
@@ -67,11 +72,12 @@ final class ReviewRound {
             if (isForThisTree(result, treeHash)) {
                 result.notes().forEach(note -> notes.add(new ReviewNote(reviewName, note)));
             }
-            if (verdict == Verdict.REJECT) {
-                findings.addAll(describeRejection(reviewName, result, treeHash));
-            }
+            List<Finding> rejection = verdict == Verdict.REJECT ? describeRejection(reviewName, result, treeHash)
+                    : List.of();
+            findings.addAll(rejection);
+            findingCounts.put(reviewName, rejection.size());
         }
-        return new Outcome(reviewed, findings, notes, reviewNames, false, false);
+        return new Outcome(reviewed, findings, notes, reviewNames, findingCounts, false, false);
     }
 
     private SessionReport runReview(Issue issue, String reviewName, Path worktree, String treeHash)

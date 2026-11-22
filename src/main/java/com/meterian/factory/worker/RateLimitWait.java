@@ -1,5 +1,6 @@
 package com.meterian.factory.worker;
 
+import com.meterian.factory.events.WorkerEvents;
 import java.time.Clock;
 import java.time.Instant;
 
@@ -7,12 +8,15 @@ import java.time.Instant;
 final class RateLimitWait {
 
     private static final System.Logger LOGGER = System.getLogger(Worker.class.getName());
+    private static final String WAIT_REASON = "github rate limit";
 
     private final Clock clock;
+    private final WorkerEvents events;
     private Instant resetTime = Instant.MIN;
 
-    RateLimitWait(Clock clock) {
+    RateLimitWait(Clock clock, WorkerEvents events) {
         this.clock = clock;
+        this.events = events;
     }
 
     synchronized boolean isWaiting() {
@@ -27,5 +31,6 @@ final class RateLimitWait {
         resetTime = newResetTime;
         LOGGER.log(System.Logger.Level.WARNING, "The GitHub rate limit is reached. The factory waits until {0}.",
                 newResetTime.toString());
+        events.waitStarted(WAIT_REASON, newResetTime);
     }
 }

@@ -26,6 +26,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeGitHubServer;
@@ -174,11 +175,13 @@ class GitHubRequestBudgetTest {
         IssueWorkflow workflow = new IssueWorkflow(configuration, gitHub, git, agent, versions,
                 buildRunner, Duration.ZERO, new UsageTracker(0.90, Clock.systemUTC()), layout, WORKER_LOGIN, liveSessions,
                 board, new ContextTracker(), pageRequests,
-                com.meterian.factory.workflow.RetrySettings.defaults(), OwnershipGuard.none(), lostIssues);
+                com.meterian.factory.workflow.RetrySettings.defaults(), OwnershipGuard.none(), lostIssues,
+                CollectedEvents.discarded());
         ExecutorService executor = Executors.newFixedThreadPool(1);
         PhaseStopper phaseStopper = new PhaseStopper(agent, buildRunner, layout, liveSessions);
         return new Worker(configuration, gitHub, workflow, versions, phaseStopper, pageRequests, WORKER_LOGIN,
-                executor, liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")), lostIssues);
+                executor, liveSessions, clock, board, new FactorySwitch(temporaryDirectory.resolve("work")), lostIssues,
+                CollectedEvents.discarded());
     }
 
     private Optional<IssueRecord> readRecord() {

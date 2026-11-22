@@ -189,6 +189,61 @@ The value is the number of tries, and the first try counts. So the value `2` giv
 After the last try, the issue goes to the `block` target of its workflow. A value that is not a whole number
 of 1 or more stops the worker at the start, with exit code 1. The message names the property.
 
+## The events file
+
+The worker writes its events to `<work folder>/events.jsonl`, in the JSON Lines format. The file is for a
+monitoring agent, for example a Claude Code session. It is separate from the worker log. Each line is one
+complete JSON object for one event. The worker writes each line in one write, so a reader never sees half a
+line. The file keeps the lines of the earlier runs, so an agent reads the history after a restart.
+
+To watch the file, use `tail -F` and a filter on the field `type`, for example:
+
+```
+tail -F <work folder>/events.jsonl | jq -c 'select(.type == "move" or .type == "blocked")'
+```
+
+Each line has the fields `time` (UTC, ISO 8601) and `type`. Each line of an issue also has the field `issue`.
+The other fields depend on the type:
+
+| `type` | When | Fields |
+|---|---|---|
+| `worker` | The worker starts or stops. | `event` (`start`, `stop`), `version`, `repository` |
+| `move` | An issue moves to a state. | `from`, `event`, `to`, `column`, `entries` |
+| `action-end` | An action ends. | `state`, `action`, `result`, `duration_s`, and the fields of the action |
+| `pr` | The factory opens or merges a pull request. | `event` (`opened`, `merged`), `url`, `commit` (for `merged`) |
+| `blocked` | An issue goes to the block target. | `reason` |
+| `question` | The agent asks the owner a question. | `first_line` |
+| `wait` | The worker waits for a rate limit or a usage limit. | `reason` (`github rate limit`, `usage limit`), `until` (UTC) |
+
+- `move`: a move without an event has no field `event`, for example a limit or a block. The field `entries`
+  gives the count and the limit of each state with a limit, for example `{"implement": "1/3", "review": "0/10"}`.
+  An entry counts when the action of the state starts.
+- `action-end`: `result` is the event of the action. It is `blocked` when a guard of the action blocks the issue,
+  and `error` when the action fails with an exception. An action that waits, for example for the usage limit,
+  writes no line.
+- `blocked` and `question`: the field has only the first line of the note or of the question.
+
+The fields of `action-end` for each action:
+
+| `action` | Fields |
+|---|---|
+| `coding` | `prompt` (`implement`, `fix`, `continue`, `resume`) |
+| `build` | `exit_code`, when the build command ends by itself |
+| `reviews` | `reviews`: one object for each review, for example `{"correctness": {"verdict": "approve", "findings": 0}}` |
+| `risk` | `risk`, `small`, `reasons` (the first reason only) |
+| `merge-gate` | `reason` (for `needs-approval` and `factory-changed`) |
+
+Examples:
+
+```
+{"time":"2026-11-22T17:20:05Z","type":"move","issue":39,"from":"build","event":"passed","to":"review","column":"in-review","entries":{"implement":"1/3","review":"0/10"}}
+{"time":"2026-11-22T17:31:40Z","type":"action-end","issue":39,"state":"review","action":"reviews","result":"rejected","duration_s":612,"reviews":{"correctness":{"verdict":"approve","findings":0},"security":{"verdict":"reject","findings":2}}}
+{"time":"2026-11-22T17:20:04Z","type":"pr","issue":39,"event":"opened","url":"https://github.com/MeterianHQ/oss-detect/pull/43"}
+```
+
+The file has no secret and no prompt text. A failure to write the file does not stop the worker: the worker log
+gets a warning. The worker does not rotate the file.
+
 ## More than one factory on one repository
 
 Several people can run a factory on the same repository. Each person uses a token of their own account. The

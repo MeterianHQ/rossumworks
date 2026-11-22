@@ -528,6 +528,13 @@ public final class FakeGitHubClient implements GitHubClient {
         return Optional.ofNullable(mergeCommitTrees.get(pullRequestNumber));
     }
 
+    /** A merged pull request has the merge commit merge-of- and its number. */
+    @Override
+    public synchronized Optional<String> mergeCommit(int pullRequestNumber) {
+        return mergedPullRequests.contains(pullRequestNumber) ? Optional.of("merge-of-" + pullRequestNumber)
+                : Optional.empty();
+    }
+
     /** Without a simulation, a merge always succeeds and leaves the origin as it is. */
     private boolean simulateSquashMerge(int pullRequestNumber, String headCommit) {
         if (squashMergeSimulation == null) {

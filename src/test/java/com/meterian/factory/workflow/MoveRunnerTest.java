@@ -15,6 +15,7 @@ import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.PendingPrompt;
 import com.meterian.factory.state.RiskLevel;
+import com.meterian.factory.testing.CollectedEvents;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +65,8 @@ class MoveRunnerTest {
     @TempDir
     Path worktree;
 
-    private final MoveRunner moveRunner = new MoveRunner();
+    private final CollectedEvents events = new CollectedEvents();
+    private final MoveRunner moveRunner = new MoveRunner(events.workerEvents());
     private final FactoryDefinition definition = loadWorkflow();
 
     private static FactoryDefinition loadWorkflow() {
@@ -122,6 +124,40 @@ class MoveRunnerTest {
         assertThat(moved.state()).isEqualTo("stuck");
         assertThat(moved.notes()).containsExactly("An older note.", "The reason.");
         assertThat(moved.newestNote()).contains("The reason.");
+    }
+
+    @Test
+    void writesTheMoveWithTheCountsOfTheLimits() {
+        move(recordIn("check", "check").withEntryCounted("code").withActionStarted(), "passed");
+
+        assertThat(events.ofType("move")).singleElement().satisfies(line -> {
+            assertThat(line.path("issue").asInt()).isEqualTo(7);
+            assertThat(line.path("from").asText()).isEqualTo("check");
+            assertThat(line.path("event").asText()).isEqualTo("passed");
+            assertThat(line.path("to").asText()).isEqualTo("judge");
+            assertThat(line.path("column").asText()).isEqualTo("review");
+            assertThat(line.path("entries").path("code").asText()).isEqualTo("1/2");
+        });
+    }
+
+    @Test
+    void writesTheBlockWithTheReasonOfTheEvent() {
+        IssueRecord record = recordIn("code", "code");
+
+        moveRunner.move(definition,
+                new ActionResult.Event(record, "no-change", Optional.of("The agent made no change."), List.of()),
+                worktree);
+
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line ->
+                assertThat(line.path("reason").asText()).isEqualTo("The agent made no change."));
+    }
+
+    @Test
+    void writesNoBlockOnAMoveOutOfTheBlockTarget() {
+        move(recordIn("stuck", "code"), "continue");
+
+        assertThat(events.ofType("move")).hasSize(1);
+        assertThat(events.ofType("blocked")).isEmpty();
     }
 
     @Test

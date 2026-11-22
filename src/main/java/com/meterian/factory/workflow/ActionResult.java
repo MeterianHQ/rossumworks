@@ -3,17 +3,31 @@ package com.meterian.factory.workflow;
 import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.state.IssueRecord;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** The result of one action of an issue. The engine finds the next state of the issue from it. */
 sealed interface ActionResult {
 
-    /** The action ends with an event; the engine applies the transition of the event. */
-    record Event(IssueRecord record, String event, Optional<String> reason, List<Finding> findings)
-            implements ActionResult {
+    /**
+     * The action ends with an event; the engine applies the transition of the event.
+     *
+     * @param actionFields the fields of the action for the event line, for example the exit code of a build
+     */
+    record Event(IssueRecord record, String event, Optional<String> reason, List<Finding> findings,
+                 Map<String, Object> actionFields) implements ActionResult {
 
         public Event {
             findings = List.copyOf(findings);
+            actionFields = Map.copyOf(actionFields);
+        }
+
+        public Event(IssueRecord record, String event, Optional<String> reason, List<Finding> findings) {
+            this(record, event, reason, findings, Map.of());
+        }
+
+        Event withActionFields(Map<String, Object> newActionFields) {
+            return new Event(record, event, reason, findings, newActionFields);
         }
     }
 
@@ -29,15 +43,15 @@ sealed interface ActionResult {
     record Blocked(IssueRecord record, String reason) implements ActionResult {
     }
 
-    static ActionResult endWith(IssueRecord record, String event) {
+    static Event endWith(IssueRecord record, String event) {
         return new Event(record, event, Optional.empty(), List.of());
     }
 
-    static ActionResult endWithReason(IssueRecord record, String event, String reason) {
+    static Event endWithReason(IssueRecord record, String event, String reason) {
         return new Event(record, event, Optional.of(reason), List.of());
     }
 
-    static ActionResult endWithFindings(IssueRecord record, String event, List<Finding> findings) {
+    static Event endWithFindings(IssueRecord record, String event, List<Finding> findings) {
         return new Event(record, event, Optional.empty(), findings);
     }
 
