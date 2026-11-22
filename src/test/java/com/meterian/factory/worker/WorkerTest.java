@@ -35,6 +35,7 @@ import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.state.Verdict;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.FakeAgentRunner;
@@ -431,6 +432,24 @@ class WorkerTest {
         assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(BLOCK_LABEL);
         assertThat(statusComments(ISSUE)).hasSize(1);
         assertThat(worker.issuesInWork()).isEmpty();
+    }
+
+    @Test
+    void aBlockDuringTheSecondReviewRoundKeepsOnlyTheVerdictsOfThatRound() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile()
+                .thenApproveAllReviews(3).thenRejectReview("Bad style")
+                .thenChangeFile().thenApproveReview().thenWaitForStop().thatFails();
+        Worker worker = createWorker(agent, 2);
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        IssueRecord record = readRecord(ISSUE).orElseThrow();
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.reviews()).isEqualTo(Map.of("correctness", Verdict.APPROVE));
     }
 
     @Test

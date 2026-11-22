@@ -943,6 +943,21 @@ class IssueWorkflowTest {
         assertThat(readRecordFromGitHub().reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
     }
 
+    @Test
+    void aFailedReviewActionBlocksWithoutTheVerdictsOfTheEarlierRound() throws Exception {
+        agent.thenChangeFile().thenApproveReview().thenRejectReview("Bad style")
+                .thenChangeFile().then(request -> {
+                    throw new IOException("The disk is full.");
+                });
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true", definitions), queuedRecord());
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.reviews()).isEmpty();
+        assertThat(readRecordFromGitHub().reviews()).isEmpty();
+    }
+
     /** The verdicts in the status comment on GitHub, at the start of each review session. */
     private List<Map<String, Verdict>> recordVerdictsOnGitHubAtEachReviewStart() {
         List<Map<String, Verdict>> verdicts = new ArrayList<>();
