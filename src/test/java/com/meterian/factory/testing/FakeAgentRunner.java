@@ -52,7 +52,15 @@ public final class FakeAgentRunner implements AgentRunner {
     private final AtomicInteger waitingPhases = new AtomicInteger();
     private volatile boolean refusesNewPhases;
     private volatile boolean sessionFileIsSaved = true;
+    private Action beforeEachPhase = request -> {
+    };
     private int changeCount;
+
+    /** Runs the action at the start of each phase, before the scripted action, for example to read GitHub. */
+    public synchronized FakeAgentRunner beforeEachPhase(Action action) {
+        beforeEachPhase = action;
+        return this;
+    }
 
     public synchronized FakeAgentRunner then(Action action) {
         phases.add(new ScriptedPhase(action, SUCCESS));
@@ -211,6 +219,7 @@ public final class FakeAgentRunner implements AgentRunner {
             throw new IllegalStateException("The test has no scripted action for the phase " + requests.size());
         }
         try {
+            beforeEachPhase.perform(request);
             phase.action().perform(request);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);

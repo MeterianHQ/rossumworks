@@ -16,12 +16,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Runs the reviews of the definition on one tree, each in a new session. A result for another tree is a reject. */
+/**
+ * Runs the reviews of the definition on one tree, each in a new session. A result for another tree is a reject. The
+ * record goes to GitHub at the start of the round and after each review, so the card shows each verdict at once.
+ */
 final class ReviewRound {
 
     /**
      * The record with the verdicts, the findings of the rejecting reviews, and the notes of all reviews, or a
-     * session that failed or that the worker stopped.
+     * session that failed or that the worker stopped. After a failed or a stopped session, the record has the
+     * verdicts of the reviews that finished.
      *
      * @param findingCounts the count of the findings of each review, by review name, in the order of the reviews
      */
@@ -42,18 +46,21 @@ final class ReviewRound {
     }
 
     private final PhaseRunner phaseRunner;
+    private final StatusPublisher statusPublisher;
     private final PromptLibrary prompts;
     private final List<String> allowedTools;
 
-    ReviewRound(PhaseRunner phaseRunner, PromptLibrary prompts, List<String> allowedTools) {
+    ReviewRound(PhaseRunner phaseRunner, StatusPublisher statusPublisher, PromptLibrary prompts,
+                List<String> allowedTools) {
         this.phaseRunner = phaseRunner;
+        this.statusPublisher = statusPublisher;
         this.prompts = prompts;
         this.allowedTools = List.copyOf(allowedTools);
     }
 
     Outcome review(Issue issue, IssueRecord record, Path worktree, String treeHash)
             throws AgentException, ApiKeyDetectedException {
-        IssueRecord reviewed = record.withoutReviews();
+        IssueRecord reviewed = statusPublisher.publish(issue, record, record.withoutReviews());
         List<Finding> findings = new ArrayList<>();
         List<ReviewNote> notes = new ArrayList<>();
         Map<String, Integer> findingCounts = new LinkedHashMap<>();
@@ -61,14 +68,14 @@ final class ReviewRound {
         for (String reviewName : reviewNames) {
             SessionReport report = runReview(issue, reviewName, worktree, treeHash);
             if (report.stopped()) {
-                return Outcome.stoppedSession(record);
+                return Outcome.stoppedSession(reviewed);
             }
             if (!report.success()) {
-                return Outcome.failedSession(record);
+                return Outcome.failedSession(reviewed);
             }
             ReviewResult result = ReviewResultReader.read(worktree, reviewName);
             Verdict verdict = judge(result, treeHash);
-            reviewed = reviewed.withReview(reviewName, verdict);
+            reviewed = statusPublisher.publish(issue, reviewed, reviewed.withReview(reviewName, verdict));
             if (isForThisTree(result, treeHash)) {
                 result.notes().forEach(note -> notes.add(new ReviewNote(reviewName, note)));
             }
