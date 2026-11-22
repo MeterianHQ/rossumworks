@@ -52,7 +52,7 @@ final class PhaseRunner {
     /** A phase that may not start reports the wait for the usage limit. */
     boolean mayStartPhase() {
         Optional<Instant> resumeTime = usage.resumesAt();
-        resumeTime.ifPresent(until -> events.waitStarted(USAGE_WAIT_REASON, until));
+        resumeTime.ifPresent(until -> events.writeWait(USAGE_WAIT_REASON, until));
         return resumeTime.isEmpty();
     }
 

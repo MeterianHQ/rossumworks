@@ -219,8 +219,10 @@ The other fields depend on the type:
   gives the count and the limit of each state with a limit, for example `{"implement": "1/3", "review": "0/10"}`.
   An entry counts when the action of the state starts.
 - `action-end`: `result` is the event of the action. It is `blocked` when a guard of the action blocks the issue,
-  and `error` when the action fails with an exception. An action that waits, for example for the usage limit,
-  writes no line.
+  `moved` when the action moves the issue to a state without an event, and `error` when the action fails with an
+  exception. An action that waits, for example for the usage limit, writes no line.
+- `action-end`: `duration_s` is the time of the last run of the action, in seconds. An action that waits for you,
+  for example an approval, runs at each poll, so its `duration_s` is near 0. It is not the time of the wait.
 - `blocked` and `question`: the field has only the first line of the note or of the question.
 
 The fields of `action-end` for each action:
@@ -240,6 +242,10 @@ Examples:
 {"time":"2026-11-22T17:31:40Z","type":"action-end","issue":39,"state":"review","action":"reviews","result":"rejected","duration_s":612,"reviews":{"correctness":{"verdict":"approve","findings":0},"security":{"verdict":"reject","findings":2}}}
 {"time":"2026-11-22T17:20:04Z","type":"pr","issue":39,"event":"opened","url":"https://github.com/MeterianHQ/oss-detect/pull/43"}
 ```
+
+The worker writes a line when the event occurs, before it writes the record to GitHub. When the write to GitHub
+fails, the worker runs the action again, so a line can repeat. To remove the repeats, compare `issue`, `type`,
+and the other fields of the lines.
 
 The file has no secret and no prompt text. A failure to write the file does not stop the worker: the worker log
 gets a warning. The worker does not rotate the file.

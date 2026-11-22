@@ -1,7 +1,6 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.definition.FactoryDefinition;
-import com.meterian.factory.definition.LimitDefinition;
 import com.meterian.factory.definition.OnAnyState;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.Target;
@@ -12,9 +11,7 @@ import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.PendingPrompt;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -25,10 +22,10 @@ final class MoveRunner {
 
     private static final String CONTINUE_EVENT = "continue";
 
-    private final WorkerEvents events;
+    private final MoveReport moveReport;
 
     MoveRunner(WorkerEvents events) {
-        this.events = events;
+        this.moveReport = new MoveReport(events);
     }
 
     /** Moves the issue by the on: entry of the event. The reason of the event becomes a note. */
@@ -69,22 +66,11 @@ final class MoveRunner {
 
     private void reportMove(WorkflowDefinition workflow, IssueRecord entered, StateDefinition source,
             Optional<ActionResult.Event> event) {
-        events.issueMoved(entered.issueNumber(), source.name(), event.map(ActionResult.Event::event),
-                entered.state(), entered.column(), describeEntries(workflow, entered));
-        String blockTarget = workflow.onAnyState().block();
-        if (entered.state().equals(blockTarget) && !source.name().equals(blockTarget)) {
-            events.issueBlocked(entered.issueNumber(), entered.newestNote().orElse(""));
+        if (event.isPresent()) {
+            moveReport.writeMoveByEvent(workflow, event.get(), entered);
+        } else {
+            moveReport.writeMove(workflow, source.name(), entered);
         }
-    }
-
-    /** The count and the limit of each state with a limit, in the order of the workflow, for example "1/3". */
-    private static Map<String, String> describeEntries(WorkflowDefinition workflow, IssueRecord record) {
-        Map<String, String> entries = new LinkedHashMap<>();
-        for (StateDefinition state : workflow.states().values()) {
-            Optional<LimitDefinition> limit = state.limit();
-            limit.ifPresent(found -> entries.put(state.name(), record.entriesOf(state.name()) + "/" + found.entries()));
-        }
-        return entries;
     }
 
     private static StateDefinition resolve(WorkflowDefinition workflow, IssueRecord record, Target target) {

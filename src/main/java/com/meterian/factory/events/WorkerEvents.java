@@ -30,11 +30,11 @@ public final class WorkerEvents {
         this.clock = clock;
     }
 
-    public void workerStarted(String version, String repository) {
+    public void writeWorkerStart(String version, String repository) {
         writeWorkerEvent("start", version, repository);
     }
 
-    public void workerStopped(String version, String repository) {
+    public void writeWorkerStop(String version, String repository) {
         writeWorkerEvent("stop", version, repository);
     }
 
@@ -42,7 +42,7 @@ public final class WorkerEvents {
      * @param event   empty for a move without an event: a limit, a move of on-any-state, or a move of the worker
      * @param entries the count and the limit of each state with a limit, for example "1/3"
      */
-    public void issueMoved(int issueNumber, String fromState, Optional<String> event, String toState, String column,
+    public void writeMove(int issueNumber, String fromState, Optional<String> event, String toState, String column,
                            Map<String, String> entries) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("from", fromState);
@@ -57,7 +57,7 @@ public final class WorkerEvents {
      * @param result       the event of the action, or "blocked", "moved", and "error" for the other ends
      * @param actionFields the fields of the action, for example the exit code of a build
      */
-    public void actionEnded(int issueNumber, String state, String action, String result, Duration duration,
+    public void writeActionEnd(int issueNumber, String state, String action, String result, Duration duration,
                             Map<String, Object> actionFields) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("state", state);
@@ -68,7 +68,7 @@ public final class WorkerEvents {
         write("action-end", Optional.of(issueNumber), fields);
     }
 
-    public void pullRequestOpened(int issueNumber, String url) {
+    public void writePullRequestOpen(int issueNumber, String url) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("event", "opened");
         fields.put("url", url);
@@ -76,7 +76,7 @@ public final class WorkerEvents {
     }
 
     /** @param commit the merge commit, empty when GitHub does not give it */
-    public void pullRequestMerged(int issueNumber, String url, Optional<String> commit) {
+    public void writePullRequestMerge(int issueNumber, String url, Optional<String> commit) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("event", "merged");
         fields.put("url", url);
@@ -85,17 +85,17 @@ public final class WorkerEvents {
     }
 
     /** The reason is the note of the block: the line gets only its first line. */
-    public void issueBlocked(int issueNumber, String reason) {
+    public void writeBlock(int issueNumber, String reason) {
         write("blocked", Optional.of(issueNumber), Map.of("reason", firstLineOf(reason)));
     }
 
     /** The question comes from the agent: the line gets only its first line. */
-    public void questionAsked(int issueNumber, String question) {
+    public void writeQuestion(int issueNumber, String question) {
         write("question", Optional.of(issueNumber), Map.of("first_line", firstLineOf(question)));
     }
 
     /** Several threads report the same wait. Only a later end of the wait writes a new line. */
-    public void waitStarted(String reason, Instant until) {
+    public void writeWait(String reason, Instant until) {
         synchronized (waitEnds) {
             Instant knownEnd = waitEnds.get(reason);
             if (knownEnd != null && !until.isAfter(knownEnd)) {

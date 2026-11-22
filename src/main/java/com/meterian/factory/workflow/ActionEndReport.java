@@ -63,12 +63,12 @@ final class ActionEndReport {
             return;
         }
         ActionType type = record.action().get();
-        events.actionEnded(record.issueNumber(), record.state(), type.yamlName(), resultName.get(),
+        events.writeActionEnd(record.issueNumber(), record.state(), type.yamlName(), resultName.get(),
                 Duration.between(startTime, clock.instant()), ActionEndFields.describe(type, record, result));
     }
 
     private void reportError(IssueRecord record, Instant startTime) {
-        record.action().ifPresent(type -> events.actionEnded(record.issueNumber(), record.state(), type.yamlName(),
+        record.action().ifPresent(type -> events.writeActionEnd(record.issueNumber(), record.state(), type.yamlName(),
                 ERROR_RESULT, Duration.between(startTime, clock.instant()), Map.of()));
     }
 

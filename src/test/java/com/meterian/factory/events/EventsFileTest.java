@@ -26,6 +26,15 @@ class EventsFileTest {
     }
 
     @Test
+    void writesALongLineAsOneCompleteLine() throws IOException {
+        String longLine = "{\"reason\":\"" + "x".repeat(100_000) + "\"}";
+
+        EventsFile.inWorkFolder(workDirectory).append(longLine);
+
+        assertThat(Files.readAllLines(workDirectory.resolve("events.jsonl"))).containsExactly(longLine);
+    }
+
+    @Test
     void keepsTheLinesOfAnEarlierRun() throws IOException {
         EventsFile.inWorkFolder(workDirectory).append("{\"type\":\"worker\"}");
 

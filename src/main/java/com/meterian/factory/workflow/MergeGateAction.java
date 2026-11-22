@@ -124,7 +124,7 @@ final class MergeGateAction implements Action {
         }
         String url = "https://github.com/" + services.configuration().repository().fullName() + "/pull/"
                 + pullRequestNumber;
-        services.events().pullRequestMerged(record.issueNumber(), url, mergeCommit);
+        services.events().writePullRequestMerge(record.issueNumber(), url, mergeCommit);
     }
 
     private boolean isMergedOnGitHub(IssueRecord record) {

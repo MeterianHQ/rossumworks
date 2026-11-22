@@ -646,6 +646,23 @@ class WorkerTest {
     }
 
     @Test
+    void startAgainWritesTheMoveBackToTheStart() {
+        Worker worker = createWorker(new FakeAgentRunner(), 0);
+        worker.pollOnce();
+        writeBlockedRecordWithEarlierWork();
+        gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
+
+        worker.pollOnce();
+
+        assertThat(events.ofType("move")).singleElement().satisfies(line -> {
+            assertThat(line.path("from").asText()).isEqualTo("blocked");
+            assertThat(line.path("to").asText()).isEqualTo("prepare");
+            assertThat(line.path("column").asText()).isEqualTo("queued");
+            assertThat(line.has("event")).isFalse();
+        });
+    }
+
+    @Test
     void startAgainTakesTheCurrentVersionOfTheDefinition() {
         Worker worker = createWorker(new FakeAgentRunner(), 0);
         worker.pollOnce();
@@ -1082,6 +1099,26 @@ class WorkerTest {
         assertThat(record.state()).isEqualTo("build");
         assertThat(record.column()).isEqualTo("in-progress");
         assertThat(record.entriesOf("implement")).isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    void aRestartWithoutTheWorktreeOfAMergedIssueWritesTheMoveToDone() throws InterruptedException {
+        gitHub.failTheCommentEditAfterTheMerge();
+        createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true), 2)
+                .pollOnce();
+        waitForTheLoops();
+        run(clone, "worktree", "remove", "--force", worktree().toString());
+        int earlierMoves = events.ofType("move").size();
+
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+
+        assertThat(events.ofType("move").subList(earlierMoves, events.ofType("move").size())).first()
+                .satisfies(line -> {
+                    assertThat(line.path("from").asText()).isEqualTo("merge");
+                    assertThat(line.path("to").asText()).isEqualTo("done");
+                    assertThat(line.has("event")).isFalse();
+                });
     }
 
     @Test

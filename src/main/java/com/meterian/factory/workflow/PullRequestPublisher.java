@@ -63,8 +63,9 @@ final class PullRequestPublisher {
 
     private PullRequest createPullRequest(Issue issue, String branch, Path worktree) {
         String body = PullRequestDescription.bodyFor(issue.number(), worktree);
-        PullRequest pullRequest = gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
-        events.pullRequestOpened(issue.number(), pullRequest.url());
+        PullRequest pullRequest =
+                gitHub.createPullRequest(branch, mergeTargetBranch, ChangeTitle.describe(issue), body);
+        events.writePullRequestOpen(issue.number(), pullRequest.url());
         return pullRequest;
     }
 

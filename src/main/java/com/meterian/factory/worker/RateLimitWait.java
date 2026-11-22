@@ -31,6 +31,6 @@ final class RateLimitWait {
         resetTime = newResetTime;
         LOGGER.log(System.Logger.Level.WARNING, "The GitHub rate limit is reached. The factory waits until {0}.",
                 newResetTime.toString());
-        events.waitStarted(WAIT_REASON, newResetTime);
+        events.writeWait(WAIT_REASON, newResetTime);
     }
 }

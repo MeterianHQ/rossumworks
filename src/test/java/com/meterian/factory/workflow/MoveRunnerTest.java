@@ -153,6 +153,14 @@ class MoveRunnerTest {
     }
 
     @Test
+    void writesTheEventAndItsStateAsTheBlockReasonOfAnEventWithoutAReason() {
+        move(recordIn("code", "code").withNote("An earlier note."), "failed");
+
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line ->
+                assertThat(line.path("reason").asText()).isEqualTo("The event failed of the state code."));
+    }
+
+    @Test
     void writesNoBlockOnAMoveOutOfTheBlockTarget() {
         move(recordIn("stuck", "code"), "continue");
 

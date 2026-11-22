@@ -76,7 +76,7 @@ final class CodingAction implements Action {
     /** The owner answers in the live conversation. The question is also a comment on the issue. */
     private ActionResult askTheOwner(Issue issue, IssueRecord record, String question) {
         services.gitHub().createComment(issue.number(), QuestionComment.render(question));
-        services.events().questionAsked(issue.number(), question);
+        services.events().writeQuestion(issue.number(), question);
         return ActionResult.endWithReason(record, "question", QUESTION_NOTE);
     }
 

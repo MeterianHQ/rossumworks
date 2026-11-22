@@ -38,7 +38,7 @@ public final class OnAnyStateMoves {
         try {
             definition = definitions.definitionOf(record);
         } catch (IllegalStateException exception) {
-            events.issueBlocked(record.issueNumber(), note);
+            events.writeBlock(record.issueNumber(), note);
             return record.withNewestNote(note).withMove(record.state(), Optional.empty(), BLOCKED_COLUMN);
         }
         if (record.state().equals(definition.workflow().onAnyState().block())) {

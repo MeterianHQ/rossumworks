@@ -1,8 +1,9 @@
 package com.meterian.factory.events;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -25,12 +26,18 @@ public final class EventsFile implements EventLines {
         return new EventsFile(workDirectory.resolve(FILE_NAME));
     }
 
-    /** One write gives the line and its newline, so a reader never sees half a line. */
+    /**
+     * One write call gives the line and its newline, so a reader never sees half a line. Files.write is not
+     * enough: it writes a long line in parts of 8 KB.
+     */
     @Override
     public synchronized void append(String line) {
-        byte[] bytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
-        try {
-            Files.write(file, bytes, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+        ByteBuffer bytes = ByteBuffer.wrap((line + "\n").getBytes(StandardCharsets.UTF_8));
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                StandardOpenOption.APPEND)) {
+            while (bytes.hasRemaining()) {
+                channel.write(bytes);
+            }
         } catch (IOException | RuntimeException exception) {
             LOGGER.log(System.Logger.Level.WARNING, "The event is not in " + file + ": " + exception.getMessage());
         }
