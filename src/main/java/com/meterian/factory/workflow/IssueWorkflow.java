@@ -313,7 +313,13 @@ public final class IssueWorkflow {
         if (isInTheFinishState(record)) {
             return MergedIssue.noteFailureAfterTheMerge(record, definition.workflow().finishState(), exception);
         }
-        return onAnyStateMoves.moveToBlockTarget(closeTheLiveSession(record), reason);
+        return onAnyStateMoves.moveToBlockTarget(closeTheLiveSession(withoutTheVerdictsOfAFailedRound(record)),
+                reason);
+    }
+
+    /** The failed round published its start, so the verdicts of the earlier round must not come back. */
+    private static IssueRecord withoutTheVerdictsOfAFailedRound(IssueRecord record) {
+        return record.action().equals(Optional.of(ActionType.REVIEWS)) ? record.withoutReviews() : record;
     }
 
     /** The block target has no conversation: the record must never know less than tmux. */

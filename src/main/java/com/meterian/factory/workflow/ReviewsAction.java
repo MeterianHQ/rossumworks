@@ -34,10 +34,10 @@ final class ReviewsAction implements Action {
             return ActionResult.block(outcome.record(), "A review changed the files.");
         }
         if (outcome.sessionStopped()) {
-            return ActionResult.stay(record);
+            return ActionResult.stay(outcome.record());
         }
         if (outcome.sessionFailed()) {
-            return reviewSessionRetry.retryReviewRound(record);
+            return reviewSessionRetry.retryReviewRound(outcome.record());
         }
         services.reviewNotesToPublish().put(issue.number(), outcome.notes());
         IssueRecord reviewed = outcome.record().withoutFailedReviewRounds();

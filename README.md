@@ -535,7 +535,8 @@ that version goes to an extra column at the end.
 
 A card shows the issue, its state, the result of each review of its workflow, the entries against each limit (for example "implement 1/3"),
 the risk in one line, the context of the agent, and the newest note. The reasons of the risk check are in the
-status comment of the issue. A card in a state with the action
+status comment of the issue. At the start of a review round, all the review results go to gray. Each result
+gets its color when its review ends. A card in a state with the action
 `approval` or `conversation` waits for you. It shows the reason and the Remote Control link.
 After a click on a button, the card shows the sent request. Until the worker acts on it, the card is gray and
 all its buttons are disabled.

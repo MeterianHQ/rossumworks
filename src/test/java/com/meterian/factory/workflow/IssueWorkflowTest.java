@@ -47,6 +47,7 @@ import com.meterian.factory.state.MainRecordReader;
 import com.meterian.factory.state.PendingPrompt;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.DefinitionCommits;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -60,6 +61,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -897,6 +899,74 @@ class IssueWorkflowTest {
         assertThat(secondImplement.prompt()).contains("The review style: Bad style");
         assertThat(record.entriesOf("implement")).isEqualTo(2);
         assertThat(record.state()).isEqualTo("done");
+    }
+
+    @Test
+    void showsTheVerdictOfEachReviewOnGitHubWhenTheReviewEnds() throws Exception {
+        List<Map<String, Verdict>> verdictsAtReviewStart = recordVerdictsOnGitHubAtEachReviewStart();
+        agent.thenChangeFile().thenApproveReview().thenRejectReview("Bad style")
+                .thenChangeFile().thenApproveAllReviews(2).thenAssessRisk("low", true);
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+
+        advanceUntilWaiting(createWorkflow("true", definitions), queuedRecord());
+
+        assertThat(verdictsAtReviewStart).containsExactly(
+                Map.of(),
+                Map.of("security", Verdict.APPROVE),
+                Map.of(),
+                Map.of("security", Verdict.APPROVE));
+    }
+
+    @Test
+    void aFailedReviewSessionKeepsTheVerdictsOfTheFinishedReviews() throws Exception {
+        agent.thenChangeFile().thenApproveReview().thenApproveReview().thatFails();
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+        IssueWorkflow workflow = createWorkflow("true", definitions);
+        IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "review");
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(record.reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
+        assertThat(readRecordFromGitHub().reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
+    }
+
+    @Test
+    void aStoppedReviewSessionKeepsTheVerdictsOfTheFinishedReviews() throws Exception {
+        agent.thenChangeFile().thenApproveReview().thenApproveReview().thatIsStopped();
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+        IssueWorkflow workflow = createWorkflow("true", definitions);
+        IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "review");
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(record.reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
+        assertThat(readRecordFromGitHub().reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
+    }
+
+    @Test
+    void aFailedReviewActionBlocksWithoutTheVerdictsOfTheEarlierRound() throws Exception {
+        agent.thenChangeFile().thenApproveReview().thenRejectReview("Bad style")
+                .thenChangeFile().then(request -> {
+                    throw new IOException("The disk is full.");
+                });
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+
+        IssueRecord record = advanceUntilWaiting(createWorkflow("true", definitions), queuedRecord());
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.reviews()).isEmpty();
+        assertThat(readRecordFromGitHub().reviews()).isEmpty();
+    }
+
+    /** The verdicts in the status comment on GitHub, at the start of each review session. */
+    private List<Map<String, Verdict>> recordVerdictsOnGitHubAtEachReviewStart() {
+        List<Map<String, Verdict>> verdicts = new ArrayList<>();
+        agent.beforeEachPhase(request -> {
+            if (request.prompt().contains(".factory-work/review-")) {
+                verdicts.add(new LinkedHashMap<>(readRecordFromGitHub().reviews()));
+            }
+        });
+        return verdicts;
     }
 
     private static FactoryDefinition loadBuiltInWithSecurityAndStyleReviews() throws DefinitionException {
