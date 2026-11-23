@@ -8,6 +8,13 @@ This play gave the world the word "robot". Its robots come from a factory, like 
 
 Run `./mvnw verify`. The build needs a JDK 21 or later.
 
+## Legal considerations
+
+The factory runs the `claude` CLI with your subscription, from a script. The Anthropic Consumer Terms do not
+permit access to the services through a script, except with an API key or with an explicit permission. Other
+Anthropic documents permit the unmodified `claude` CLI with your own subscription, and also in scripts. The
+documents do not agree. Read `docs/legal-considerations.md` before you use the factory.
+
 ## Configuration
 
 The command `create` writes the configuration file `<work folder>/worker.yaml` (see "Setup").
