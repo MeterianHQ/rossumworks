@@ -949,7 +949,7 @@ class WorkerTest {
         assertThat(loopsEnded).isTrue();
         assertThat(worker.isStopped()).isTrue();
         assertThat(agent.stoppedIssues()).contains(7, 8);
-        assertThat(worker.foundAnApiKey()).isFalse();
+        assertThat(worker.foundACredentialMismatch()).isFalse();
         for (int issueNumber : List.of(7, 8)) {
             assertThat(readRecord(issueNumber).orElseThrow().column()).isNotEqualTo("blocked");
         }
@@ -1199,7 +1199,7 @@ class WorkerTest {
         int otherIssue = issueWithTheApiKey == 7 ? 8 : 7;
         IssueRecord otherRecord = readRecord(otherIssue).orElseThrow();
         assertThat(worker.isStopped()).isTrue();
-        assertThat(worker.foundAnApiKey()).isTrue();
+        assertThat(worker.foundACredentialMismatch()).isTrue();
         assertThat(agent.stoppedIssues()).contains(otherIssue);
         assertThat(otherRecord.column()).isIn("queued", "in-progress");
         assertThat(otherRecord.state()).isIn("prepare", "implement");

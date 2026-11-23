@@ -48,7 +48,7 @@ class ClaudeAgentRunnerTest {
         ClaudeAgentRunner runner = runnerFor("api-key-init-first.jsonl", "30", "0");
         long start = System.nanoTime();
 
-        assertThatThrownBy(() -> runner.runPhase(requestOf(7))).isInstanceOf(ApiKeyDetectedException.class);
+        assertThatThrownBy(() -> runner.runPhase(requestOf(7))).isInstanceOf(CredentialMismatchException.class);
 
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LIMIT);
     }
@@ -86,7 +86,7 @@ class ClaudeAgentRunnerTest {
         ClaudeAgentRunner runner = runnerFor("success-without-init.jsonl", "", "0");
 
         assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
-                .isInstanceOf(ApiKeyDetectedException.class)
+                .isInstanceOf(CredentialMismatchException.class)
                 .hasMessage("The session did not report its credential source.");
     }
 

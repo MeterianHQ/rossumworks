@@ -49,7 +49,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
     }
 
     @Override
-    public SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
+    public SessionReport runPhase(PhaseRequest request) throws AgentException, CredentialMismatchException {
         Run run = new Run();
         if (runs.putIfAbsent(request.issueNumber(), run) != null) {
             throw new AgentException("An agent session already runs for the issue " + request.issueNumber() + ".");
@@ -116,7 +116,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
     }
 
     private SessionReport readSession(PhaseRequest request, Run run)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         StreamEventParser parser = new StreamEventParser(clock);
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(run.process().getInputStream(), StandardCharsets.UTF_8))) {
@@ -137,20 +137,20 @@ public final class ClaudeAgentRunner implements AgentRunner {
         }
     }
 
-    private void verifyNoApiKey(StreamEventParser parser, Run run) throws ApiKeyDetectedException {
+    private void verifyNoApiKey(StreamEventParser parser, Run run) throws CredentialMismatchException {
         Optional<String> source = parser.apiKeySource();
         if (source.isPresent() && !NO_API_KEY.equals(source.get())) {
             run.end();
-            throw new ApiKeyDetectedException("The session uses the credential source: " + source.get());
+            throw new CredentialMismatchException("The session uses the credential source: " + source.get());
         }
     }
 
     private SessionReport buildReport(Run run, StreamEventParser parser)
-            throws InterruptedException, ApiKeyDetectedException {
+            throws InterruptedException, CredentialMismatchException {
         int exitCode = run.process().waitFor();
         SessionReport report = parser.report();
         if (report.success() && report.apiKeySource().isEmpty()) {
-            throw new ApiKeyDetectedException(UNKNOWN_SOURCE_MESSAGE);
+            throw new CredentialMismatchException(UNKNOWN_SOURCE_MESSAGE);
         }
         if (run.isStopRequested() || (report.success() && exitCode != 0)) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),

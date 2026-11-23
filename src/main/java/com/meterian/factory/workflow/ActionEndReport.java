@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.GitException;
@@ -34,9 +34,9 @@ final class ActionEndReport {
         this.clock = clock;
     }
 
-    /** A refused phase and an API key are not an end of the action: the worker shuts down. */
+    /** A refused phase and a credential mismatch are not an end of the action: the worker shuts down. */
     ActionResult run(Action action, Issue issue, IssueRecord record, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         Instant startTime = clock.instant();
         try {
             ActionResult result = action.run(issue, record, worktree);

@@ -2,7 +2,7 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.events.WorkerEvents;
@@ -32,7 +32,7 @@ final class PhaseRunner {
     }
 
     /** Runs a phase of the agent in charge of the issue. */
-    SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
+    SessionReport runPhase(PhaseRequest request) throws AgentException, CredentialMismatchException {
         SessionReport report = runAndRecordUsage(request);
         report.contextUsage().ifPresent(context -> contexts.record(request.issueNumber(), context));
         return report;
@@ -40,7 +40,7 @@ final class PhaseRunner {
 
     /** Runs a phase in a new session that no other phase uses. The context bar does not show this session. */
     SessionReport runInNewSession(int issueNumber, Path worktree, String prompt, List<String> allowedTools)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         return runAndRecordUsage(
                 new PhaseRequest(issueNumber, UUID.randomUUID(), true, worktree, prompt, allowedTools));
     }
@@ -56,7 +56,7 @@ final class PhaseRunner {
         return resumeTime.isEmpty();
     }
 
-    private SessionReport runAndRecordUsage(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
+    private SessionReport runAndRecordUsage(PhaseRequest request) throws AgentException, CredentialMismatchException {
         SessionReport report = agentRunner.runPhase(request);
         usage.record(report.usageWindows());
         return report;

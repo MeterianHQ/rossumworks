@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
@@ -30,7 +30,7 @@ final class CodingAction implements Action {
 
     @Override
     public ActionResult run(Issue issue, IssueRecord record, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         if (version.conflictResolution().hasUnfinishedMergeCommit(worktree)) {
             version.conflictResolution().finishMergeCommit(worktree, ChangeTitle.describe(issue));
             return sendChanged(record.withoutConflictedPaths());

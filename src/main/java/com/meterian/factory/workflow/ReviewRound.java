@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.prompt.Finding;
@@ -59,7 +59,7 @@ final class ReviewRound {
     }
 
     Outcome review(Issue issue, IssueRecord record, Path worktree, String treeHash)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         IssueRecord reviewed = statusPublisher.publish(issue, record, record.withoutReviews());
         List<Finding> findings = new ArrayList<>();
         List<ReviewNote> notes = new ArrayList<>();
@@ -88,7 +88,7 @@ final class ReviewRound {
     }
 
     private SessionReport runReview(Issue issue, String reviewName, Path worktree, String treeHash)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         new FactoryFolder(worktree).deleteReviewResult(reviewName);
         String prompt = prompts.review(reviewName, issue, treeHash);
         return phaseRunner.runInNewSession(issue.number(), worktree, prompt, allowedTools);

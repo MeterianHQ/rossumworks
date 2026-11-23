@@ -2,7 +2,7 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.board.BoardUpdates;
@@ -105,7 +105,7 @@ public final class IssueWorkflow {
     }
 
     /** The review notes go to the pull request only after the record of their round is on GitHub. */
-    public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
+    public IssueRecord advance(IssueRecord record) throws CredentialMismatchException {
         reviewNotesToPublish.remove(record.issueNumber());
         Issue issue = gitHub.issue(record.issueNumber());
         IssueRecord next = runCurrentAction(issue, record);
@@ -123,7 +123,7 @@ public final class IssueWorkflow {
         try {
             IssueRecord next = enterTheConversation(issue, record);
             return livePublisher.publish(issue, record, next);
-        } catch (ApiKeyDetectedException exception) {
+        } catch (CredentialMismatchException exception) {
             throw new IllegalStateException("The conversation action runs no agent session.", exception);
         }
     }
@@ -190,7 +190,7 @@ public final class IssueWorkflow {
         }
     }
 
-    private IssueRecord enterTheConversation(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+    private IssueRecord enterTheConversation(Issue issue, IssueRecord record) throws CredentialMismatchException {
         if (record.action().equals(Optional.of(ActionType.FINISH))) {
             return record.withNote(DONE_NOTE);
         }
@@ -214,7 +214,7 @@ public final class IssueWorkflow {
      * Fail closed: while a session that the record does not know can run, no action starts. An issue whose
      * definition version does not load runs no action.
      */
-    private IssueRecord runCurrentAction(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+    private IssueRecord runCurrentAction(Issue issue, IssueRecord record) throws CredentialMismatchException {
         Optional<IssueRecord> withoutUnknownSession = unknownSessionCloser.closeUnknownSession(record);
         if (withoutUnknownSession.isEmpty()) {
             return record;
@@ -247,7 +247,7 @@ public final class IssueWorkflow {
 
     /** A refused agent session keeps the record from before the action: the worker shuts down. */
     private IssueRecord runActionAndCatchFailures(Issue issue, IssueRecord record, ActionSet actionSet)
-            throws ApiKeyDetectedException {
+            throws CredentialMismatchException {
         try {
             return runAction(issue, record, actionSet, layout.worktree(record.issueNumber()));
         } catch (PhaseRefusedException refused) {
@@ -266,7 +266,7 @@ public final class IssueWorkflow {
      * text does not start when the text changed.
      */
     private IssueRecord runAction(Issue issue, IssueRecord record, ActionSet actionSet, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         FactoryDefinition definition = actionSet.definition();
         Action action = actionSet.actionOf(record.action());
         if (isInTheFinishState(record)) {
@@ -283,7 +283,7 @@ public final class IssueWorkflow {
 
     /** An entry counts only when the action starts, so a limit that refuses the entry does not count it. */
     private IssueRecord startAction(Issue issue, IssueRecord record, ActionSet actionSet, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         FactoryDefinition definition = actionSet.definition();
         Optional<IssueRecord> refused = limitCheck.refuseEntry(definition, record, worktree);
         if (refused.isPresent()) {

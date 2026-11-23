@@ -79,7 +79,7 @@ public final class Main {
 
     public static final int EXIT_SUCCESS = 0;
     public static final int EXIT_FAILURE = 1;
-    static final int EXIT_API_KEY = 2;
+    static final int EXIT_CREDENTIAL_MISMATCH = 2;
 
     private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
             + "       java -jar rossumworks.jar hash-password\n"
@@ -314,12 +314,12 @@ public final class Main {
             continueMarkerWatcher.close();
             webServer.ifPresent(WebServer::stop);
         }
-        if (!worker.foundAnApiKey()) {
+        if (!worker.foundACredentialMismatch()) {
             errors.println("The factory stopped.");
             return EXIT_SUCCESS;
         }
         errors.println("The factory stopped: a claude session used an API key.");
-        return EXIT_API_KEY;
+        return EXIT_CREDENTIAL_MISMATCH;
     }
 
     /**

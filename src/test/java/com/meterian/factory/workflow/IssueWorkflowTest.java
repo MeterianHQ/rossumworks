@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.board.BoardUpdates;
@@ -167,7 +167,7 @@ class IssueWorkflowTest {
                 events.workerEvents());
     }
 
-    private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws ApiKeyDetectedException {
+    private IssueRecord advanceUntilWaiting(IssueWorkflow workflow, IssueRecord start) throws CredentialMismatchException {
         IssueRecord record = start;
         int advances = 0;
         do {
@@ -178,7 +178,7 @@ class IssueWorkflowTest {
     }
 
     private IssueRecord advanceUntilState(IssueWorkflow workflow, IssueRecord start, String stateName)
-            throws ApiKeyDetectedException {
+            throws CredentialMismatchException {
         IssueRecord record = start;
         int advances = 0;
         while (!record.state().equals(stateName) && !IssueWorkflow.isAtRest(record) && advances < 30) {
@@ -248,13 +248,13 @@ class IssueWorkflowTest {
         return body.substring(0, body.indexOf("<!-- factory-record"));
     }
 
-    private IssueRecord waitForApprovalOfAMediumRisk(IssueWorkflow workflow) throws ApiKeyDetectedException {
+    private IssueRecord waitForApprovalOfAMediumRisk(IssueWorkflow workflow) throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("medium", true);
         return advanceUntilWaiting(workflow, queuedRecord());
     }
 
     @Test
-    void fixesALowRiskIssueToDone() throws ApiKeyDetectedException {
+    void fixesALowRiskIssueToDone() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -271,7 +271,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheEventsOfALowRiskIssueToDone() throws ApiKeyDetectedException {
+    void writesTheEventsOfALowRiskIssueToDone() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -304,7 +304,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheFindingsOfARejectingReviewAndThePromptFix() throws ApiKeyDetectedException {
+    void writesTheFindingsOfARejectingReviewAndThePromptFix() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -320,7 +320,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheBlockAndTheExitCodeOfAFailedBuild() throws ApiKeyDetectedException {
+    void writesTheBlockAndTheExitCodeOfAFailedBuild() throws CredentialMismatchException {
         agent.thenChangeFile().thenChangeFile().thenChangeFile();
 
         advanceUntilWaiting(createWorkflow("false"), queuedRecord());
@@ -333,7 +333,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheReasonOfAMergeGateThatNeedsTheOwner() throws ApiKeyDetectedException {
+    void writesTheReasonOfAMergeGateThatNeedsTheOwner() throws CredentialMismatchException {
         waitForApprovalOfAMediumRisk(createWorkflow("true"));
 
         JsonNode mergeGate = findActionEnd("merge-gate");
@@ -342,7 +342,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheFirstLineOfAQuestion() throws ApiKeyDetectedException {
+    void writesTheFirstLineOfAQuestion() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?\n\nThe issue names two.");
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -370,7 +370,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void prepareContinuesThePushedBranch() throws ApiKeyDetectedException {
+    void prepareContinuesThePushedBranch() throws CredentialMismatchException {
         String pushedCommit = pushABranchOfAnEarlierOwnerToOrigin();
         IssueRecord handedOver = queuedRecord().withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
 
@@ -382,7 +382,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void prepareWithoutHandOverStartsFromTheMergeTarget() throws ApiKeyDetectedException {
+    void prepareWithoutHandOverStartsFromTheMergeTarget() throws CredentialMismatchException {
         pushABranchOfAnEarlierOwnerToOrigin();
 
         IssueRecord record = createWorkflow("true").advance(queuedRecord());
@@ -392,7 +392,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void approvalOfAContinuationRunsTheReviewsAgain() throws ApiKeyDetectedException {
+    void approvalOfAContinuationRunsTheReviewsAgain() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting =
                 waitForApprovalOfAMediumRisk(workflow).withHandOver(HandOver.CONTINUES_PUSHED_BRANCH);
@@ -410,7 +410,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void waitsForTheOwnerOnAMediumRisk() throws ApiKeyDetectedException {
+    void waitsForTheOwnerOnAMediumRisk() throws CredentialMismatchException {
         IssueRecord record = waitForApprovalOfAMediumRisk(createWorkflow("true"));
 
         assertThat(record.column()).isEqualTo("waits-for-you");
@@ -420,7 +420,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAfterAnApproval() throws ApiKeyDetectedException {
+    void mergesAfterAnApproval() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -433,7 +433,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aMergeAfterAnApprovalGivesTheNewestNote() throws ApiKeyDetectedException {
+    void aMergeAfterAnApprovalGivesTheNewestNote() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -445,7 +445,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aMergeByAPersonOnGitHubGivesTheNewestNote() throws ApiKeyDetectedException {
+    void aMergeByAPersonOnGitHubGivesTheNewestNote() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.mergeByAPerson(waiting.pullRequestNumber().orElseThrow());
@@ -467,7 +467,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void waitsForTheOwnerWhenThePullRequestChangesTheFactory() throws ApiKeyDetectedException {
+    void waitsForTheOwnerWhenThePullRequestChangesTheFactory() throws CredentialMismatchException {
         agent.then(writeFactoryFile()).thenApproveAllReviews().thenAssessRisk("low", true);
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -478,7 +478,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAChangeOfTheFactoryAfterTheApproval() throws ApiKeyDetectedException {
+    void mergesAChangeOfTheFactoryAfterTheApproval() throws CredentialMismatchException {
         agent.then(writeFactoryFile()).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = advanceUntilWaiting(workflow, queuedRecord());
@@ -491,7 +491,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAtOnceWithAnApprovalGivenBefore() throws ApiKeyDetectedException {
+    void mergesAtOnceWithAnApprovalGivenBefore() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         IssueRecord atTheGate = RecordStates.move(waiting, "merge")
@@ -504,7 +504,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void recordsTheApprovedFilesWhenTheApprovalSendsApproved() throws ApiKeyDetectedException {
+    void recordsTheApprovedFilesWhenTheApprovalSendsApproved() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -516,7 +516,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void acceptsFactoryChangedForTheApprovedFiles() throws ApiKeyDetectedException {
+    void acceptsFactoryChangedForTheApprovedFiles() throws CredentialMismatchException {
         agent.then(writeFactoryFile()).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = advanceUntilWaiting(workflow, queuedRecord());
@@ -532,7 +532,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void asksAgainAfterACodeChange() throws ApiKeyDetectedException {
+    void asksAgainAfterACodeChange() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile();
@@ -547,7 +547,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aCodeChangeRemovesTheRiskResult() throws ApiKeyDetectedException {
+    void aCodeChangeRemovesTheRiskResult() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile();
@@ -591,7 +591,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsAFixLoopAfterARejectingReview() throws ApiKeyDetectedException {
+    void runsAFixLoopAfterARejectingReview() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -618,7 +618,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void putsTheDescriptionOfTheAgentInThePullRequest() throws ApiKeyDetectedException {
+    void putsTheDescriptionOfTheAgentInThePullRequest() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The greeting says hello.")).thenApproveAllReviews()
                 .thenAssessRisk("low", true);
 
@@ -632,7 +632,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void editsThePullRequestBodyAfterAFixLoopChangesTheDescription() throws ApiKeyDetectedException {
+    void editsThePullRequestBodyAfterAFixLoopChangesTheDescription() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The first description."))
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .then(changeFileAndDescribe("The second description.")).thenApproveAllReviews()
@@ -646,7 +646,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void keepsThePullRequestBodyWhenAFixLoopLeavesNoDescription() throws ApiKeyDetectedException {
+    void keepsThePullRequestBodyWhenAFixLoopLeavesNoDescription() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The first description."))
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .then(request -> {
@@ -661,7 +661,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aReviewNoteStartsNoFixLoopAndReachesThePullRequest() throws ApiKeyDetectedException {
+    void aReviewNoteStartsNoFixLoopAndReachesThePullRequest() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The greeting says hello."))
                 .thenApproveReviewWithNote("Info", "Fixes #12 can come later.")
                 .thenApproveReview().thenApproveReview().thenApproveReview()
@@ -680,7 +680,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void writesTheReviewNotesAfterTheRecordOfTheRound() throws ApiKeyDetectedException {
+    void writesTheReviewNotesAfterTheRecordOfTheRound() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The greeting says hello."))
                 .thenApproveReviewWithNote("Info", "A note.")
                 .thenApproveReview().thenApproveReview().thenApproveReview()
@@ -695,7 +695,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFailedWriteOfTheReviewNotesKeepsTheReviewRound() throws ApiKeyDetectedException {
+    void aFailedWriteOfTheReviewNotesKeepsTheReviewRound() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The greeting says hello."))
                 .thenApproveReviewWithNote("Info", "A note.")
                 .thenApproveReview().thenApproveReview().thenApproveReview()
@@ -711,7 +711,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void ignoresTheNotesOfAResultForAnotherTree() throws ApiKeyDetectedException {
+    void ignoresTheNotesOfAResultForAnotherTree() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The greeting says hello."))
                 .thenApproveReviewOfTreeWithNote("0000000", "Info", "A note for another tree.")
                 .thenApproveReview().thenApproveReview().thenApproveReview()
@@ -724,7 +724,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void editsNoPullRequestBodyWhenTheDescriptionStaysTheSame() throws ApiKeyDetectedException {
+    void editsNoPullRequestBodyWhenTheDescriptionStaysTheSame() throws CredentialMismatchException {
         agent.then(changeFileAndDescribe("The same description."))
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -735,7 +735,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksAfterTheFixLoopLimit() throws ApiKeyDetectedException {
+    void blocksAfterTheFixLoopLimit() throws CredentialMismatchException {
         agent.thenChangeFile().thenChangeFile().thenChangeFile();
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("false"), queuedRecord());
@@ -834,7 +834,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void waitsForTheOwnerOnAQuestion() throws ApiKeyDetectedException {
+    void waitsForTheOwnerOnAQuestion() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -848,7 +848,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksWhenTheAgentChangesNothing() throws ApiKeyDetectedException {
+    void blocksWhenTheAgentChangesNothing() throws CredentialMismatchException {
         agent.thenChangeNothing();
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -858,7 +858,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void reviewsRunInNewSessions() throws ApiKeyDetectedException {
+    void reviewsRunInNewSessions() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -986,7 +986,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aReviewOfAnotherTreeIsAReject() throws ApiKeyDetectedException {
+    void aReviewOfAnotherTreeIsAReject() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReviewOfTree("0000").thenApproveReview().thenApproveReview().thenApproveReview()
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -999,7 +999,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void startsNoPhaseAboveTheUsageThreshold() throws ApiKeyDetectedException {
+    void startsNoPhaseAboveTheUsageThreshold() throws CredentialMismatchException {
         Instant now = Instant.now();
         usage.record(List.of(new UsageWindow("five_hour", 0.95, now.plus(Duration.ofHours(1)), "allowed", now)));
         IssueWorkflow workflow = createWorkflow("true");
@@ -1012,16 +1012,16 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void stopsOnAnApiKey() throws ApiKeyDetectedException {
+    void stopsOnAnApiKey() throws CredentialMismatchException {
         agent.thenDetectAnApiKey();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
 
-        assertThatThrownBy(() -> workflow.advance(prepared)).isInstanceOf(ApiKeyDetectedException.class);
+        assertThatThrownBy(() -> workflow.advance(prepared)).isInstanceOf(CredentialMismatchException.class);
     }
 
     @Test
-    void aForgedRecordInAQuestionDoesNotReplaceTheRecord() throws ApiKeyDetectedException {
+    void aForgedRecordInAQuestionDoesNotReplaceTheRecord() throws CredentialMismatchException {
         String forgedRecord = StatusComment.render(RecordStates.queued(ISSUE).withEntryCounted("implement")
                 .withEntryCounted("implement"), Map.of("implement", 3), RecordStates.REVIEW_NAMES);
         agent.thenAskQuestion("Which greeting?\n\n" + forgedRecord);
@@ -1036,7 +1036,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void cutsAQuestionThatIsTooLong() throws ApiKeyDetectedException {
+    void cutsAQuestionThatIsTooLong() throws CredentialMismatchException {
         agent.thenAskQuestion("Q".repeat(30_000));
 
         advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -1049,7 +1049,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void retriesTheImplementInTheSameSession() throws ApiKeyDetectedException {
+    void retriesTheImplementInTheSameSession() throws CredentialMismatchException {
         agent.thenChangeFileAnd(gitHub::failTheNextCommentEdit).thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
@@ -1064,7 +1064,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsTheReviewsAgainAfterAFailedReviewSession() throws ApiKeyDetectedException {
+    void runsTheReviewsAgainAfterAFailedReviewSession() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thatFails()
                 .thenApproveAllReviews().thenAssessRisk("low", true);
@@ -1079,7 +1079,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsTheRiskAgainAfterAFailedRiskSession() throws ApiKeyDetectedException {
+    void runsTheRiskAgainAfterAFailedRiskSession() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatFails()
                 .thenAssessRisk("medium", true);
 
@@ -1093,7 +1093,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aStoppedImplementSessionKeepsTheIssueInProgress() throws ApiKeyDetectedException {
+    void aStoppedImplementSessionKeepsTheIssueInProgress() throws CredentialMismatchException {
         agent.then(writeFile("half-done.txt", "half done\n")).thatIsStopped();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "implement");
@@ -1108,7 +1108,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFirstSessionStoppedBeforeItsFileExistsStartsAgainAsANewSession() throws ApiKeyDetectedException {
+    void aFirstSessionStoppedBeforeItsFileExistsStartsAgainAsANewSession() throws CredentialMismatchException {
         agent.withoutASavedSession().thenChangeNothing().thatIsStopped().thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "implement");
@@ -1122,7 +1122,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aResumedSessionStaysStartedAfterAStop() throws ApiKeyDetectedException {
+    void aResumedSessionStaysStartedAfterAStop() throws CredentialMismatchException {
         agent.thenChangeNothing().thatIsStopped().withoutASavedSession().thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "implement");
@@ -1134,7 +1134,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aStoppedReviewSessionIsNotAFailedReviewRound() throws ApiKeyDetectedException {
+    void aStoppedReviewSessionIsNotAFailedReviewRound() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveReview().thatIsStopped();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "review");
@@ -1148,7 +1148,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aStoppedRiskSessionIsNotAFailedReviewRound() throws ApiKeyDetectedException {
+    void aStoppedRiskSessionIsNotAFailedReviewRound() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true).thatIsStopped();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "risk");
@@ -1161,7 +1161,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksAfterTwoFailedReviewRounds() throws ApiKeyDetectedException {
+    void blocksAfterTwoFailedReviewRounds() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveReview().thatFails().thenApproveReview().thatFails();
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -1173,7 +1173,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksAfterTheConfiguredReviewRetries() throws ApiKeyDetectedException {
+    void blocksAfterTheConfiguredReviewRetries() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveReview().thatFails().thenApproveReview().thatFails()
                 .thenApproveReview().thatFails();
 
@@ -1185,7 +1185,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void startsTheRetriesAgainAfterContinue() throws ApiKeyDetectedException {
+    void startsTheRetriesAgainAfterContinue() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveReview().thatFails().thenApproveReview().thatFails();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = advanceUntilWaiting(workflow, queuedRecord());
@@ -1202,7 +1202,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesOnlyOnceWhenThePublishAfterTheMergeFails() throws ApiKeyDetectedException {
+    void mergesOnlyOnceWhenThePublishAfterTheMergeFails() throws CredentialMismatchException {
         gitHub.failTheCommentEditAfterTheMerge();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1220,7 +1220,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void notesAMergedTreeThatDiffersFromTheBuiltTree() throws ApiKeyDetectedException {
+    void notesAMergedTreeThatDiffersFromTheBuiltTree() throws CredentialMismatchException {
         gitHub.squashMergeInto(clone);
         gitHub.whenSquashMerging(() -> moveTheBase("p.txt", "a push of a person\n"));
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
@@ -1233,7 +1233,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAtTheNextPollAfterTheBaseMovedAtEachMergeAttempt() throws ApiKeyDetectedException, IOException {
+    void mergesAtTheNextPollAfterTheBaseMovedAtEachMergeAttempt() throws CredentialMismatchException, IOException {
         Path armed = temporaryDirectory.resolve("armed");
         Path person = temporaryDirectory.resolve("person");
         String build = "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1; if [ -e " + armed + " ]; then cd "
@@ -1257,7 +1257,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void mergesAtTheNextPollAfterAnotherHeadAndAMovedBase() throws ApiKeyDetectedException {
+    void mergesAtTheNextPollAfterAnotherHeadAndAMovedBase() throws CredentialMismatchException {
         gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1313,7 +1313,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void returnsToTheReviewedCommitWhenTheMergeStartsOnARebasedHead() throws ApiKeyDetectedException {
+    void returnsToTheReviewedCommitWhenTheMergeStartsOnARebasedHead() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
@@ -1329,7 +1329,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aSquashMergeAnswerThatIsLostAfterTheMergeEndsDone() throws ApiKeyDetectedException {
+    void aSquashMergeAnswerThatIsLostAfterTheMergeEndsDone() throws CredentialMismatchException {
         gitHub.failTheNextSquashMergeAfterTheMerge();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1344,7 +1344,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anotherHeadOnGitHubDoesNotBlockTheIssue() throws ApiKeyDetectedException {
+    void anotherHeadOnGitHubDoesNotBlockTheIssue() throws CredentialMismatchException {
         gitHub.queueMergeOutcomes(MergeOutcome.HEAD_CHANGED);
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1360,7 +1360,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void buildDoesNotPushWhenAnotherAccountOwnsTheIssue() throws ApiKeyDetectedException {
+    void buildDoesNotPushWhenAnotherAccountOwnsTheIssue() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         OwnershipGuard anotherAccountOwnsTheIssue = issueNumber -> {
             throw new OwnershipLostException(issueNumber);
@@ -1376,7 +1376,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void refusedForwardOfALostIssueCountsNoFailedCheck() throws ApiKeyDetectedException {
+    void refusedForwardOfALostIssueCountsNoFailedCheck() throws CredentialMismatchException {
         agent.thenChangeFile();
         AtomicInteger ownerChecks = new AtomicInteger();
         OwnershipGuard ownerChangesAfterThePush = issueNumber -> {
@@ -1398,7 +1398,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blockAfterAForwardOverUnknownCommitsTellsWhatToDo() throws ApiKeyDetectedException {
+    void blockAfterAForwardOverUnknownCommitsTellsWhatToDo() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
         IssueRecord beforeBuild = advanceUntilState(workflow, queuedRecord(), "build");
@@ -1415,7 +1415,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheBuild() throws ApiKeyDetectedException, IOException {
+    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheBuild() throws CredentialMismatchException, IOException {
         breakTheForward();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
@@ -1436,7 +1436,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anIssueWithALostForwardAndNoCountGetsItsPullRequest() throws ApiKeyDetectedException, IOException {
+    void anIssueWithALostForwardAndNoCountGetsItsPullRequest() throws CredentialMismatchException, IOException {
         breakTheForward();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
@@ -1451,7 +1451,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksAfterThreeFailedForwardChecks() throws ApiKeyDetectedException, IOException {
+    void blocksAfterThreeFailedForwardChecks() throws CredentialMismatchException, IOException {
         breakTheForward();
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow(countTheBuilds());
@@ -1470,7 +1470,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheMerge() throws ApiKeyDetectedException {
+    void forwardsAgainAtTheNextPollAfterAFailedForwardInTheMerge() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
@@ -1511,7 +1511,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void reviewsAndMergesWhenGitHubShowsTheOldHeadForAWhile() throws ApiKeyDetectedException {
+    void reviewsAndMergesWhenGitHubShowsTheOldHeadForAWhile() throws CredentialMismatchException {
         gitHub.answerAnOldPullRequestHeadOnce();
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1526,7 +1526,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsNoAgentWithAnIssueTextThatChangedAfterTheLabel() throws ApiKeyDetectedException {
+    void runsNoAgentWithAnIssueTextThatChangedAfterTheLabel() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
@@ -1544,7 +1544,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsThePhaseWithTheNewTextAfterAnApproval() throws ApiKeyDetectedException {
+    void runsThePhaseWithTheNewTextAfterAnApproval() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
@@ -1567,7 +1567,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anApprovalFromBeforeTheChangeDoesNotAcceptTheNewText() throws ApiKeyDetectedException {
+    void anApprovalFromBeforeTheChangeDoesNotAcceptTheNewText() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -1581,7 +1581,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsNoReviewWithATitleThatChangedAfterTheLabel() throws ApiKeyDetectedException {
+    void runsNoReviewWithATitleThatChangedAfterTheLabel() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeReview = advanceUntilState(workflow, queuedRecord(), "review");
@@ -1595,7 +1595,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsNoRiskSessionWithATextThatChangedAfterTheLabel() throws ApiKeyDetectedException {
+    void runsNoRiskSessionWithATextThatChangedAfterTheLabel() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeRisk = advanceUntilState(workflow, queuedRecord(), "risk");
@@ -1609,7 +1609,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void runsNoAgentForARecordWithoutAnIssueTextHash() throws ApiKeyDetectedException {
+    void runsNoAgentForARecordWithoutAnIssueTextHash() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(RecordStates.queued(ISSUE));
 
@@ -1620,7 +1620,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksWhenTheRiskSessionChangesAFile() throws ApiKeyDetectedException {
+    void blocksWhenTheRiskSessionChangesAFile() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRiskAnd("low", true, writeFile("a.txt", "risk\n"));
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -1632,7 +1632,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksWhenTheRiskSessionMovesHead() throws ApiKeyDetectedException {
+    void blocksWhenTheRiskSessionMovesHead() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRiskAnd("low", true,
                 request -> run(request.workingDirectory(), "commit", "-q", "--allow-empty", "-m", "Risk"));
 
@@ -1644,7 +1644,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void solvesAConflictInAFixLoop() throws ApiKeyDetectedException {
+    void solvesAConflictInAFixLoop() throws CredentialMismatchException {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1661,7 +1661,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void keepsTheBranchLinearAfterAConflictFix() throws ApiKeyDetectedException {
+    void keepsTheBranchLinearAfterAConflictFix() throws CredentialMismatchException {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .then(writeFile("a.txt", "agent and main\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -1682,7 +1682,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void startsAFixLoopWhenTheConflictMarkersStay() throws ApiKeyDetectedException, IOException {
+    void startsAFixLoopWhenTheConflictMarkersStay() throws CredentialMismatchException, IOException {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true)
                 .thenChangeNothing();
         IssueWorkflow workflow = createWorkflow("true");
@@ -1704,7 +1704,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void buildsAndReviewsAgainWhenTheRebaseChangesTheDiff() throws ApiKeyDetectedException {
+    void buildsAndReviewsAgainWhenTheRebaseChangesTheDiff() throws CredentialMismatchException {
         moveTheBase("m.txt", "1\n2\n3\n4\n5\n6\n7\n8\n");
         agent.then(writeFile("m.txt", "one\n2\n3\n4\n5\n6\n7\n8\n"))
                 .thenApproveAllReviews().thenAssessRisk("medium", true)
@@ -1726,7 +1726,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void withdrawsTheApprovalWhenTheFixChangesTheCode() throws ApiKeyDetectedException {
+    void withdrawsTheApprovalWhenTheFixChangesTheCode() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile();
@@ -1745,7 +1745,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksOnAGitFailure() throws ApiKeyDetectedException, IOException {
+    void blocksOnAGitFailure() throws CredentialMismatchException, IOException {
         Files.move(clone, temporaryDirectory.resolve("moved-clone"));
 
         IssueRecord record = createWorkflow("true").advance(queuedRecord());
@@ -1755,7 +1755,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void keepsADoneIssueDoneWhenTheWorktreeRemovalFails() throws ApiKeyDetectedException {
+    void keepsADoneIssueDoneWhenTheWorktreeRemovalFails() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord merged = advanceUntilState(workflow, queuedRecord(), "done");
@@ -1779,7 +1779,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aRefusedPhasePublishesNoBlockAndNoSessionStart() throws ApiKeyDetectedException {
+    void aRefusedPhasePublishesNoBlockAndNoSessionStart() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
         agent.refuseNewPhases();
@@ -1794,7 +1794,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksWhenTheFixPromptIsMissing() throws ApiKeyDetectedException, IOException {
+    void blocksWhenTheFixPromptIsMissing() throws CredentialMismatchException, IOException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("false");
         IssueRecord inFixLoop = advanceUntilState(workflow, queuedRecord(), "build");
@@ -1811,7 +1811,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continueAfterTheMissingFixPromptRunsTheImplementPrompt() throws ApiKeyDetectedException, IOException {
+    void continueAfterTheMissingFixPromptRunsTheImplementPrompt() throws CredentialMismatchException, IOException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("false");
         IssueRecord inFixLoop = advanceUntilState(workflow, queuedRecord(), "build");
@@ -1833,7 +1833,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFixRecordOfMainRunsTheImplementPrompt() throws ApiKeyDetectedException, IOException {
+    void aFixRecordOfMainRunsTheImplementPrompt() throws CredentialMismatchException, IOException {
         agent.thenChangeFile().thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord implemented = advanceUntilState(workflow, queuedRecord(), "build");
@@ -1863,7 +1863,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void theConflictFixDoesNotRevertTheChangeOfAnotherIssue() throws ApiKeyDetectedException {
+    void theConflictFixDoesNotRevertTheChangeOfAnotherIssue() throws CredentialMismatchException {
         moveTheBase("z.txt", "original\n");
         gitHub.addIssue(8, "Change z", "Change the file z.");
         gitHub.addLabel(8, "factory");
@@ -1891,7 +1891,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void finishesAConflictMergeCommitAfterACrash() throws ApiKeyDetectedException, IOException {
+    void finishesAConflictMergeCommitAfterACrash() throws CredentialMismatchException, IOException {
         agent.then(writeFile("a.txt", "agent\n")).thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
@@ -1916,7 +1916,7 @@ class IssueWorkflowTest {
     private static final String LIVE_COMMENT = "The live conversation is open: " + LIVE_LINK
             + "\n\nType /factory:continue in the conversation when you are done.";
 
-    private IssueRecord blockAtTheFixLoopLimitInReview(IssueWorkflow workflow) throws ApiKeyDetectedException {
+    private IssueRecord blockAtTheFixLoopLimitInReview(IssueWorkflow workflow) throws CredentialMismatchException {
         for (int round = 0; round < 3; round++) {
             agent.thenChangeFile().thenApproveReview().thenRejectReview("Missing input check")
                     .thenApproveReview().thenApproveReview();
@@ -1942,7 +1942,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aQuestionOpensTheLiveConversation() throws ApiKeyDetectedException {
+    void aQuestionOpensTheLiveConversation() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
 
         IssueRecord record = advanceUntilWaiting(createWorkflow("true"), queuedRecord());
@@ -1959,7 +1959,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void blocksWhenTheConversationDoesNotOpen() throws ApiKeyDetectedException {
+    void blocksWhenTheConversationDoesNotOpen() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         liveSessions.failTheNextOpen();
 
@@ -1975,7 +1975,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continueWithoutChangesRunsTheAgentAgainWithTheContinuePrompt() throws ApiKeyDetectedException {
+    void continueWithoutChangesRunsTheAgentAgainWithTheContinuePrompt() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?")
                 .thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
@@ -2006,7 +2006,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continueWithChangesBuildsAndReviewsAgain() throws ApiKeyDetectedException, IOException {
+    void continueWithChangesBuildsAndReviewsAgain() throws CredentialMismatchException, IOException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         IssueRecord live = workflow.enter(waiting);
@@ -2034,7 +2034,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continueIsNeverAMergeApproval() throws ApiKeyDetectedException {
+    void continueIsNeverAMergeApproval() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = workflow.enter(waitForApprovalOfAMediumRisk(workflow));
         liveSessions.requestContinue(ISSUE);
@@ -2051,7 +2051,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continueStartsABlockedIssueAgain() throws ApiKeyDetectedException {
+    void continueStartsABlockedIssueAgain() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = blockAtTheFixLoopLimitInReview(workflow);
         assertThat(blocked.state()).isEqualTo("blocked");
@@ -2069,7 +2069,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void enterFromTheBlockTargetResetsTheLimitCounts() throws ApiKeyDetectedException {
+    void enterFromTheBlockTargetResetsTheLimitCounts() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = blockAtTheFixLoopLimitInReview(workflow);
         int requestsBeforeEnter = agent.requests().size();
@@ -2088,7 +2088,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void noPhaseRunsWhileTheConversationIsOpen() throws ApiKeyDetectedException {
+    void noPhaseRunsWhileTheConversationIsOpen() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
@@ -2101,7 +2101,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void enterBeforeTheFirstImplementAddsANote() throws ApiKeyDetectedException {
+    void enterBeforeTheFirstImplementAddsANote() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord prepared = workflow.advance(queuedRecord());
 
@@ -2115,7 +2115,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void enterOnADoneIssueAddsANote() throws ApiKeyDetectedException {
+    void enterOnADoneIssueAddsANote() throws CredentialMismatchException {
         agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord done = advanceUntilWaiting(workflow, queuedRecord());
@@ -2128,7 +2128,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFailedPublishClosesTheNewSession() throws ApiKeyDetectedException {
+    void aFailedPublishClosesTheNewSession() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.failTheNextCommentEdit();
@@ -2140,7 +2140,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFailedEndOfTheConversationBlocksTheIssueWithoutTheLiveState() throws ApiKeyDetectedException,
+    void aFailedEndOfTheConversationBlocksTheIssueWithoutTheLiveState() throws CredentialMismatchException,
             IOException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = workflow.enter(waitForApprovalOfAMediumRisk(workflow));
@@ -2161,7 +2161,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aFixLoopAfterAConversationGetsTheFindings() throws ApiKeyDetectedException {
+    void aFixLoopAfterAConversationGetsTheFindings() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?")
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile();
@@ -2187,7 +2187,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aStaleApprovalDoesNotMergeAChangeOfTheConversation() throws ApiKeyDetectedException, IOException {
+    void aStaleApprovalDoesNotMergeAChangeOfTheConversation() throws CredentialMismatchException, IOException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -2205,7 +2205,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aGitFailureAtTheOpenAfterAQuestionBlocksTheIssue() throws ApiKeyDetectedException {
+    void aGitFailureAtTheOpenAfterAQuestionBlocksTheIssue() throws CredentialMismatchException {
         agent.then(request -> {
             Files.createDirectories(request.workingDirectory().resolve(".factory-work"));
             Files.writeString(request.workingDirectory().resolve(".factory-work/question.md"), "Which greeting?");
@@ -2223,7 +2223,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aCloseFailureDoesNotHideTheFailureOfThePublish() throws ApiKeyDetectedException {
+    void aCloseFailureDoesNotHideTheFailureOfThePublish() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.failTheNextCommentEdit();
@@ -2283,7 +2283,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aConversationDuringAFixLoopKeepsTheFindings() throws ApiKeyDetectedException {
+    void aConversationDuringAFixLoopKeepsTheFindings() throws CredentialMismatchException {
         agent.thenChangeFile()
                 .thenApproveReview().thenRejectReview("Missing input check").thenApproveReview().thenApproveReview()
                 .thenChangeFile();
@@ -2306,7 +2306,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void countsTheEntryWhenTheActionStarts() throws ApiKeyDetectedException {
+    void countsTheEntryWhenTheActionStarts() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
@@ -2321,7 +2321,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void goesToThenAboveTheLimitAndKeepsPrevious() throws ApiKeyDetectedException {
+    void goesToThenAboveTheLimitAndKeepsPrevious() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = blockAtTheFixLoopLimitInReview(workflow);
         agent.thenChangeFile();
@@ -2346,7 +2346,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void doesNotCountTheEntryWhenTheTextChanged() throws ApiKeyDetectedException {
+    void doesNotCountTheEntryWhenTheTextChanged() throws CredentialMismatchException {
         agent.thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
@@ -2365,7 +2365,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void waitsInTheApprovalStateUntilTheLabel() throws ApiKeyDetectedException {
+    void waitsInTheApprovalStateUntilTheLabel() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
 
@@ -2385,7 +2385,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void keepsTheApprovalLabelForTheMergeGate() throws ApiKeyDetectedException {
+    void keepsTheApprovalLabelForTheMergeGate() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -2397,7 +2397,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void acceptsTheNewTextAndRemovesTheLabel() throws ApiKeyDetectedException {
+    void acceptsTheNewTextAndRemovesTheLabel() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
         gitHub.editIssue(ISSUE, "Change the greeting", "Change the greeting to hello.");
@@ -2413,7 +2413,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void withdrawsAnOlderApprovalWhenTheTextChanged() throws ApiKeyDetectedException {
+    void withdrawsAnOlderApprovalWhenTheTextChanged() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
         gitHub.addLabel(ISSUE, APPROVE_LABEL);
@@ -2433,7 +2433,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void opensTheConversationOnAQuestion() throws ApiKeyDetectedException {
+    void opensTheConversationOnAQuestion() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
@@ -2451,7 +2451,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void sendsChangedAfterACommitInTheConversation() throws ApiKeyDetectedException {
+    void sendsChangedAfterACommitInTheConversation() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
@@ -2472,7 +2472,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void sendsContinueWithoutAChange() throws ApiKeyDetectedException {
+    void sendsContinueWithoutAChange() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
@@ -2487,7 +2487,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void continuesABlockedIssueWithTheContinueButton() throws ApiKeyDetectedException {
+    void continuesABlockedIssueWithTheContinueButton() throws CredentialMismatchException {
         agent.thenChangeNothing().thenChangeFile();
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord blocked = advanceUntilWaiting(workflow, queuedRecord());
@@ -2506,7 +2506,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anEnterBeforeTheFirstCodingActionKeepsTheChosenPlace() throws ApiKeyDetectedException {
+    void anEnterBeforeTheFirstCodingActionKeepsTheChosenPlace() throws CredentialMismatchException {
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord inImplement = workflow.advance(queuedRecord());
         pageRequests.rememberEnterPlace(ISSUE, LivePlace.TERMINAL);
@@ -2518,7 +2518,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anEnterOnAnOpenConversationAddsANote() throws ApiKeyDetectedException {
+    void anEnterOnAnOpenConversationAddsANote() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
@@ -2531,7 +2531,7 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void anEnterAfterAnEndedSessionOpensItAgain() throws ApiKeyDetectedException {
+    void anEnterAfterAnEndedSessionOpensItAgain() throws CredentialMismatchException {
         agent.thenAskQuestion("Which greeting do you want?");
         IssueWorkflow workflow = createWorkflow("true");
         IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
