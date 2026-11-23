@@ -38,8 +38,10 @@ New files:
 | `src/main/java/com/meterian/factory/agent/CredentialMismatchException.java` | A session did not use the credential of the provider. Replaces `ApiKeyDetectedException`. |
 | `src/main/java/com/meterian/factory/provider/Provider.java` | The interface of a provider. |
 | `src/main/java/com/meterian/factory/provider/SubscriptionProvider.java` | The provider that uses the claude login. |
-| `src/main/java/com/meterian/factory/provider/ApiKeyProvider.java` | The provider that uses `ANTHROPIC_API_KEY`. |
+| `src/main/java/com/meterian/factory/provider/ApiKeyProvider.java` | The provider that uses an Anthropic API key through `apiKeyHelper`. |
+| `src/main/java/com/meterian/factory/provider/ApiKeyFiles.java` | Writes the helper script and its settings file in a private folder. |
 | `src/main/java/com/meterian/factory/provider/Providers.java` | Creates the provider of the configuration. |
+| `src/main/java/com/meterian/factory/agent/UnavailableLiveSessions.java` | The live sessions of API key mode: none opens. |
 | `src/main/java/com/meterian/factory/usage/PhaseGuard.java` | Tells when a new phase may start. |
 | `src/main/java/com/meterian/factory/usage/BudgetStatus.java` | The cost of today and the daily budget, for the page. |
 | `src/main/java/com/meterian/factory/usage/DollarAmount.java` | Formats an amount in US dollars. |
@@ -47,96 +49,28 @@ New files:
 | `src/main/java/com/meterian/factory/usage/BudgetTracker.java` | The guard of API key mode. |
 | `src/main/java/com/meterian/factory/setup/ProviderChoice.java` | The provider that `create` writes to `worker.yaml`. |
 | `src/test/resources/stream/success-without-windows.jsonl` | A successful session without a `rate_limit_event`. |
+| `src/test/resources/stream/api-key-helper.jsonl` | A successful session with the source `apiKeyHelper` and no usage windows. |
 
 Changed files: see each task.
 
 ---
 
-## Task 1: Check the facts with real sessions
+## Task 1: Check the facts with real sessions (done)
 
-The code of this plan depends on six facts. A person checks them with real sessions before Task 2. The checks
-need the owner's claude login and an Anthropic API key. The API key checks cost less than one cent each.
+The owner and Claude ran these checks on 2026-11-23. Section 9 of the spec gives the results. The plan below
+uses them:
 
-The owner runs each command in a terminal, or in Claude Code with the `!` prefix. The owner sets the key in
-the shell first: `export FACTORY_TEST_KEY=sk-ant-...`. Do not write the key in a file of the repository.
+- A subscription session sends usage windows. A session with an API key sends none.
+- `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` does not work on this machine. The plan does not use it.
+- With `apiKeyHelper`, a print-mode session gives the source `"apiKeyHelper"`. Its Bash tool does not see
+  the key, and `acceptEdits` works.
+- An interactive session with the key gets `400 Your credit balance is too low`. Thus API key mode has no
+  live mode.
 
-**Files:** none.
+The scripts of the checks are `/tmp/factory-check-1.sh` to `/tmp/factory-check-5.sh`. They are not part of
+the repository.
 
-- [ ] **Step 1: A subscription session sends usage windows**
-
-```bash
-cd "$(mktemp -d)"
-env -u ANTHROPIC_API_KEY claude -p "Reply with the word OK." --output-format stream-json --verbose \
-  --no-session-persistence --tools "" \
-  | jq -c 'select(.type=="system" and .subtype=="init") | .apiKeySource,
-           select(.type=="rate_limit_event") | .rate_limit_info.unifiedWindows'
-```
-
-Expected: `"none"`, then an object with at least one window, for example `{"five_hour":{...}}`.
-
-- [ ] **Step 2: An API key session sends no usage windows, and it gives a cost**
-
-```bash
-cd "$(mktemp -d)"
-ANTHROPIC_API_KEY="$FACTORY_TEST_KEY" claude -p "Reply with the word OK." --output-format stream-json \
-  --verbose --no-session-persistence --tools "" \
-  | jq -c 'select(.type=="system" and .subtype=="init") | .apiKeySource,
-           select(.type=="rate_limit_event") | .rate_limit_info.unifiedWindows,
-           select(.type=="result") | .total_cost_usd'
-```
-
-Expected: `"ANTHROPIC_API_KEY"`, no window object, and one number, for example `0.0012`.
-
-- [ ] **Step 3: The Bash tool does not see the key with the scrub**
-
-```bash
-cd "$(mktemp -d)"
-CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 ANTHROPIC_API_KEY="$FACTORY_TEST_KEY" claude -p \
-  "Run this Bash command: env | grep -c '^ANTHROPIC_API_KEY=' || true. Reply with only its output." \
-  --output-format json --no-session-persistence --permission-mode acceptEdits --allowedTools Bash \
-  | jq -r .result
-```
-
-Expected: `0`.
-
-- [ ] **Step 4: The permission mode works with the scrub, and no sandbox starts**
-
-```bash
-cd "$(mktemp -d)"
-CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 ANTHROPIC_API_KEY="$FACTORY_TEST_KEY" claude -p \
-  "Create the file probe.txt with the text ok." --output-format json --no-session-persistence \
-  --permission-mode acceptEdits --allowedTools Write | jq -r '.is_error, .permission_denials'
-cat probe.txt
-```
-
-Expected: `false`, `[]`, and `ok`.
-
-- [ ] **Step 5: A live session with `apiKeyHelper` uses the key**
-
-```bash
-directory="$(mktemp -d)"; cd "$directory"
-printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$FACTORY_TEST_KEY" > key.sh; chmod 700 key.sh
-echo "{\"apiKeyHelper\": \"$directory/key.sh\"}" > settings.json
-tmux -L factory-check new-session -d -s check -x 200 -y 50 \
-  "env -u ANTHROPIC_API_KEY claude --settings $directory/settings.json"
-sleep 10; tmux -L factory-check capture-pane -p -t check | tail -8
-```
-
-Expected: the screen shows `API Usage Billing` and `? for shortcuts`. It shows no question about the API key.
-Then type a prompt:
-
-```bash
-tmux -L factory-check send-keys -t check "Reply with the word OK." Enter
-sleep 15; tmux -L factory-check capture-pane -p -t check | tail -8
-tmux -L factory-check kill-server
-```
-
-Expected: the screen shows the answer `OK`.
-
-- [ ] **Step 6: Record the results**
-
-Write the results in the pull request description. If a result is not the expected result, stop. Tell the
-owner which step failed, and do not start Task 2.
+- [x] **Step 1: Run the checks and record the results in the spec**
 
 ---
 
@@ -1201,15 +1135,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 8: Add the providers
+## Task 8: Add the providers and the API key files
 
 **Files:**
 - Create: `src/main/java/com/meterian/factory/provider/Provider.java`
 - Create: `src/main/java/com/meterian/factory/provider/SubscriptionProvider.java`
 - Create: `src/main/java/com/meterian/factory/provider/ApiKeyProvider.java`
+- Create: `src/main/java/com/meterian/factory/provider/ApiKeyFiles.java`
 - Create: `src/main/java/com/meterian/factory/provider/Providers.java`
 - Test: `src/test/java/com/meterian/factory/provider/SubscriptionProviderTest.java`
 - Test: `src/test/java/com/meterian/factory/provider/ApiKeyProviderTest.java`
+- Test: `src/test/java/com/meterian/factory/provider/ApiKeyFilesTest.java`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1238,9 +1174,9 @@ class SubscriptionProviderTest {
     @Test
     void acceptsOnlyTheSubscriptionSource() {
         assertThatCode(() -> provider.verifyCredentialSource("none")).doesNotThrowAnyException();
-        assertThatThrownBy(() -> provider.verifyCredentialSource("ANTHROPIC_API_KEY"))
+        assertThatThrownBy(() -> provider.verifyCredentialSource("apiKeyHelper"))
                 .isInstanceOf(CredentialMismatchException.class)
-                .hasMessage("The session uses the credential source ANTHROPIC_API_KEY. "
+                .hasMessage("The session uses the credential source apiKeyHelper. "
                         + "The provider subscription expects none.");
     }
 
@@ -1269,10 +1205,9 @@ class SubscriptionProviderTest {
     }
 
     @Test
-    void addsNoVariableAndHasRemoteControl() {
-        assertThat(provider.phaseEnvironment()).isEmpty();
-        assertThat(provider.hasRemoteControl()).isTrue();
-        assertThat(provider.liveApiKey()).isEmpty();
+    void addsNoArgumentAndHasTheLiveMode() {
+        assertThat(provider.phaseArguments()).isEmpty();
+        assertThat(provider.hasLiveMode()).isTrue();
         assertThat(provider.readsUsageWindows()).isTrue();
         assertThat(provider.describe())
                 .isEqualTo("The provider is subscription: the sessions use the claude login of the owner.");
@@ -1292,58 +1227,137 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.SessionReport;
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class ApiKeyProviderTest {
 
-    private static final String KEY = "sk-ant-test-key";
-    private final ApiKeyProvider provider = new ApiKeyProvider(KEY, new BigDecimal("20"));
+    private static final Path SETTINGS_FILE = Path.of("/work/credentials/api-key-settings.json");
+    private final ApiKeyProvider provider = new ApiKeyProvider(SETTINGS_FILE, new BigDecimal("20"));
 
     @Test
-    void acceptsOnlyTheApiKeySource() {
-        assertThatCode(() -> provider.verifyCredentialSource("ANTHROPIC_API_KEY")).doesNotThrowAnyException();
+    void acceptsOnlyTheHelperSource() {
+        assertThatCode(() -> provider.verifyCredentialSource("apiKeyHelper")).doesNotThrowAnyException();
         assertThatThrownBy(() -> provider.verifyCredentialSource("none"))
                 .isInstanceOf(CredentialMismatchException.class)
                 .hasMessage("The session uses the credential source none. "
-                        + "The provider anthropic-api-key expects ANTHROPIC_API_KEY.");
+                        + "The provider anthropic-api-key expects apiKeyHelper.");
+        assertThatThrownBy(() -> provider.verifyCredentialSource("ANTHROPIC_API_KEY"))
+                .isInstanceOf(CredentialMismatchException.class);
     }
 
     @Test
     void acceptsASuccessfulSessionWithoutUsageWindows() {
-        SessionReport report = new SessionReport(true, "ok", Optional.of("ANTHROPIC_API_KEY"), Optional.empty(),
+        SessionReport report = new SessionReport(true, "ok", Optional.of("apiKeyHelper"), Optional.empty(),
                 List.of());
 
         assertThatCode(() -> provider.verifyFinishedSession(report)).doesNotThrowAnyException();
     }
 
     @Test
-    void givesTheKeyAndTheScrubToThePhases() {
-        assertThat(provider.phaseEnvironment()).isEqualTo(
-                Map.of("ANTHROPIC_API_KEY", KEY, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"));
+    void givesTheSettingsFileToThePhases() {
+        assertThat(provider.phaseArguments()).containsExactly("--settings", SETTINGS_FILE.toString());
     }
 
     @Test
-    void hasNoRemoteControlAndGivesTheKeyToTheLiveSessions() {
-        assertThat(provider.hasRemoteControl()).isFalse();
-        assertThat(provider.liveApiKey()).contains(KEY);
+    void hasNoLiveModeAndNoUsageWindows() {
+        assertThat(provider.hasLiveMode()).isFalse();
         assertThat(provider.readsUsageWindows()).isFalse();
     }
 
     @Test
-    void theDescriptionAndTheTextFormNeverContainTheKey() {
+    void describesTheProviderAndTheBudget() {
         assertThat(provider.describe()).isEqualTo(
-                "The provider is anthropic-api-key: the sessions use ANTHROPIC_API_KEY. The daily budget is $20.00.");
-        assertThat(provider.toString()).doesNotContain(KEY);
+                "The provider is anthropic-api-key: the sessions use an Anthropic API key. "
+                        + "The daily budget is $20.00.");
+    }
+}
+```
+
+`src/test/java/com/meterian/factory/provider/ApiKeyFilesTest.java`:
+
+```java
+package com.meterian.factory.provider;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class ApiKeyFilesTest {
+
+    private static final String KEY = "sk-ant-test-key";
+
+    @TempDir
+    Path workDirectory;
+
+    @Test
+    void writesTheFilesForTheOwnerOnly() throws Exception {
+        Path settings = ApiKeyFiles.write(workDirectory, KEY);
+
+        Path folder = workDirectory.resolve("credentials");
+        assertThat(settings).isEqualTo(folder.resolve("api-key-settings.json"));
+        assertThat(permissionsOf(folder)).isEqualTo("rwx------");
+        assertThat(permissionsOf(folder.resolve("api-key-helper.sh"))).isEqualTo("rwx------");
+        assertThat(permissionsOf(settings)).isEqualTo("rw-------");
+    }
+
+    @Test
+    void theHelperPrintsTheKey() throws Exception {
+        ApiKeyFiles.write(workDirectory, KEY);
+
+        Process process = new ProcessBuilder(workDirectory.resolve("credentials/api-key-helper.sh").toString())
+                .start();
+        assertThat(new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+                .isEqualTo(KEY + "\n");
+    }
+
+    @Test
+    void theSettingsFileNamesTheHelperAndNotTheKey() throws Exception {
+        Path settings = ApiKeyFiles.write(workDirectory, KEY);
+
+        assertThat(Files.readString(settings))
+                .contains("\"apiKeyHelper\" : \"" + workDirectory.resolve("credentials/api-key-helper.sh") + "\"")
+                .doesNotContain(KEY);
+    }
+
+    @Test
+    void makesAFolderThatExistsPrivate() throws Exception {
+        Path folder = Files.createDirectory(workDirectory.resolve("credentials"));
+        Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString("rwxr-xr-x"));
+
+        ApiKeyFiles.write(workDirectory, KEY);
+
+        assertThat(permissionsOf(folder)).isEqualTo("rwx------");
+    }
+
+    @Test
+    void refusesASymbolicLink() throws Exception {
+        Path target = Files.createDirectory(workDirectory.resolve("elsewhere"));
+        Files.createSymbolicLink(workDirectory.resolve("credentials"), target);
+
+        assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is a symbolic link");
+    }
+
+    private static String permissionsOf(Path path) throws IOException {
+        return PosixFilePermissions.toString(Files.getPosixFilePermissions(path));
     }
 }
 ```
 
 - [ ] **Step 2: Run the tests to see them fail**
 
-Run: `./mvnw -q test -Dtest='SubscriptionProviderTest,ApiKeyProviderTest'`
+Run: `./mvnw -q test -Dtest='SubscriptionProviderTest,ApiKeyProviderTest,ApiKeyFilesTest'`
 Expected: compilation failure: the package `com.meterian.factory.provider` does not exist.
 
 - [ ] **Step 3: Create the interface**
@@ -1360,8 +1374,7 @@ import com.meterian.factory.usage.CostEvents;
 import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
 import java.time.Clock;
-import java.util.Map;
-import java.util.Optional;
+import java.util.List;
 
 /** The provider of the claude sessions: the subscription or an Anthropic API key. Main creates it once. */
 public interface Provider {
@@ -1371,8 +1384,8 @@ public interface Provider {
     /** The line that run prints at start. It never contains the key. */
     String describe();
 
-    /** The variables that each claude -p process gets, after the filter of ClaudeCommand. */
-    Map<String, String> phaseEnvironment();
+    /** The extra arguments of each claude -p phase. They come before the tool lists. */
+    List<String> phaseArguments();
 
     /** Checks the apiKeySource of the init event, as soon as the stream gives it. */
     void verifyCredentialSource(String apiKeySource) throws CredentialMismatchException;
@@ -1380,10 +1393,7 @@ public interface Provider {
     /** Checks a session after its end. */
     void verifyFinishedSession(SessionReport report) throws CredentialMismatchException;
 
-    boolean hasRemoteControl();
-
-    /** The key that the apiKeyHelper of a live session prints, only in API key mode. */
-    Optional<String> liveApiKey();
+    boolean hasLiveMode();
 
     /** True when the sessions send usage windows, so that the usage probe can read them. */
     boolean readsUsageWindows();
@@ -1406,8 +1416,7 @@ import com.meterian.factory.usage.CostEvents;
 import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
 import java.time.Clock;
-import java.util.Map;
-import java.util.Optional;
+import java.util.List;
 
 /** The sessions use the claude login of the owner. Only the subscription sends usage windows. */
 public final class SubscriptionProvider implements Provider {
@@ -1425,8 +1434,8 @@ public final class SubscriptionProvider implements Provider {
     }
 
     @Override
-    public Map<String, String> phaseEnvironment() {
-        return Map.of();
+    public List<String> phaseArguments() {
+        return List.of();
     }
 
     @Override
@@ -1447,13 +1456,8 @@ public final class SubscriptionProvider implements Provider {
     }
 
     @Override
-    public boolean hasRemoteControl() {
+    public boolean hasLiveMode() {
         return true;
-    }
-
-    @Override
-    public Optional<String> liveApiKey() {
-        return Optional.empty();
     }
 
     @Override
@@ -1484,21 +1488,24 @@ import com.meterian.factory.usage.DollarAmount;
 import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.time.Clock;
-import java.util.Map;
-import java.util.Optional;
+import java.util.List;
 
-/** The sessions use ANTHROPIC_API_KEY. A daily budget limits the cost. Not a record: its text form hides the key. */
+/**
+ * The sessions get an Anthropic API key from the apiKeyHelper of a settings file. A daily budget limits the cost.
+ * The key is never in an environment, so the commands of the agent do not get it.
+ */
 public final class ApiKeyProvider implements Provider {
 
-    private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
-    private static final String SCRUB_VARIABLE = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
+    private static final String HELPER_SOURCE = "apiKeyHelper";
 
-    private final String apiKey;
+    private final Path settingsFile;
     private final BigDecimal dailyBudgetUsd;
 
-    public ApiKeyProvider(String apiKey, BigDecimal dailyBudgetUsd) {
-        this.apiKey = apiKey;
+    /** @param settingsFile the settings file of {@link ApiKeyFiles}, which names the helper */
+    public ApiKeyProvider(Path settingsFile, BigDecimal dailyBudgetUsd) {
+        this.settingsFile = settingsFile;
         this.dailyBudgetUsd = dailyBudgetUsd;
     }
 
@@ -1509,21 +1516,20 @@ public final class ApiKeyProvider implements Provider {
 
     @Override
     public String describe() {
-        return "The provider is anthropic-api-key: the sessions use ANTHROPIC_API_KEY. The daily budget is "
+        return "The provider is anthropic-api-key: the sessions use an Anthropic API key. The daily budget is "
                 + DollarAmount.format(dailyBudgetUsd) + ".";
     }
 
-    /** The scrub removes the key from the subprocesses of claude: the Bash tool, the hooks, and the MCP servers. */
     @Override
-    public Map<String, String> phaseEnvironment() {
-        return Map.of(API_KEY_VARIABLE, apiKey, SCRUB_VARIABLE, "1");
+    public List<String> phaseArguments() {
+        return List.of("--settings", settingsFile.toString());
     }
 
     @Override
     public void verifyCredentialSource(String apiKeySource) throws CredentialMismatchException {
-        if (!API_KEY_VARIABLE.equals(apiKeySource)) {
+        if (!HELPER_SOURCE.equals(apiKeySource)) {
             throw new CredentialMismatchException("The session uses the credential source " + apiKeySource
-                    + ". The provider anthropic-api-key expects ANTHROPIC_API_KEY.");
+                    + ". The provider anthropic-api-key expects apiKeyHelper.");
         }
     }
 
@@ -1531,14 +1537,10 @@ public final class ApiKeyProvider implements Provider {
     public void verifyFinishedSession(SessionReport report) {
     }
 
+    /** An interactive claude gets "credit balance too low" with a key that works in print mode. */
     @Override
-    public boolean hasRemoteControl() {
+    public boolean hasLiveMode() {
         return false;
-    }
-
-    @Override
-    public Optional<String> liveApiKey() {
-        return Optional.of(apiKey);
     }
 
     @Override
@@ -1550,22 +1552,92 @@ public final class ApiKeyProvider implements Provider {
     public PhaseGuard createPhaseGuard(UsageTracker usage, CostEvents costEvents, Clock clock) {
         return new BudgetTracker(dailyBudgetUsd, costEvents, clock);
     }
+}
+```
 
-    @Override
-    public String toString() {
-        return "ApiKeyProvider[dailyBudgetUsd=" + dailyBudgetUsd + "]";
+- [ ] **Step 6: Create the API key files**
+
+`src/main/java/com/meterian/factory/provider/ApiKeyFiles.java`:
+
+```java
+package com.meterian.factory.provider;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.meterian.factory.agent.ShellQuoting;
+import com.meterian.factory.file.AtomicFileWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
+
+/** Writes the apiKeyHelper script and its settings file in a folder that only the owner can read. */
+public final class ApiKeyFiles {
+
+    public static final String FOLDER_NAME = "credentials";
+
+    private static final String HELPER_FILE_NAME = "api-key-helper.sh";
+    private static final String SETTINGS_FILE_NAME = "api-key-settings.json";
+    private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
+    private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
+    private static final String PRIVATE_FILE_PERMISSIONS = "rw-------";
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private ApiKeyFiles() {
+    }
+
+    /** Returns the path of the settings file that names the helper. */
+    public static Path write(Path workDirectory, String apiKey) throws IOException {
+        Path folder = preparePrivateFolder(workDirectory.resolve(FOLDER_NAME));
+        Path helper = folder.resolve(HELPER_FILE_NAME);
+        AtomicFileWriter.write(helper, createHelper(apiKey), PRIVATE_EXECUTABLE_PERMISSIONS);
+        Path settings = folder.resolve(SETTINGS_FILE_NAME);
+        AtomicFileWriter.write(settings, createSettings(helper), PRIVATE_FILE_PERMISSIONS);
+        return settings;
+    }
+
+    private static Path preparePrivateFolder(Path folder) throws IOException {
+        if (Files.isSymbolicLink(folder)) {
+            throw new IOException("The folder " + folder + " is a symbolic link. Use a real folder.");
+        }
+        if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createDirectories(folder.getParent());
+            Files.createDirectory(folder, PosixFilePermissions.asFileAttribute(
+                    PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS)));
+        }
+        Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS));
+        return folder;
+    }
+
+    private static byte[] createHelper(String apiKey) {
+        String script = "#!/bin/sh\n" + ShellQuoting.join(List.of("printf", "%s\\n", apiKey)) + "\n";
+        return script.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] createSettings(Path helper) throws IOException {
+        ObjectNode root = JSON.createObjectNode();
+        root.put("apiKeyHelper", helper.toString());
+        return JSON.writerWithDefaultPrettyPrinter().writeValueAsBytes(root);
     }
 }
 ```
 
-- [ ] **Step 6: Create the factory of the providers**
+`ShellQuoting.join` puts each word in single quotes. Thus the helper is `printf '%s\n' '<key>'`.
+
+- [ ] **Step 7: Create the factory of the providers**
 
 `src/main/java/com/meterian/factory/provider/Providers.java`:
 
 ```java
 package com.meterian.factory.provider;
 
+import com.meterian.factory.Main.StartupException;
 import com.meterian.factory.configuration.FactoryConfiguration;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Map;
 
 /** Creates the provider of the configuration. The start checks run first, so the key and the budget exist. */
@@ -1576,27 +1648,41 @@ public final class Providers {
     private Providers() {
     }
 
-    public static Provider create(FactoryConfiguration configuration, Map<String, String> environment) {
+    public static Provider create(FactoryConfiguration configuration, Map<String, String> environment)
+            throws StartupException {
         return switch (configuration.claude().provider()) {
             case SUBSCRIPTION -> new SubscriptionProvider();
-            case ANTHROPIC_API_KEY -> new ApiKeyProvider(environment.get(API_KEY_VARIABLE),
-                    configuration.limits().dailyBudgetUsd().orElseThrow());
+            case ANTHROPIC_API_KEY -> createApiKeyProvider(configuration, environment.get(API_KEY_VARIABLE));
         };
+    }
+
+    private static Provider createApiKeyProvider(FactoryConfiguration configuration, String apiKey)
+            throws StartupException {
+        try {
+            Path settingsFile = ApiKeyFiles.write(configuration.workDirectory(), apiKey);
+            return new ApiKeyProvider(settingsFile, configuration.limits().dailyBudgetUsd().orElseThrow());
+        } catch (IOException exception) {
+            throw new StartupException("The factory cannot write the API key files in "
+                    + configuration.workDirectory().resolve(ApiKeyFiles.FOLDER_NAME) + ": " + exception.getMessage());
+        }
     }
 }
 ```
 
-- [ ] **Step 7: Run the tests to see them pass**
+- [ ] **Step 8: Run the tests to see them pass**
 
-Run: `./mvnw -q test -Dtest='SubscriptionProviderTest,ApiKeyProviderTest'`
+Run: `./mvnw -q test -Dtest='SubscriptionProviderTest,ApiKeyProviderTest,ApiKeyFilesTest'`
 Expected: all tests pass.
 
-- [ ] **Step 8: Run all the tests and commit**
+- [ ] **Step 9: Run all the tests and commit**
 
 ```bash
 ./mvnw -q verify
 git add src
 git commit -m "Add the subscription provider and the API key provider
+
+The API key provider gives the key through an apiKeyHelper script in a
+private folder, so that no environment contains the key.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1608,40 +1694,37 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/main/java/com/meterian/factory/agent/ClaudeCommand.java`
 - Modify: `src/main/java/com/meterian/factory/agent/ClaudeAgentRunner.java`
+- Modify: `src/main/java/com/meterian/factory/Main.java` (one line, so that it compiles)
 - Create: `src/test/resources/stream/success-without-windows.jsonl`
+- Create: `src/test/resources/stream/api-key-helper.jsonl`
 - Test: `src/test/java/com/meterian/factory/agent/ClaudeCommandTest.java`
 - Test: `src/test/java/com/meterian/factory/agent/ClaudeAgentRunnerTest.java`
 
-- [ ] **Step 1: Create the stream file without usage windows**
+- [ ] **Step 1: Create the two stream files**
 
 ```bash
 grep -v '"type":"rate_limit_event"' src/test/resources/stream/success.jsonl \
   > src/test/resources/stream/success-without-windows.jsonl
+grep -v '"type":"rate_limit_event"' src/test/resources/stream/api-key.jsonl \
+  | sed 's/"apiKeySource":"ANTHROPIC_API_KEY"/"apiKeySource":"apiKeyHelper"/' \
+  > src/test/resources/stream/api-key-helper.jsonl
+grep -c '"apiKeySource":"apiKeyHelper"' src/test/resources/stream/api-key-helper.jsonl
 ```
+
+Expected: `1`.
 
 - [ ] **Step 2: Write the failing tests**
 
-Add to `ClaudeCommandTest`. Add the imports `com.meterian.factory.provider.ApiKeyProvider`,
-`java.math.BigDecimal`, and `java.util.Map` if they are not there.
+Add to `ClaudeCommandTest` (it has the fields `settings` and the helper `requestOf(boolean)`):
 
 ```java
     @Test
-    void theProviderAddsItsVariablesAfterTheFilter() {
-        Map<String, String> parent = Map.of("ANTHROPIC_API_KEY", "from-the-shell", "PATH", "/usr/bin");
+    void theProviderArgumentsComeBeforeTheToolLists() {
+        List<String> arguments = ClaudeCommand.arguments(settings, requestOf(true),
+                List.of("--settings", "/work/credentials/api-key-settings.json"));
 
-        Map<String, String> environment = ClaudeCommand.environment(parent,
-                new ApiKeyProvider("sk-ant-test-key", new BigDecimal("20")));
-
-        assertThat(environment).containsEntry("ANTHROPIC_API_KEY", "sk-ant-test-key")
-                .containsEntry("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1")
-                .containsEntry("PATH", "/usr/bin");
-    }
-
-    @Test
-    void theEnvironmentWithoutAProviderHasNoKey() {
-        Map<String, String> environment = ClaudeCommand.environment(Map.of("ANTHROPIC_API_KEY", "a", "PATH", "/bin"));
-
-        assertThat(environment).doesNotContainKey("ANTHROPIC_API_KEY");
+        assertThat(arguments).containsSubsequence("--settings", "/work/credentials/api-key-settings.json",
+                "--allowedTools");
     }
 ```
 
@@ -1662,10 +1745,11 @@ In `ClaudeAgentRunnerTest`, add the imports `com.meterian.factory.provider.ApiKe
     }
 ```
 
-Add the tests:
+Add the constant and the tests:
 
 ```java
-    private static final Provider API_KEY_PROVIDER = new ApiKeyProvider("sk-ant-test-key", new BigDecimal("20"));
+    private static final Provider API_KEY_PROVIDER = new ApiKeyProvider(
+            Path.of("/work/credentials/api-key-settings.json"), new BigDecimal("20"));
 
     @Test
     void stopsASubscriptionSessionWithoutUsageWindows() throws Exception {
@@ -1677,8 +1761,8 @@ Add the tests:
     }
 
     @Test
-    void acceptsAnApiKeySessionInApiKeyMode() throws Exception {
-        ClaudeAgentRunner runner = runnerFor("api-key.jsonl", Map.of(), System.getenv(), API_KEY_PROVIDER);
+    void acceptsAHelperSessionInApiKeyMode() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("api-key-helper.jsonl", Map.of(), System.getenv(), API_KEY_PROVIDER);
 
         assertThat(runner.runPhase(requestOf(7)).success()).isTrue();
     }
@@ -1690,36 +1774,55 @@ Add the tests:
         assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
                 .isInstanceOf(CredentialMismatchException.class)
                 .hasMessage("The session uses the credential source none. "
-                        + "The provider anthropic-api-key expects ANTHROPIC_API_KEY.");
+                        + "The provider anthropic-api-key expects apiKeyHelper.");
     }
 
     @Test
-    void givesTheKeyAndTheScrubToTheProcessInApiKeyMode() throws Exception {
+    void givesTheSettingsFileAndNoKeyInApiKeyMode() throws Exception {
         Map<String, String> parent = Map.of("ANTHROPIC_API_KEY", "from-the-shell", "PATH", System.getenv("PATH"));
 
-        runnerFor("api-key.jsonl", Map.of(), parent, API_KEY_PROVIDER).runPhase(requestOf(7));
+        runnerFor("api-key-helper.jsonl", Map.of(), parent, API_KEY_PROVIDER).runPhase(requestOf(7));
 
-        String environment = Files.readString(directory.resolve("environment.txt"));
-        assertThat(environment).contains("ANTHROPIC_API_KEY=sk-ant-test-key", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
-                .doesNotContain("from-the-shell");
+        assertThat(Files.readAllLines(directory.resolve("arguments.txt")))
+                .containsSubsequence("--settings", "/work/credentials/api-key-settings.json");
+        assertThat(Files.readString(directory.resolve("environment.txt")))
+                .doesNotContain("ANTHROPIC_API_KEY", "from-the-shell");
     }
 ```
 
 - [ ] **Step 3: Run the tests to see them fail**
 
 Run: `./mvnw -q test -Dtest='ClaudeCommandTest,ClaudeAgentRunnerTest'`
-Expected: compilation failure: `ClaudeCommand.environment(Map, Provider)` and the new constructor do not exist.
+Expected: compilation failure: `ClaudeCommand.arguments(ClaudeSettings, PhaseRequest, List)` and the new
+constructor of `ClaudeAgentRunner` do not exist.
 
-- [ ] **Step 4: Add the provider variables in `ClaudeCommand`**
+- [ ] **Step 4: Add the provider arguments in `ClaudeCommand`**
 
-Add the import `com.meterian.factory.provider.Provider`. Add the method after `environment(Map)`:
+Replace the method `arguments` with these two methods:
 
 ```java
-    /** The filter removes every credential variable. Then the provider adds its own variables. */
-    public static Map<String, String> environment(Map<String, String> parent, Provider provider) {
-        Map<String, String> environment = environment(parent);
-        environment.putAll(provider.phaseEnvironment());
-        return environment;
+    /** The prompt is not an argument: the runner writes it to the standard input, after the tool lists. */
+    public static List<String> arguments(ClaudeSettings settings, PhaseRequest request) {
+        return arguments(settings, request, List.of());
+    }
+
+    /** @param providerArguments the arguments of the provider; they come before the tool lists */
+    public static List<String> arguments(ClaudeSettings settings, PhaseRequest request,
+                                         List<String> providerArguments) {
+        List<String> arguments = new ArrayList<>();
+        arguments.add(settings.command());
+        arguments.add("-p");
+        arguments.add(request.newSession() ? "--session-id" : "--resume");
+        arguments.add(request.sessionId().toString());
+        arguments.addAll(List.of("--output-format", "stream-json", "--verbose"));
+        arguments.addAll(List.of("--permission-mode", "acceptEdits"));
+        arguments.addAll(humanLanguageArguments());
+        arguments.addAll(providerArguments);
+        arguments.add("--allowedTools");
+        arguments.addAll(request.allowedTools());
+        arguments.add("--disallowedTools");
+        arguments.addAll(settings.disallowedTools());
+        return arguments;
     }
 ```
 
@@ -1752,14 +1855,17 @@ Replace the two constructors with:
 In `startProcess`, replace:
 
 ```java
-        builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
+        command.addAll(ClaudeCommand.arguments(settings, request));
 ```
 
 with:
 
 ```java
-        builder.environment().putAll(ClaudeCommand.environment(parentEnvironment, provider));
+        command.addAll(ClaudeCommand.arguments(settings, request, provider.phaseArguments()));
 ```
+
+The environment does not change: `ClaudeCommand.environment(parentEnvironment)` still removes every
+`ANTHROPIC_*` variable.
 
 In `readSession`, replace `verifyNoApiKey(parser, run);` with `verifyCredential(parser, run);`.
 
@@ -1786,22 +1892,38 @@ In `buildReport`, after the `if (report.success() && report.apiKeySource().isEmp
         provider.verifyFinishedSession(report);
 ```
 
-- [ ] **Step 6: Run the tests to see them pass**
+- [ ] **Step 6: Keep `Main` compiling**
+
+In `src/main/java/com/meterian/factory/Main.java`, add the import
+`com.meterian.factory.provider.SubscriptionProvider`, and replace:
+
+```java
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
+```
+
+with:
+
+```java
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
+                new SubscriptionProvider());
+```
+
+Task 10 replaces `new SubscriptionProvider()` with the provider of the configuration.
+
+- [ ] **Step 7: Run the tests to see them pass**
 
 Run: `./mvnw -q test -Dtest='ClaudeCommandTest,ClaudeAgentRunnerTest'`
-Expected: all tests pass. `Main` does not compile yet; Task 10 changes it. If the build stops on `Main`,
-change its line `new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome)` to
-`new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome, new SubscriptionProvider())`
-for now, with the import `com.meterian.factory.provider.SubscriptionProvider`.
+Expected: all tests pass.
 
-- [ ] **Step 7: Run all the tests and commit**
+- [ ] **Step 8: Run all the tests and commit**
 
 ```bash
 ./mvnw -q verify
 git add src
 git commit -m "Check each claude session against the provider
 
-A subscription session must also send usage windows.
+A subscription session must also send usage windows. In API key mode,
+each phase gets the settings file of the key helper.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1885,8 +2007,9 @@ In `MainTest`, replace the test `refusesToStartWithAnApiKey` with the tests belo
 
         assertThat(exitCode).isZero();
         assertThat(started).singleElement().isInstanceOf(ApiKeyProvider.class);
-        assertThat(errorText()).contains("The provider is anthropic-api-key: the sessions use ANTHROPIC_API_KEY. "
-                + "The daily budget is $20.00.").doesNotContain("secret");
+        assertThat(errorText()).contains("The provider is anthropic-api-key: the sessions use an Anthropic API "
+                + "key. The daily budget is $20.00.").doesNotContain("secret");
+        assertThat(temporaryDirectory.resolve("work/credentials/api-key-settings.json")).isRegularFile();
     }
 
     @Test
@@ -2063,8 +2186,9 @@ Change the signature of `runWorker` to:
 In `runWorker`, make these changes:
 
 - `SharedState.create(configuration)` becomes `SharedState.create(configuration, provider)`.
-- `new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome)` becomes
-  `new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome, provider)`.
+- In the creation of `ClaudeAgentRunner` (Task 9, step 6), replace `new SubscriptionProvider()` with
+  `provider`. Remove the import `com.meterian.factory.provider.SubscriptionProvider` if no other line uses it.
+  `SharedState.create(configuration)` uses it, so the import stays.
 - Replace the `new UsageProbe(...)` statement with:
 
 ```java
@@ -2091,7 +2215,7 @@ In `createWorkflow`, replace `MERGE_RETRY_DELAY, shared.usage(), layout,` with
 - [ ] **Step 7: Run the tests to see them pass**
 
 Run: `./mvnw -q test -Dtest='MainTest,PageModelSourceTest,WebServerTest,BoardPageTest'`
-Expected: all tests pass, except that `TmuxLiveSessions` keeps the old constructor until Task 12.
+Expected: all tests pass.
 
 - [ ] **Step 8: Run all the tests and commit**
 
@@ -2172,408 +2296,183 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 12: Open the live sessions without Remote Control
+## Task 12: Refuse the live mode in API key mode
+
+An interactive `claude` gets `400 Your credit balance is too low` with a key that works in print mode (spec,
+section 9, check 5). Thus API key mode has no live mode. `ConversationAction` already blocks the issue when
+the open fails, so the issue waits for the owner on GitHub.
 
 **Files:**
-- Modify: `src/main/java/com/meterian/factory/agent/LiveFiles.java`
-- Modify: `src/main/java/com/meterian/factory/agent/TmuxCommand.java`
-- Modify: `src/main/java/com/meterian/factory/agent/TmuxLiveSessions.java`
-- Modify: `src/main/java/com/meterian/factory/agent/LiveSessions.java`
-- Modify: `src/main/java/com/meterian/factory/workflow/LiveMode.java:20,90`
-- Modify: `src/main/java/com/meterian/factory/web/CardRenderer.java:141-143`
-- Modify: `src/main/java/com/meterian/factory/Main.java` (the `TmuxLiveSessions` constructor call)
-- Modify: `src/test/resources/fake-claude-live.sh`
-- Test: `src/test/java/com/meterian/factory/agent/LiveFilesTest.java`
-- Test: `src/test/java/com/meterian/factory/agent/TmuxLiveSessionsTest.java`
-- Test: `src/test/java/com/meterian/factory/workflow/LiveModeTest.java:113,159`
+- Create: `src/main/java/com/meterian/factory/agent/UnavailableLiveSessions.java`
+- Modify: `src/main/java/com/meterian/factory/Main.java` (the creation of the live sessions)
+- Test: `src/test/java/com/meterian/factory/agent/UnavailableLiveSessionsTest.java`
 
-- [ ] **Step 1: Let the fake live claude show the ready text**
+- [ ] **Step 1: Write the failing test**
 
-In `src/test/resources/fake-claude-live.sh`, replace the last block:
-
-```bash
-if [ "$FAKE_CLAUDE_LIVE_NO_LINK" != 1 ]; then
-  echo "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_FAKE123"
-fi
-```
-
-with:
-
-```bash
-if [ "$FAKE_CLAUDE_LIVE_READY" = 1 ]; then
-  echo "  ⏸ manual mode on · ? for shortcuts"
-elif [ "$FAKE_CLAUDE_LIVE_NO_LINK" != 1 ]; then
-  echo "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_FAKE123"
-fi
-```
-
-- [ ] **Step 2: Write the failing tests**
-
-Add to `LiveFilesTest`. Add the imports `java.nio.file.attribute.PosixFilePermissions` and `java.util.Optional`
-if they are not there. The test class has a `LiveFiles` object; the snippet calls it `liveFiles`. Use the name
-of the field of the test class.
+`src/test/java/com/meterian/factory/agent/UnavailableLiveSessionsTest.java`:
 
 ```java
-    @Test
-    void writesTheApiKeyHelperForTheOwnerOnly() throws Exception {
-        Path helper = liveFiles.writeApiKeyHelper("sk-ant-test-key");
+package com.meterian.factory.agent;
 
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(helper))).isEqualTo("rwx------");
-        Process process = new ProcessBuilder(helper.toString()).start();
-        assertThat(new String(process.getInputStream().readAllBytes())).isEqualTo("sk-ant-test-key\n");
-    }
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-    @Test
-    void theSettingsFileNamesTheApiKeyHelper() throws Exception {
-        Path helper = liveFiles.writeApiKeyHelper("sk-ant-test-key");
+import java.nio.file.Path;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
 
-        Path settings = liveFiles.writeSettingsFile(7, Optional.of(helper));
+class UnavailableLiveSessionsTest {
 
-        assertThat(Files.readString(settings)).contains("\"apiKeyHelper\" : \"" + helper + "\"")
-                .doesNotContain("sk-ant-test-key");
-    }
-```
+    private static final String MESSAGE =
+            "The live mode is not available with the provider anthropic-api-key. Answer on GitHub.";
 
-Add to `TmuxLiveSessionsTest`. Add the imports `com.meterian.factory.provider.ApiKeyProvider`,
-`com.meterian.factory.provider.Provider`, `com.meterian.factory.provider.SubscriptionProvider`, and
-`java.math.BigDecimal`.
-
-Replace the helpers `sessionsWithTerminal` and `sessionsFor` with:
-
-```java
-    private TmuxLiveSessions sessionsWithTerminal(Path terminal) throws IOException, URISyntaxException {
-        return new TmuxLiveSessions(settingsFor(Map.of()), liveFiles, new SubscriptionProvider(), System.getenv(),
-                SUCCESS_TIMEOUT, new TmuxCommand(socketName),
-                new TerminalWindow(List.of(terminal.toString()), socketName, System.getenv()));
-    }
-
-    private TmuxLiveSessions sessionsFor(Map<String, String> options, Map<String, String> parent,
-            Duration openTimeout) throws IOException, URISyntaxException {
-        return sessionsFor(options, parent, openTimeout, new SubscriptionProvider());
-    }
-
-    private TmuxLiveSessions sessionsFor(Map<String, String> options, Map<String, String> parent,
-            Duration openTimeout, Provider provider) throws IOException, URISyntaxException {
-        return new TmuxLiveSessions(settingsFor(options), liveFiles, provider, parent, openTimeout, socketName);
-    }
-```
-
-If the test class has a third `new TmuxLiveSessions(` call, add `new SubscriptionProvider(),` after
-`liveFiles,` in it. Find it with `grep -n "new TmuxLiveSessions(" src/test/java/com/meterian/factory/agent/TmuxLiveSessionsTest.java`.
-
-Add the tests:
-
-```java
-    private static final Provider API_KEY_PROVIDER = new ApiKeyProvider("sk-ant-test-key", new BigDecimal("20"));
+    private final UnavailableLiveSessions sessions = new UnavailableLiveSessions();
 
     @Test
-    void openInApiKeyModeReturnsTheCommandThatJoinsTheSession() throws Exception {
-        String joinCommand = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_READY", "1"), System.getenv(), SUCCESS_TIMEOUT,
-                API_KEY_PROVIDER).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
-
-        assertThat(joinCommand).isEqualTo("tmux -L " + socketName + " attach -t =factory-issue-7");
-    }
-
-    @Test
-    void openInApiKeyModeUsesTheHelperAndNoRemoteControl() throws Exception {
-        Map<String, String> parent = new HashMap<>(System.getenv());
-        parent.put("ANTHROPIC_API_KEY", "from-the-shell");
-
-        sessionsFor(Map.of("FAKE_CLAUDE_LIVE_READY", "1"), parent, SUCCESS_TIMEOUT, API_KEY_PROVIDER)
-                .open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
-
-        assertThat(Files.readAllLines(directory.resolve("arguments.txt"))).doesNotContain("--remote-control");
-        assertThat(Files.readString(directory.resolve("live/issue-7.settings.json"))).contains("apiKeyHelper");
-        assertThat(Files.readString(directory.resolve("environment.txt")))
-                .doesNotContain("ANTHROPIC_API_KEY", "sk-ant-test-key", "from-the-shell");
-    }
-
-    @Test
-    void openInApiKeyModeFailsWhenTheSessionIsNotReady() throws Exception {
-        TmuxLiveSessions sessions = sessionsFor(Map.of("FAKE_CLAUDE_LIVE_NO_LINK", "1"), System.getenv(),
-                FAILURE_TIMEOUT, API_KEY_PROVIDER);
-
-        assertThatThrownBy(() -> sessions.open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS))
+    void refusesToOpenASession() {
+        assertThatThrownBy(() -> sessions.open(7, UUID.randomUUID(), Path.of("/work"), List.of("Read")))
                 .isInstanceOf(LiveSessionException.class)
-                .hasMessage("The live session was not ready in 3 seconds.");
+                .hasMessage(MESSAGE);
     }
+
+    @Test
+    void refusesToOpenATerminal() {
+        assertThatThrownBy(() -> sessions.openTerminal(7))
+                .isInstanceOf(LiveSessionException.class)
+                .hasMessage(MESSAGE);
+    }
+
+    @Test
+    void hasNoOpenSessionAndNoContinueRequest() {
+        sessions.requestContinue(7);
+
+        assertThat(sessions.isOpen(7)).isFalse();
+        assertThat(sessions.isContinueRequested(7)).isFalse();
+    }
+}
 ```
 
-In `LiveModeTest`, replace the text `Use the Remote Control link.` with
-`Use the link or the command in the comment of the issue.` (two places):
+- [ ] **Step 2: Run the test to see it fail**
+
+Run: `./mvnw -q test -Dtest=UnavailableLiveSessionsTest`
+Expected: compilation failure: `UnavailableLiveSessions` does not exist.
+
+- [ ] **Step 3: Check the constructors of `LiveSessionException`**
 
 ```bash
-sed -i 's/Use the Remote Control link\./Use the link or the command in the comment of the issue./' \
-  src/test/java/com/meterian/factory/workflow/LiveModeTest.java
+grep -n "public LiveSessionException" src/main/java/com/meterian/factory/agent/LiveSessionException.java
 ```
 
-- [ ] **Step 3: Run the tests to see them fail**
-
-Run: `./mvnw -q test -Dtest='LiveFilesTest,TmuxLiveSessionsTest,LiveModeTest'`
-Expected: compilation failure: `writeApiKeyHelper`, `writeSettingsFile(int, Optional)`, and the new
-`TmuxLiveSessions` constructors do not exist.
-
-- [ ] **Step 4: Write the helper and the setting in `LiveFiles`**
-
-In `src/main/java/com/meterian/factory/agent/LiveFiles.java`, add the import `java.util.Optional` and the
-constant:
+Expected: a constructor with one `String` parameter. If it is not there, add it:
 
 ```java
-    private static final String API_KEY_HELPER_FILE_NAME = "api-key-helper.sh";
-```
-
-Replace `writeSettingsFile` with the two methods below, and add `writeApiKeyHelper` after them:
-
-```java
-    public Path writeSettingsFile(int issueNumber) {
-        return writeSettingsFile(issueNumber, Optional.empty());
-    }
-
-    /** @param apiKeyHelper the script that prints the API key, only in API key mode */
-    public Path writeSettingsFile(int issueNumber, Optional<Path> apiKeyHelper) {
-        Path file = liveDirectory.resolve("issue-" + issueNumber + ".settings.json");
-        write(file, createSettings(issueNumber, apiKeyHelper), FILE_PERMISSIONS);
-        return file;
-    }
-
-    /** Writes the script that prints the API key for the live sessions. Only the owner can read it. */
-    public Path writeApiKeyHelper(String apiKey) {
-        Path file = liveDirectory.resolve(API_KEY_HELPER_FILE_NAME);
-        String content = "#!/bin/sh\n" + ShellQuoting.join(List.of("printf", "%s\\n", apiKey)) + "\n";
-        write(file, content.getBytes(StandardCharsets.UTF_8), PRIVATE_EXECUTABLE_PERMISSIONS);
-        return file;
+    public LiveSessionException(String message) {
+        super(message);
     }
 ```
 
-Change `createSettings(int issueNumber)` to `createSettings(int issueNumber, Optional<Path> apiKeyHelper)`.
-In it, after the line `root.set("hooks", ...)`, add:
+- [ ] **Step 4: Create `UnavailableLiveSessions`**
+
+`src/main/java/com/meterian/factory/agent/UnavailableLiveSessions.java`:
 
 ```java
-        apiKeyHelper.ifPresent(helper -> root.put("apiKeyHelper", helper.toString()));
-```
+package com.meterian.factory.agent;
 
-- [ ] **Step 5: Give `TmuxCommand` its socket name**
+import java.nio.file.Path;
+import java.util.List;
+import java.util.UUID;
 
-In `src/main/java/com/meterian/factory/agent/TmuxCommand.java`, add the field `private final String socketName;`.
-In the constructor `TmuxCommand(String program, String socketName)`, add the line
-`this.socketName = socketName;`. Add the method:
+/** The live sessions of API key mode: no session opens, so an issue that needs the owner waits on GitHub. */
+public final class UnavailableLiveSessions implements LiveSessions {
 
-```java
-    /** The name for the option -L, so that the owner can attach to the server of the factory. */
-    String socketName() {
-        return socketName;
-    }
-```
+    private static final String UNAVAILABLE_MESSAGE =
+            "The live mode is not available with the provider anthropic-api-key. Answer on GitHub.";
 
-- [ ] **Step 6: Change `TmuxLiveSessions`**
-
-In `src/main/java/com/meterian/factory/agent/TmuxLiveSessions.java`:
-
-Add the import `com.meterian.factory.provider.Provider` and `java.util.function.Function`. Add the constants:
-
-```java
-    private static final String READY_TEXT = "? for shortcuts";
-    private static final int READY_TEXT_LINES = 5;
-```
-
-Add the field `private final Provider provider;`. Replace the three constructors with:
-
-```java
-    public TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Provider provider,
-            Map<String, String> parentEnvironment, Duration openTimeout, List<String> terminalCommand) {
-        this(settings, liveFiles, provider, parentEnvironment, openTimeout, new TmuxCommand(),
-                new TerminalWindow(terminalCommand, TmuxCommand.FACTORY_SERVER, parentEnvironment));
+    @Override
+    public String open(int issueNumber, UUID sessionId, Path worktree, List<String> allowedTools)
+            throws LiveSessionException {
+        throw new LiveSessionException(UNAVAILABLE_MESSAGE);
     }
 
-    /** Uses the private tmux server with this socket name, for the tests. */
-    TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Provider provider,
-            Map<String, String> parentEnvironment, Duration openTimeout, String socketName) {
-        this(settings, liveFiles, provider, parentEnvironment, openTimeout, new TmuxCommand(socketName),
-                new TerminalWindow(List.of("false"), socketName, parentEnvironment));
+    @Override
+    public boolean isOpen(int issueNumber) {
+        return false;
     }
 
-    TmuxLiveSessions(ClaudeSettings settings, LiveFiles liveFiles, Provider provider,
-            Map<String, String> parentEnvironment, Duration openTimeout, TmuxCommand tmux,
-            TerminalWindow terminalWindow) {
-        this.settings = settings;
-        this.liveFiles = liveFiles;
-        this.provider = provider;
-        this.parentEnvironment = Map.copyOf(parentEnvironment);
-        this.openTimeout = openTimeout;
-        this.tmux = tmux;
-        this.terminalWindow = terminalWindow;
-    }
-```
-
-In `open`, replace:
-
-```java
-        Path settingsFile = liveFiles.writeSettingsFile(issueNumber);
-```
-
-with:
-
-```java
-        Path settingsFile = liveFiles.writeSettingsFile(issueNumber,
-                provider.liveApiKey().map(liveFiles::writeApiKeyHelper));
-```
-
-and replace `return waitForTheLink(issueNumber);` with `return waitUntilReady(issueNumber);`.
-
-Replace the method `waitForTheLink` with these methods:
-
-```java
-    /** With Remote Control the result is the link. Without it, the result is the command that joins the session. */
-    private String waitUntilReady(int issueNumber) throws LiveSessionException {
-        if (provider.hasRemoteControl()) {
-            return waitForTheScreen(issueNumber, this::findTheLink, "The live session did not show a Remote "
-                    + "Control link in " + openTimeout.toSeconds() + " seconds.");
-        }
-        return waitForTheScreen(issueNumber, screen -> findTheJoinCommand(issueNumber, screen),
-                "The live session was not ready in " + openTimeout.toSeconds() + " seconds.");
+    @Override
+    public void close(int issueNumber) {
     }
 
-    /**
-     * Claude shows the trust prompt before it reads the keys, and it loses the keys of that time. So the worker
-     * answers only a prompt that stays on the screen, and it answers again when the prompt does not go away.
-     */
-    private String waitForTheScreen(int issueNumber, Function<String, Optional<String>> resultOfScreen,
-            String timeoutMessage) throws LiveSessionException {
-        long deadline = System.nanoTime() + openTimeout.toNanos();
-        long promptSeenSince = 0;
-        long lastAnswerAt = 0;
-        while (true) {
-            String screen = captureScreen(issueNumber);
-            Optional<String> result = resultOfScreen.apply(screen);
-            if (result.isPresent()) {
-                return result.get();
-            }
-            long now = System.nanoTime();
-            if (!showsTheTrustPrompt(screen)) {
-                promptSeenSince = 0;
-            } else if (promptSeenSince == 0) {
-                promptSeenSince = now;
-            } else if (isTimeToAnswer(now, promptSeenSince, lastAnswerAt)) {
-                answerTheTrustPrompt(issueNumber, screen);
-                lastAnswerAt = now;
-            }
-            if (now >= deadline) {
-                throw new LiveSessionException(timeoutMessage);
-            }
-            pauseBeforeTheNextPoll();
-        }
+    @Override
+    public boolean isContinueRequested(int issueNumber) {
+        return false;
     }
 
-    /** Only the last lines count: claude 2.1.330 shows the ready text in its status line. */
-    private Optional<String> findTheJoinCommand(int issueNumber, String screen) {
-        List<String> lines = screen.lines().filter(line -> !line.isBlank()).toList();
-        List<String> lastLines = lines.subList(Math.max(0, lines.size() - READY_TEXT_LINES), lines.size());
-        boolean isReady = lastLines.stream().anyMatch(line -> line.contains(READY_TEXT));
-        return isReady ? Optional.of(createJoinCommand(issueNumber)) : Optional.empty();
+    @Override
+    public void openTerminal(int issueNumber) throws LiveSessionException {
+        throw new LiveSessionException(UNAVAILABLE_MESSAGE);
     }
 
-    private String createJoinCommand(int issueNumber) {
-        return "tmux -L " + tmux.socketName() + " attach -t " + sessionTarget(issueNumber);
+    @Override
+    public void clearContinueRequest(int issueNumber) {
     }
+
+    @Override
+    public void requestContinue(int issueNumber) {
+    }
+}
 ```
 
-In `createClaudeArguments`, replace:
+- [ ] **Step 5: Select the live sessions in `Main`**
 
-```java
-        arguments.addAll(List.of("--remote-control", "Fix #" + issueNumber));
-```
-
-with:
-
-```java
-        if (provider.hasRemoteControl()) {
-            arguments.addAll(List.of("--remote-control", "Fix #" + issueNumber));
-        }
-```
-
-Change the Javadoc of the class to:
-
-```java
-/**
- * Opens the session of the agent in charge in tmux, on the tmux server of the factory. With the subscription,
- * the session has Remote Control, and the worker reads its link on the screen. With an API key, the worker
- * waits for the ready text. The worker answers the trust prompt on the tmux screen.
- */
-```
-
-- [ ] **Step 7: Change the texts of the live mode**
-
-In `src/main/java/com/meterian/factory/agent/LiveSessions.java`, change the Javadoc of `open` to:
-
-```java
-    /**
-     * Opens the live session of the issue. Returns its Remote Control link, or the command that joins the
-     * session when the provider has no Remote Control.
-     *
-     * @param allowedTools the allowed tools of the definition of the issue
-     */
-```
-
-and the Javadoc of the interface to `/** The live sessions: the owner talks to the session of the agent in charge. */`.
-
-In `src/main/java/com/meterian/factory/workflow/LiveMode.java`, replace:
-
-```java
-            return opened.withNote(TERMINAL_NOT_OPEN_NOTE + exception.getMessage() + " Use the Remote Control link.");
-```
-
-with:
-
-```java
-            return opened.withNote(TERMINAL_NOT_OPEN_NOTE + exception.getMessage()
-                    + " Use the link or the command in the comment of the issue.");
-```
-
-In `src/main/java/com/meterian/factory/web/CardRenderer.java`, replace:
-
-```java
-            html.append("<p class=\"open-label\">Remote Control: ").append(Html.escape(link.get())).append("</p>");
-```
-
-with:
-
-```java
-            html.append("<p class=\"open-label\">Join with: ").append(Html.escape(link.get())).append("</p>");
-```
-
-Then find the tests that expect the old card text, and change them to `Join with: `:
-
-```bash
-grep -rln 'Remote Control: ' src/test | xargs -r sed -i 's/Remote Control: /Join with: /'
-```
-
-In `src/main/java/com/meterian/factory/Main.java`, replace:
+In `src/main/java/com/meterian/factory/Main.java`, add the imports
+`com.meterian.factory.agent.LiveSessions` (if it is not there) and
+`com.meterian.factory.agent.UnavailableLiveSessions`. In `runWorker`, replace:
 
 ```java
         TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
+                configuration.terminalCommand());
 ```
 
 with:
 
 ```java
-        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, provider,
-                System.getenv(),
+        LiveSessions liveSessions = createLiveSessions(configuration, provider, liveFiles);
 ```
 
-- [ ] **Step 8: Run the tests to see them pass**
+Add the method after `runWorker`:
 
-Run: `./mvnw -q test -Dtest='LiveFilesTest,TmuxLiveSessionsTest,LiveModeTest,BoardPageTest'`
+```java
+    /** API key mode has no live mode: an interactive claude gets no answer with the key. */
+    private static LiveSessions createLiveSessions(FactoryConfiguration configuration, Provider provider,
+                                                   LiveFiles liveFiles) {
+        if (!provider.hasLiveMode()) {
+            return new UnavailableLiveSessions();
+        }
+        return new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT, configuration.terminalCommand());
+    }
+```
+
+If a later line of `runWorker` needs the type `TmuxLiveSessions`, the build tells you. All the users in
+`src/main` take `LiveSessions` on 2026-11-23.
+
+- [ ] **Step 6: Run the tests to see them pass**
+
+Run: `./mvnw -q test -Dtest='UnavailableLiveSessionsTest,MainTest'`
 Expected: all tests pass.
 
-- [ ] **Step 9: Run all the tests and commit**
+- [ ] **Step 7: Run all the tests and commit**
 
 ```bash
 ./mvnw -q verify
 git add src
-git commit -m "Open the live sessions without Remote Control in API key mode
+git commit -m "Refuse the live mode in API key mode
 
-The live session gets the key from an apiKeyHelper script. The board shows
-the tmux command that joins the session.
+An interactive claude gets no answer with the key. The issue is blocked
+with a note and waits for the owner on GitHub.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2954,25 +2853,26 @@ it. At start, the worker prints the provider in one line.
 
 - `subscription`: the sessions use your `claude` login. Do not set `ANTHROPIC_API_KEY`: if it is set, the
   worker does not start. Each session must send usage windows. A session without them stops the factory.
-- `anthropic-api-key`: the sessions use `ANTHROPIC_API_KEY`. If it is not set, the worker does not start.
-  The key `limits.daily-budget-usd` is necessary.
+- `anthropic-api-key`: the worker reads the key from `ANTHROPIC_API_KEY`. If it is not set, the worker does
+  not start. The key `limits.daily-budget-usd` is necessary.
 
 In API key mode:
 
+- At start, the worker writes `<work-directory>/credentials/api-key-helper.sh` and `api-key-settings.json`.
+  Only you can read them. Each phase gets `--settings <path of api-key-settings.json>`, and `claude` gets
+  the key from the helper. No environment contains the key, so the commands of the agent and the builds do
+  not get it.
 - The worker adds up the cost of each session of today in `events.jsonl`. At the budget, no new phase starts
   until midnight, in the time zone of the machine. A phase that runs continues to its end.
-- The budget does not include the live sessions, or a session that ends without a result. Thus also set a
-  spend limit on the key in the Anthropic Console.
+- The budget does not include a session that ends without a result. Thus also set a spend limit on the key in
+  the Anthropic Console.
 - The board shows "Cost today" in place of the usage windows.
-- The worker gives the key only to `claude`. It sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, so that the
-  commands of the agent do not get the key. The builds do not get the key.
-- Remote Control does not work. The live session gets the key from the script `api-key-helper.sh` in the
-  live folder. Only you can read this script. To join a live session, use the tmux command in the comment of
-  the issue, for example `tmux -L rossumworks attach -t =factory-issue-12`.
+- There is no live mode. An interactive `claude` gets "credit balance too low" with a key that works in print
+  mode. When an issue needs you, the factory blocks it with a note, and you answer on GitHub.
 ```
 
 5. In the section "The events file", add the event type `cost` with its fields `issue` and `cost_usd`.
-6. In "Live mode", add one sentence: "In API key mode, the live mode has no Remote Control. See "Provider"."
+6. In "Live mode", add one sentence: "API key mode has no live mode. See "Provider"."
 7. In "Setup", where the README tells about the exit code 2, replace "a `claude` session uses an API key"
    with "a `claude` session does not use the credential of the provider".
 
@@ -2988,8 +2888,9 @@ In `docs/superpowers/specs/2026-11-01-factory-design.md`, section 3, replace con
    ACP adapter for Claude. The provider is the subscription of the owner or an Anthropic API key. See
    `docs/superpowers/specs/2026-11-23-api-key-provider-design.md`.
 2. **One credential.** The worker removes every `ANTHROPIC_*` variable from the environment of each `claude`
-   process. Then the provider adds its own variables. Each session must use the credential of the provider.
-   If it does not, the worker stops the session and stops the factory (fail closed).
+   process. In API key mode, each phase gets the key from an `apiKeyHelper` script. Each session must use the
+   credential of the provider. If it does not, the worker stops the session and stops the factory (fail
+   closed).
 ```
 
 Keep constraint 3. Keep the reason about the Agent SDK from the earlier commit as the second paragraph of
@@ -3044,6 +2945,8 @@ and a budget of `1`. For each run, check:
 - The first line names the correct provider.
 - One issue goes through one phase.
 - In API key mode, `events.jsonl` has a `cost` event, and the board shows "Cost today".
-- In API key mode, the button Enter opens a live session, and its comment shows the tmux command.
+- In API key mode, the phase gets `--settings`, and its `init` event gives `"apiKeyHelper"`.
+- In API key mode, the button Enter blocks the issue with the note "The live mode is not available with the
+  provider anthropic-api-key. Answer on GitHub."
 
 Write the results in the pull request description.

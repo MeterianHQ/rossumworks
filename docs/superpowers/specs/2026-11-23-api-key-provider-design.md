@@ -1,6 +1,7 @@
 # The Anthropic API key provider — design
 
-Status: approved by the owner on 2026-11-23.
+Status: approved by the owner on 2026-11-23. Changed on 2026-11-23 after the checks with real sessions
+(section 9): the sessions get the key from an `apiKeyHelper` script, and API key mode has no live mode.
 
 This design changes constraints 1 to 3 of `docs/superpowers/specs/2026-11-01-factory-design.md`. The
 factory can use the Claude subscription, as before, or an Anthropic API key. The owner selects one provider
@@ -27,7 +28,7 @@ Non-goals:
 
 - Other providers, for example Ollama, Bedrock, or Vertex.
 - A provider for each phase. One factory has one provider.
-- The cost of the live sessions in the budget.
+- The live mode in API key mode (section 7).
 
 Anti-goals:
 
@@ -66,7 +67,7 @@ Each message that stops the start tells the owner what to change.
 After the start checks, `run` prints one line to the standard error. The line names the provider:
 
 - `The provider is subscription: the sessions use the claude login of the owner.`
-- `The provider is anthropic-api-key: the sessions use ANTHROPIC_API_KEY. The daily budget is $20.00.`
+- `The provider is anthropic-api-key: the sessions use an Anthropic API key. The daily budget is $20.00.`
 
 The line never contains the key. `run` prints it before the other start messages, for example before the
 address of the web page.
@@ -77,25 +78,33 @@ When a session does not agree with the provider, the stop message also names the
 `create` asks for the provider. Enter takes `subscription`. If the owner selects `anthropic-api-key`,
 `create` also asks for the daily budget. `create` makes the same start checks as `run`.
 
-## 4. The environment of the processes
+## 4. How a session gets the key
 
-`ClaudeCommand.environment` removes all `ANTHROPIC_*` and `CLAUDE_CODE_USE_*` variables, as before. Then
-the `Provider` adds its variables to the environment of each `claude` process:
+`ClaudeCommand.environment` removes all `ANTHROPIC_*` and `CLAUDE_CODE_USE_*` variables, as before. No
+`claude` process gets `ANTHROPIC_API_KEY` in its environment, in the two modes.
 
-- `SubscriptionProvider` adds no variable.
-- `ApiKeyProvider` adds `ANTHROPIC_API_KEY` and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`.
+In API key mode, the sessions get the key from an `apiKeyHelper` script:
 
-This rule applies to the phases. `UsageProbe` runs only in subscription mode. `BuildRunner` does not use the
-`Provider`. Thus the build processes do not get the key. Section 7 gives the rule for the live sessions.
+- At start, `ApiKeyFiles` writes two files in the folder `<work-directory>/credentials`. The folder has the
+  permissions `rwx------`.
+- `api-key-helper.sh` prints the key. Its permissions are `rwx------`.
+- `api-key-settings.json` contains `{"apiKeyHelper": "<path of api-key-helper.sh>"}`. Its permissions are
+  `rw-------`.
+- Each phase gets the arguments `--settings <path of api-key-settings.json>`, before the tool lists.
+- `claude` runs the helper, and it uses the output as the key.
 
-`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` tells `claude` to remove the key from its subprocesses: the Bash tool,
-the hooks, and the MCP servers. A test on `claude` 2.1.330 shows that a hook does not see the key with this
-variable. Section 9 gives the checks that are still necessary.
+Thus the Bash tool of the agent, the hooks, and the builds do not get the key in their environment.
+`BuildRunner` does not use the `Provider`. `UsageProbe` runs only in subscription mode.
+
+The agent runs as the owner, so it can read the helper file. This is the same risk as the claude login in
+`~/.claude`, which the agent can also read.
+
+The factory does not use `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`. On this machine, this variable forces the
+permission mode to `default`, and it starts a `bwrap` sandbox that fails (section 9, check 3).
 
 ## 5. The check of each session
 
-The `Provider` gives the expected credential. `ClaudeAgentRunner` and `UsageProbe` compare each session with
-it.
+The `Provider` gives the expected credential. `ClaudeAgentRunner` compares each session with it.
 
 Provider `subscription`:
 
@@ -108,7 +117,7 @@ subscription.
 
 Provider `anthropic-api-key`:
 
-1. The `init` event must have `apiKeySource` = `"ANTHROPIC_API_KEY"`.
+1. The `init` event must have `apiKeySource` = `"apiKeyHelper"`.
 
 When a check fails, the worker stops the session and stops the factory. The exit code is 2, as before.
 
@@ -139,7 +148,8 @@ The record of the cost:
 
 The guard:
 
-- The interface `PhaseGuard` has the methods `mayStartPhase` and `resumesAt`.
+- The interface `PhaseGuard` has the methods `recordSession`, `resumesAt`, `waitReason`, and
+  `findBudgetStatus`.
 - `UsageTracker` implements `PhaseGuard`, as before.
 - `BudgetTracker` implements `PhaseGuard`. It keeps the cost of today and the budget.
 - The `Provider` gives the guard. The worker asks the guard before each new phase.
@@ -148,13 +158,9 @@ The guard:
 - A phase that runs continues to its end. Thus the cost of the day can go above the budget, by the cost of
   the running phases.
 
-The budget does not include these costs:
-
-- The live sessions. They run in tmux without stream-json, so the worker cannot read their cost.
-- A session that ends without a `result` event, for example after a crash. The worker writes a warning in
-  the log.
-
-Thus the README tells the owner to also set a spend limit on the key in the Anthropic Console.
+The budget does not include a session that ends without a `result` event, for example after a crash. The
+worker writes a warning in the log. Thus the README tells the owner to also set a spend limit on the key in
+the Anthropic Console.
 
 The board and the probe:
 
@@ -164,66 +170,57 @@ The board and the probe:
 
 ## 7. The live mode
 
-Remote Control needs a claude.ai subscription. It does not work with an API key.
+API key mode has no live mode in this version. Section 9, check 5, gives the reason: with the same key, an
+interactive `claude` gets `400 Your credit balance is too low`, but `claude -p` works.
 
-- The `Provider` tells if Remote Control is available. `ApiKeyProvider` says no.
-- In API key mode, `TmuxLiveSessions` does not add `--remote-control`.
-- In API key mode, `TmuxLiveSessions` does not wait for the link. It waits for the text `? for shortcuts` in the
-  last lines of the screen. `claude` 2.1.330 shows this text when it is ready.
-- In API key mode, `LiveSessions.open` returns the command that joins the session, in place of the link:
-  `tmux -L rossumworks attach -t =factory-issue-<number>`. The record, the issue comment, and the card keep
-  this text in the place of the link. The card shows it after "Join with:".
-- The terminal window opens as before, when `live.terminal-command` is set.
-- The note of `LiveMode` tells the owner to use the comment of the issue when the terminal window does not
-  open.
-
-The key of a live session:
-
-- An interactive `claude` with `ANTHROPIC_API_KEY` asks "Do you want to use this API key?". The default answer
-  is No. Thus the live session does not get `ANTHROPIC_API_KEY`.
-- In place of the variable, `LiveFiles` writes the script `api-key-helper.sh` with the permissions
-  `rwx------`. The script prints the key.
-- The settings file of the issue gets `"apiKeyHelper": "<path of the script>"`. With this setting, `claude`
-  asks no question. A test on `claude` 2.1.330 shows this.
-- The live session does not get `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, because its environment has no key.
-- The live folder already has the permissions `rwx------`.
+- The `Provider` tells if the live mode is available. `ApiKeyProvider` says no.
+- In API key mode, `Main` uses `UnavailableLiveSessions` in place of `TmuxLiveSessions`.
+- `UnavailableLiveSessions.open` and `openTerminal` throw a `LiveSessionException` with the message
+  `The live mode is not available with the provider anthropic-api-key. Answer on GitHub.`
+- `ConversationAction` already blocks the issue when the open fails. The note of the block is
+  `The live conversation did not open: <message>`. Thus the issue waits for the owner on GitHub.
+- The other methods of `UnavailableLiveSessions` do nothing: no session is open, and no continue request
+  exists.
+- `TmuxLiveSessions`, `LiveMode`, and the card do not change.
 
 ## 8. The components
 
 New classes:
 
-- `Provider`: the interface. It gives the environment additions, the credential check, the guard, and the
-  Remote Control availability.
+- `Provider`: the interface. It gives the extra arguments of a phase, the credential check, the guard, and
+  the live mode availability.
 - `SubscriptionProvider` and `ApiKeyProvider`: the two implementations.
+- `Providers`: creates the provider of the configuration.
+- `ApiKeyFiles`: writes the helper and its settings file in the private folder.
 - `ProviderName`: the enum with `SUBSCRIPTION` and `ANTHROPIC_API_KEY`.
 - `PhaseGuard`: the interface of the guard.
 - `BudgetTracker`: the cost of today and the budget.
 - `CostEvents`: writes the `cost` events and reads the cost of today.
+- `UnavailableLiveSessions`: the live sessions of API key mode.
 - `CredentialMismatchException`: replaces `ApiKeyDetectedException`.
 
 Changed classes: `ClaudeSettings`, `WorkerLimits`, `ConfigurationLoader`, `StartChecks`, `ClaudeCommand`,
-`ClaudeAgentRunner`, `StreamEventParser`, `SessionReport`, `UsageTracker`, `UsageProbe`, `TmuxLiveSessions`,
-`LiveSessions`, `LiveMode`, `WorkerEvents`, `Worker`, `Main`, `CreateCommand`, and the board classes.
+`ClaudeAgentRunner`, `StreamEventParser`, `SessionReport`, `UsageTracker`, `PhaseRunner`, `IssueWorkflow`,
+`WorkerEvents`, `Worker`, `Main`, `CreateCommand`, and the board classes.
 
 `Main` creates the `Provider` once, from the configuration. The other classes get the `Provider` in their
-constructors. No other class reads the provider name.
+constructors. Only `Providers`, `StartChecks`, and `create` read the provider name.
 
 ## 9. Checks with real sessions
 
-These checks come first in the plan. The code depends on them.
+The owner and Claude ran these checks on 2026-11-23, with `claude` 2.1.330 and 2.1.331:
 
-1. A subscription session always sends a `rate_limit_event` with usage windows.
-2. An API key session sends no usage windows.
-3. An API key session gives `apiKeySource` = `"ANTHROPIC_API_KEY"` and a `total_cost_usd`.
-4. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, the Bash tool does not see the key.
-5. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, `--permission-mode acceptEdits` still works, and no sandbox
-   starts.
-6. A live session with `apiKeyHelper` uses the key, and it shows `? for shortcuts` when it is ready.
+| Check | Result |
+|---|---|
+| 1. A subscription session sends usage windows. | Passes: `"none"` and the window `seven_day`. |
+| 2. An `ANTHROPIC_API_KEY` session sends no windows, and gives a cost. | Passes: no window, cost 0.024. |
+| 3. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, the Bash tool works without the key. | Fails: the mode becomes `default`, and `bwrap` fails with `setting up uid map: Permission denied`. |
+| 3b. With `apiKeyHelper`, the source is `"apiKeyHelper"`, and the Bash tool does not see the key. | Passes: `"apiKeyHelper"` and `0`. |
+| 4. With `apiKeyHelper`, `acceptEdits` lets the agent write a file. | Passes. |
+| 5. An interactive session with `apiKeyHelper` answers. | Fails: the API answers `400 Your credit balance is too low` (requests `req_011ChLVEDeXDrvaow6eK7YjA`, `req_011ChLVEDpBegNU9ACnrBgiu`). The same key works in print mode. |
 
-The API key checks use very short sessions. Their cost is less than one cent each.
-
-If check 4 or check 5 fails, the factory does not support API key mode. The plan then stops and asks the
-owner.
+Check 5 also shows that the status line of the interactive `claude` changes with the version and the
+permission mode. Thus a text such as `? for shortcuts` is not a safe sign that a session is ready.
 
 ## 10. Tests
 
@@ -231,18 +228,20 @@ Unit tests:
 
 - The four start cases of section 3, and the budget checks.
 - The provider line at start, for each provider. The test also checks that the line does not contain the key.
-- The check of each session for each provider. New stream files: an API key session, and a subscription
-  session without usage windows.
+- The check of each session for each provider. New stream files: a session with the source `apiKeyHelper`,
+  and a subscription session without usage windows.
+- `ApiKeyFiles`: the permissions of the folder and the files, and the output of the helper.
+- `ClaudeAgentRunner` in API key mode: the arguments contain `--settings`, and the environment has no key.
 - `BudgetTracker`: below the budget, at the budget, and the reset at midnight.
 - `CostEvents`: the sum of today, the events of yesterday, and a line that it cannot read.
-- `TmuxLiveSessions` in API key mode: no `--remote-control`, and no wait for a link.
-- `ClaudeCommand` and the providers: the key and the scrub variable reach `claude`, but not `BuildRunner`.
+- `UnavailableLiveSessions`: `open` and `openTerminal` throw the message of section 7.
 
 The tests never use a real key, the real `claude`, or the Anthropic API.
 
 ## 11. Documents
 
 - `docs/superpowers/specs/2026-11-01-factory-design.md`: constraints 1 to 3 refer to this design.
-- `README.md`: the provider, the login or the key, the budget, the Console spend limit, and the live mode
-  without Remote Control.
+- `README.md`: the provider, the login or the key, the budget, the Console spend limit, and no live mode in
+  API key mode.
 - `factory.example.yaml`: the `provider` key and the `daily-budget-usd` key, as comments.
+- `docs/legal-considerations.md`: the API key provider removes the risk of item 7.
