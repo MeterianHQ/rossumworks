@@ -18,9 +18,10 @@ the facts of this machine:
 - `work-directory`: the folder of the worker. The worker clones the repository into `<work-directory>/repository`
   at the start, when this folder does not exist. A clone that exists stays as it is.
 - `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
-- `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`. An open live session counts against
-  `parallel-issues`, as an issue in work. An issue that left the queue gets a slot before a queued issue, also
-  after a restart of the worker.
+- `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`. Each card on the board holds a slot of
+  `parallel-issues`, also a card that waits for you. A card in `queued`, a done card, and a blocked card hold no
+  slot. The worker takes a card from `queued` only when a slot is free. An issue that left the queue gets a slot
+  before a queued issue, also after a restart of the worker.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `isolation`, `claude`, `live`, and `web`.
 
@@ -377,9 +378,9 @@ into the environment of your tmux server. To see a session, run
 `tmux -L rossumworks attach -t factory-issue-<n>`. The factory turns on the mouse of each session, so
 the mouse wheel scrolls the history. Hold Shift to select text for the clipboard.
 
-An open live session holds its slot of `parallel-issues`. Thus the factory takes no new issue while you talk to
-the agent. A question of the agent also opens a live session, so an open question holds a slot until you answer
-it. After `/factory:continue`, the issue gets its slot again before any other issue.
+An open live session holds its slot of `parallel-issues`, as each card that waits for you. Thus the factory takes
+no new issue while you talk to the agent. A question of the agent also opens a live session, so an open question
+holds a slot until you answer it. After `/factory:continue`, the issue gets its slot again before any other issue.
 
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no other action for the issue.

@@ -1356,6 +1356,36 @@ class WorkerTest {
     }
 
     @Test
+    void anIssueThatWaitsForTheApprovalHoldsItsSlot() throws InterruptedException {
+        runToTheMergeApproval();
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).isEmpty();
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void aBlockedCardHoldsNoSlot() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isEqualTo("blocked");
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).containsOnly(OTHER_ISSUE);
+    }
+
+    @Test
     void aSessionThatTheLoopOpensHoldsItsSlotBeforeTheNextPoll() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
         Worker worker = createWorker(agent, 1);
