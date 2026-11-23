@@ -25,6 +25,7 @@ import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.IssueText;
 import com.meterian.factory.workflow.IssueWorkflow;
 import com.meterian.factory.workflow.MergedIssue;
@@ -47,6 +48,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /** Polls GitHub, takes the labeled issues into the queue, and runs each issue in a loop on the executor. */
 public final class Worker {
@@ -99,9 +101,12 @@ public final class Worker {
     /** The issues with a release in progress. The poll neither releases nor starts them again. */
     private final Set<Integer> releasesInProgress = new HashSet<>();
     private final LiveSessionSlots liveSessionSlots = new LiveSessionSlots();
+    private final CardSlots cardSlots;
     private final WorkerEvents events;
     private final WorkerMove workerMove;
     private final AtomicBoolean stopReported = new AtomicBoolean();
+    /** Only the poll thread uses it. */
+    private boolean aCheckFailedInThisPoll;
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -136,6 +141,7 @@ public final class Worker {
         this.ownershipTakeover = new OwnershipTakeover(gitHub, statusPublisher, workerLogin, definitions,
                 onAnyStateMoves, workerMove);
         this.earlierOwnerRecord = new EarlierOwnerRecord(gitHub, workerLogin);
+        this.cardSlots = new CardSlots(new IssueDefinitionFacts(definitions));
         this.pollWait = new PollWait(configuration.limits().pollInterval(), EARLY_POLL_DELAY);
     }
 
@@ -149,12 +155,15 @@ public final class Worker {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
+        aCheckFailedInThisPoll = false;
         try {
             definitions.refresh();
             verifyEnoughRequestsRemain();
             ensureLabelsOnce();
             List<IssueRecord> startable = new ArrayList<>();
-            List<Issue> ownedIssues = claimOwnedIssues(readLabeledIssues());
+            List<Issue> labeledIssues = readLabeledIssues();
+            cardSlots.forgetAllExcept(numbersOf(labeledIssues));
+            List<Issue> ownedIssues = claimOwnedIssues(labeledIssues);
             board.recordPoll(ownedIssues);
             Set<Integer> earlierLiveIssues = liveSessionSlots.startPoll();
             for (Issue issue : ownedIssues) {
@@ -162,18 +171,32 @@ public final class Worker {
                 checkIssue(issue).ifPresent(startable::add);
             }
             liveSessionSlots.finishPoll(earlierLiveIssues, liveSessions::isOpen);
-            for (IssueRecord record : orderForTheSlots(startable, earlierLiveIssues)) {
-                verifyEnoughRequestsRemain();
-                if (!factorySwitch.isStopRequested()) {
-                    startIssue(record);
-                }
-            }
+            startIssues(orderForTheSlots(startable, earlierLiveIssues));
         } catch (GitHubException exception) {
             logGitHubFailure("The poll", exception);
         } catch (RuntimeException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "The poll failed.", exception);
         } finally {
             logRequestCounts();
+        }
+    }
+
+    /**
+     * Fail closed: after a failed check, the worker does not know the slot of each card. So it starts no card that
+     * takes a new slot in this poll. The other cards still start.
+     */
+    private void startIssues(List<IssueRecord> orderedRecords) {
+        if (aCheckFailedInThisPoll) {
+            LOGGER.log(System.Logger.Level.WARNING, "A check failed in this poll, so the worker takes no new card.");
+        }
+        for (IssueRecord record : orderedRecords) {
+            verifyEnoughRequestsRemain();
+            if (factorySwitch.isStopRequested()) {
+                continue;
+            }
+            if (!aCheckFailedInThisPoll || !cardSlots.takesANewSlot(record)) {
+                startIssue(record);
+            }
         }
     }
 
@@ -250,9 +273,38 @@ public final class Worker {
         return Set.copyOf(issuesInWork);
     }
 
-    /** The issues in work and the open live sessions share the parallel limit. */
+    /** The issues in work, the open live sessions, and the other cards with a slot share the parallel limit. */
     public synchronized int countUsedSlots() {
-        return issuesInWork.size() + liveSessionSlots.countOutsideWork(issuesInWork);
+        return findIssuesWithASlot().size();
+    }
+
+    /** The loops and the open live sessions. A stop of the factory waits for them, but not for a card at rest. */
+    public synchronized int countRunningWork() {
+        return findRunningWork().size();
+    }
+
+    /** An issue can be in work and have an open live session at the same time. It counts one time only. */
+    private Set<Integer> findRunningWork() {
+        Set<Integer> runningWork = new HashSet<>(issuesInWork);
+        runningWork.addAll(liveSessionSlots.findIssues());
+        return runningWork;
+    }
+
+    private Set<Integer> findIssuesWithASlot() {
+        Set<Integer> issuesWithASlot = findRunningWork();
+        issuesWithASlot.addAll(cardSlots.findIssues());
+        return issuesWithASlot;
+    }
+
+    /**
+     * A card that takes a new slot adds a card to the board, so it counts all the other cards with a slot. Any other
+     * card has its slot on the board already, so it counts only the other running work.
+     */
+    private Set<Integer> findOtherIssuesWithASlot(IssueRecord record) {
+        Set<Integer> otherIssuesWithASlot = cardSlots.takesANewSlot(record) ? findIssuesWithASlot()
+                : findRunningWork();
+        otherIssuesWithASlot.remove(record.issueNumber());
+        return otherIssuesWithASlot;
     }
 
     private void rememberLiveSession(IssueRecord record) {
@@ -298,6 +350,10 @@ public final class Worker {
                 .toList();
     }
 
+    private static Set<Integer> numbersOf(List<Issue> issues) {
+        return issues.stream().map(Issue::number).collect(Collectors.toSet());
+    }
+
     /** Only the issues that the worker owns stay. The board then shows no card for the other issues. */
     private List<Issue> claimOwnedIssues(List<Issue> labeledIssues) {
         List<Issue> ownedIssues = new ArrayList<>();
@@ -315,7 +371,10 @@ public final class Worker {
         Ownership ownership = issueClaim.claim(issue);
         if (ownership == Ownership.OWNED) {
             forgetEarlierLoss(issue.number());
-        } else if (ownership == Ownership.OWNED_BY_ANOTHER) {
+        } else {
+            cardSlots.forget(issue.number());
+        }
+        if (ownership == Ownership.OWNED_BY_ANOTHER) {
             leaveIssueOfAnotherOwner(issue);
         }
         return Optional.of(issue).filter(claimed -> ownership == Ownership.OWNED);
@@ -355,6 +414,13 @@ public final class Worker {
         writeRelease(issue.number());
     }
 
+    /** Only an issue that the worker owned before this poll can hold a slot that the worker does not know. */
+    private void rememberFailedCheck(Issue issue) {
+        if (issue.assignees().stream().anyMatch(assignee -> assignee.equalsIgnoreCase(workerLogin))) {
+            aCheckFailedInThisPoll = true;
+        }
+    }
+
     private Optional<IssueRecord> checkIssue(Issue issue) {
         return checkOneIssue(issue, () -> findStartableRecord(issue));
     }
@@ -366,9 +432,11 @@ public final class Worker {
         } catch (GitHubRateLimitException exception) {
             throw exception;
         } catch (GitHubException exception) {
+            rememberFailedCheck(issue);
             logGitHubFailure("The check of the issue #" + issue.number(), exception);
             return Optional.empty();
         } catch (RuntimeException exception) {
+            rememberFailedCheck(issue);
             LOGGER.log(System.Logger.Level.ERROR, "The check of the issue #" + issue.number() + " failed.",
                     exception);
             return Optional.empty();
@@ -418,6 +486,7 @@ public final class Worker {
                 : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         rememberLiveSession(current);
+        cardSlots.remember(current);
         board.recordIssue(issue, current);
         return Optional.of(current).filter(found -> workflow.isStartable(issue, found));
     }
@@ -510,7 +579,7 @@ public final class Worker {
 
     private void startIssue(IssueRecord record) {
         int issueNumber = record.issueNumber();
-        if (!reserveSlot(issueNumber)) {
+        if (!reserveSlot(record)) {
             return;
         }
         IssueRecord start;
@@ -529,10 +598,9 @@ public final class Worker {
         }
     }
 
-    private synchronized boolean reserveSlot(int issueNumber) {
-        int usedSlots = issuesInWork.size()
-                + liveSessionSlots.countOutsideWorkExcept(issuesInWork, issueNumber);
-        boolean hasFreeSlot = usedSlots < configuration.limits().parallelIssues();
+    private synchronized boolean reserveSlot(IssueRecord record) {
+        int issueNumber = record.issueNumber();
+        boolean hasFreeSlot = findOtherIssuesWithASlot(record).size() < configuration.limits().parallelIssues();
         return hasFreeSlot && !isStopped() && !blockedIssues.contains(issueNumber)
                 && !releasesInProgress.contains(issueNumber) && issuesInWork.add(issueNumber);
     }
@@ -660,6 +728,7 @@ public final class Worker {
             if (!blockedIssues.add(issueNumber)) {
                 return;
             }
+            cardSlots.forget(issueNumber);
             isRunning = issuesInWork.contains(issueNumber);
         }
         phaseStopper.stopIssue(issueNumber);
@@ -680,6 +749,10 @@ public final class Worker {
             if (!isBlocked) {
                 // A session that the loop opened holds the slot of the loop at once, before the next poll.
                 rememberLiveSession(kept);
+            }
+            if (!isBlocked && !isOwnedByAnother) {
+                // A card that waits for you holds the slot of the loop at once, before the next poll.
+                cardSlots.remember(kept);
             }
             if (isOwnedByAnother) {
                 // The poll sees no gap between the end of the work and the start of the release.

@@ -49,17 +49,7 @@ final class LiveSessionSlots {
         return union;
     }
 
-    synchronized int countOutsideWork(Set<Integer> issuesInWork) {
-        return (int) issuesInLiveSession.stream()
-                .filter(issueNumber -> !issuesInWork.contains(issueNumber))
-                .count();
-    }
-
-    /** An issue back from its live session takes over the slot of its own session, so it does not count. */
-    synchronized int countOutsideWorkExcept(Set<Integer> issuesInWork, int excludedIssueNumber) {
-        return (int) issuesInLiveSession.stream()
-                .filter(issueNumber -> !issuesInWork.contains(issueNumber))
-                .filter(issueNumber -> issueNumber != excludedIssueNumber)
-                .count();
+    synchronized Set<Integer> findIssues() {
+        return Set.copyOf(issuesInLiveSession);
     }
 }

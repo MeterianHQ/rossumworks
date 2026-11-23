@@ -500,7 +500,7 @@ class MainTest {
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                 new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
-                Optional::empty, () -> 0, () -> { },
+                Optional::empty, () -> 0, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
         assertThat(server).isEmpty();
@@ -513,7 +513,7 @@ class MainTest {
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
                     new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
-                    Optional::empty, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
+                    Optional::empty, () -> 0, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
                     .isInstanceOf(Main.StartupException.class)
@@ -530,7 +530,7 @@ class MainTest {
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(RecordStates.queued(12).withAgentSessionStarted(), "waits-for-approval"));
         WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
-                Main.createLabelWriter(gitHub), BUILT_IN, Optional::empty, () -> 1, () -> { },
+                Main.createLabelWriter(gitHub), BUILT_IN, Optional::empty, () -> 1, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
         try {
