@@ -22,7 +22,7 @@ final class LoginPage {
                 <body class="login-page">
                 <main class="login"><div class="login-box">
                 <div class="login-mark" aria-hidden="true"></div>
-                <h1>Claude AI Factory</h1>
+                <h1>RossumWorks</h1>
                 <p class="login-subtitle">Log in to see the board of the factory.</p>
                 %s<form method="post" action="/login">
                 <label for="password">Password</label>

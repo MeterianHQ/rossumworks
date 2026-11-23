@@ -719,7 +719,7 @@ class BoardPageTest {
     void showsTheHealthOfTheWorker() {
         String html = page.renderBoard(model(List.of()));
 
-        assertThat(html).contains("<h1>Claude AI Factory</h1><span class=\"repository\">MeterianHQ/target</span>");
+        assertThat(html).contains("<h1>RossumWorks</h1><span class=\"repository\">MeterianHQ/target</span>");
         assertThat(html).contains(tile("Worker runs since", "2026-11-02 09:00"));
         assertThat(html).contains(tile("Last GitHub check", "2026-11-02 10:59"));
         assertThat(html).contains(tile("Issues in work", "2 of 2"));

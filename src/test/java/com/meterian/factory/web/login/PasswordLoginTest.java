@@ -196,6 +196,13 @@ class PasswordLoginTest {
     }
 
     @Test
+    void theLoginPageShowsTheNameOfTheFactory() throws Exception {
+        HttpResponse<String> response = postForm("password=wrong");
+
+        assertThat(response.body()).contains("<h1>RossumWorks</h1>").doesNotContain("Claude AI Factory");
+    }
+
+    @Test
     void postLoginDuringTheLockGives429AndTheTime() throws Exception {
         for (int attempt = 0; attempt < 5; attempt++) {
             login.logIn(WRONG.toCharArray());

@@ -14,7 +14,7 @@ final class LivePage {
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <meta name="color-scheme" content="dark">
-                <title>Claude AI Factory — #%1$d</title>
+                <title>RossumWorks — #%1$d</title>
                 <link rel="stylesheet" href="/page.css">
                 </head>
                 <body class="login-page">
