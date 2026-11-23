@@ -85,8 +85,8 @@ the `Provider` adds its variables to the environment of each `claude` process:
 - `SubscriptionProvider` adds no variable.
 - `ApiKeyProvider` adds `ANTHROPIC_API_KEY` and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`.
 
-This rule applies to the phases, to `UsageProbe`, and to the live sessions. `BuildRunner` does not use the
-`Provider`. Thus the build processes do not get the key.
+This rule applies to the phases. `UsageProbe` runs only in subscription mode. `BuildRunner` does not use the
+`Provider`. Thus the build processes do not get the key. Section 7 gives the rule for the live sessions.
 
 `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` tells `claude` to remove the key from its subprocesses: the Bash tool,
 the hooks, and the MCP servers. A test on `claude` 2.1.330 shows that a hook does not see the key with this
@@ -167,15 +167,26 @@ The board and the probe:
 Remote Control needs a claude.ai subscription. It does not work with an API key.
 
 - The `Provider` tells if Remote Control is available. `ApiKeyProvider` says no.
-- In API key mode, `TmuxLiveSessions` does not add `--remote-control`. It does not wait for the link.
-- `LiveSessions.open` returns `Optional<String>` in place of `String`. In API key mode, the result is empty.
-- In API key mode, the board shows the command that joins the session:
-  `tmux -L <server> attach -t <session>`.
+- In API key mode, `TmuxLiveSessions` does not add `--remote-control`.
+- In API key mode, `TmuxLiveSessions` does not wait for the link. It waits for the text `? for shortcuts` in the
+  last lines of the screen. `claude` 2.1.330 shows this text when it is ready.
+- In API key mode, `LiveSessions.open` returns the command that joins the session, in place of the link:
+  `tmux -L rossumworks attach -t =factory-issue-<number>`. The record, the issue comment, and the card keep
+  this text in the place of the link. The card shows it after "Join with:".
 - The terminal window opens as before, when `live.terminal-command` is set.
-- The note of `LiveMode` tells the owner to use the tmux command when the terminal window does not open.
+- The note of `LiveMode` tells the owner to use the comment of the issue when the terminal window does not
+  open.
 
-The launch script contains the environment, and thus the key. `LiveFiles` already writes the script with the
-permissions `rwx------`, in a folder with the permissions `rwx------`.
+The key of a live session:
+
+- An interactive `claude` with `ANTHROPIC_API_KEY` asks "Do you want to use this API key?". The default answer
+  is No. Thus the live session does not get `ANTHROPIC_API_KEY`.
+- In place of the variable, `LiveFiles` writes the script `api-key-helper.sh` with the permissions
+  `rwx------`. The script prints the key.
+- The settings file of the issue gets `"apiKeyHelper": "<path of the script>"`. With this setting, `claude`
+  asks no question. A test on `claude` 2.1.330 shows this.
+- The live session does not get `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, because its environment has no key.
+- The live folder already has the permissions `rwx------`.
 
 ## 8. The components
 
@@ -207,6 +218,7 @@ These checks come first in the plan. The code depends on them.
 4. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, the Bash tool does not see the key.
 5. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, `--permission-mode acceptEdits` still works, and no sandbox
    starts.
+6. A live session with `apiKeyHelper` uses the key, and it shows `? for shortcuts` when it is ready.
 
 The API key checks use very short sessions. Their cost is less than one cent each.
 
