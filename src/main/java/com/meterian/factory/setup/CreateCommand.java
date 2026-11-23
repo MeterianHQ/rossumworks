@@ -24,7 +24,7 @@ public final class CreateCommand {
     static final List<String> REQUIRED_PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
     private static final String JAVA_HOME_VARIABLE = "JAVA_HOME";
     private static final String CLONE_FOLDER = "repository";
-    private static final String DEFAULT_JAR = "claude-ai-factory.jar";
+    private static final String DEFAULT_JAR = "rossumworks.jar";
     private static final String RUN_SCRIPT = ".factory/run.sh";
 
     /** Where the GitHub of a repository is. A test gives a fake client and a local repository. */

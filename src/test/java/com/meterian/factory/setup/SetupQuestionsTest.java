@@ -36,7 +36,7 @@ class SetupQuestionsTest {
         CreateOptions options = options();
 
         assertEquals(REPOSITORY, questions.askRepository(options, Optional.of(REPOSITORY)));
-        assertEquals(Path.of("/home/owner/.claude-ai-factory/acme-shop"),
+        assertEquals(Path.of("/home/owner/.rossumworks/acme-shop"),
                 questions.askWorkDirectory(options, REPOSITORY));
         WebPage page = questions.askWeb(options).orElseThrow();
         assertEquals("127.0.0.1", page.address());

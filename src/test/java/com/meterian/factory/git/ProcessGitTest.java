@@ -253,7 +253,7 @@ class ProcessGitTest {
         git.commitAll(clone, "Fix the issue");
 
         assertThat(run(clone, "log", "-1", "--format=%an <%ae>"))
-                .isEqualTo("claude-ai-factory <claude-ai-factory@users.noreply.github.com>");
+                .isEqualTo("rossumworks <rossumworks@users.noreply.github.com>");
     }
 
     @Test

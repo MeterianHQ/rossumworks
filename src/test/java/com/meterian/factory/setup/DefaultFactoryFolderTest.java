@@ -48,7 +48,7 @@ class DefaultFactoryFolderTest {
         String script = DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main").get(".factory/run.sh");
 
         assertThat(script).startsWith("#!/usr/bin/env bash\n")
-                .contains("repos/MeterianHQ/claude-ai-factory/releases/latest", "exec java -jar \"${jar}\" run \"$@\"");
+                .contains("repos/MeterianHQ/rossumworks/releases/latest", "exec java -jar \"${jar}\" run \"$@\"");
     }
 
     @ParameterizedTest

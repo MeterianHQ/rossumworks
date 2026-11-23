@@ -206,7 +206,7 @@ public final class RepositorySetup {
         StringBuilder body = new StringBuilder("This PR adds the definition of the factory. It adds these files:\n\n");
         files.keySet().forEach(path -> body.append("- ").append(path).append('\n'));
         body.append("\nThe worker takes issues after the merge of this PR.\n")
-                .append("The file docs/factory-definition.md of MeterianHQ/claude-ai-factory describes the files.\n");
+                .append("The file docs/factory-definition.md of MeterianHQ/rossumworks describes the files.\n");
         return body.toString();
     }
 }

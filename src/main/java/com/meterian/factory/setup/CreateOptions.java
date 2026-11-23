@@ -17,7 +17,7 @@ public record CreateOptions(
         Optional<String> buildCommand,
         boolean yes) {
 
-    public static final String USAGE = "Usage: java -jar claude-ai-factory.jar create [--repository owner/name]\n"
+    public static final String USAGE = "Usage: java -jar rossumworks.jar create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"] [--yes]";
 

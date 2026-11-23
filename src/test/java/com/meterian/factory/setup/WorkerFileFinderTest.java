@@ -40,7 +40,7 @@ class WorkerFileFinderTest {
     @Test
     void refusesARepositoryWithoutAWorkerFile() {
         WorkerFileFinder finder = new WorkerFileFinder(home, () -> Optional.of(REPOSITORY));
-        Path workerFile = home.resolve(".claude-ai-factory/owner-project/worker.yaml");
+        Path workerFile = home.resolve(".rossumworks/owner-project/worker.yaml");
 
         assertThatThrownBy(finder::find).isInstanceOf(StartupException.class)
                 .hasMessageStartingWith("The file " + workerFile + " does not exist. Run java -jar ")
@@ -48,7 +48,7 @@ class WorkerFileFinderTest {
     }
 
     private Path createWorkerFile() throws IOException {
-        Path workDirectory = Files.createDirectories(home.resolve(".claude-ai-factory/owner-project"));
+        Path workDirectory = Files.createDirectories(home.resolve(".rossumworks/owner-project"));
         return Files.writeString(workDirectory.resolve("worker.yaml"), "repository: owner/project\n");
     }
 }

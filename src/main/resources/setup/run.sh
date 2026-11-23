@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Starts the worker of the factory with the latest release of claude-ai-factory.
+# Starts the worker of the factory with the latest release of rossumworks.
 # The arguments go to the run command, for example: .factory/run.sh --config <file>
 set -euo pipefail
 
-readonly RELEASES_PAGE="https://github.com/MeterianHQ/claude-ai-factory/releases"
-readonly LATEST_RELEASE_API="https://api.github.com/repos/MeterianHQ/claude-ai-factory/releases/latest"
-readonly CACHE_DIRECTORY="${HOME}/.claude-ai-factory/jars"
+readonly RELEASES_PAGE="https://github.com/MeterianHQ/rossumworks/releases"
+readonly LATEST_RELEASE_API="https://api.github.com/repos/MeterianHQ/rossumworks/releases/latest"
+readonly CACHE_DIRECTORY="${HOME}/.rossumworks/jars"
 
 # The worker uses the same token: FACTORY_GITHUB_TOKEN, else the token of gh.
 read_token() {
@@ -31,7 +31,7 @@ call_github() {
 find_latest_jar() {
     call_github "application/vnd.github+json" "${LATEST_RELEASE_API}" \
         | jq --raw-output --exit-status \
-            '.assets[] | select(.name | test("^claude-ai-factory-[0-9.]+\\.jar$")) | "\(.name) \(.url)"' \
+            '.assets[] | select(.name | test("^rossumworks-[0-9.]+\\.jar$")) | "\(.name) \(.url)"' \
         | head -n 1 | grep .
 }
 
@@ -51,7 +51,7 @@ download_latest_jar() {
 }
 
 find_newest_cached_jar() {
-    find "${CACHE_DIRECTORY}" -maxdepth 1 -name 'claude-ai-factory-*.jar' -printf '%f\n' \
+    find "${CACHE_DIRECTORY}" -maxdepth 1 -name 'rossumworks-*.jar' -printf '%f\n' \
         | sort --version-sort | tail -n 1 | sed "s#^#${CACHE_DIRECTORY}/#" | grep .
 }
 

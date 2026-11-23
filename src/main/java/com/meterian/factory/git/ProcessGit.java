@@ -24,8 +24,8 @@ public final class ProcessGit implements Git {
     private static final int LS_REMOTE_NO_MATCHING_REFERENCE = 2;
     private static final String ORIGIN_HEAD = "refs/remotes/origin/HEAD";
     private static final List<String> FIXED_IDENTITY = List.of(
-            "-c", "user.name=claude-ai-factory",
-            "-c", "user.email=claude-ai-factory@users.noreply.github.com");
+            "-c", "user.name=rossumworks",
+            "-c", "user.email=rossumworks@users.noreply.github.com");
     /** A fetch or a push that does not end in this time ends, so that a lost network never stops the worker. */
     static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(5);
 

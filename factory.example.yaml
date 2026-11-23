@@ -1,7 +1,7 @@
-# create writes this file for you: java -jar claude-ai-factory.jar create
+# create writes this file for you: java -jar rossumworks.jar create
 repository: MeterianHQ/heidi-fix
-work-directory: /home/bbossola/.claude-ai-factory/work
-gatekeeper-directory: /home/bbossola/.claude-ai-factory/gatekeeper.git
+work-directory: /home/bbossola/.rossumworks/work
+gatekeeper-directory: /home/bbossola/.rossumworks/gatekeeper.git
 # live-directory: /path/to/live         # optional, default: <work-directory>/live
 limits:                 # all keys optional
   parallel-issues: 2

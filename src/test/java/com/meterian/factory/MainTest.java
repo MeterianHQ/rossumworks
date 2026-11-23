@@ -51,9 +51,9 @@ class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run [--config <file>]\n"
-            + "       java -jar claude-ai-factory.jar hash-password\n"
-            + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
+    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
+            + "       java -jar rossumworks.jar hash-password\n"
+            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
             + "[--yes]";
 
@@ -226,7 +226,7 @@ class MainTest {
 
     @Test
     void findsTheConfigurationOfTheCloneWithoutTheOptionConfig() throws Exception {
-        Path workerFile = Files.createDirectories(temporaryDirectory.resolve(".claude-ai-factory/owner-project"))
+        Path workerFile = Files.createDirectories(temporaryDirectory.resolve(".rossumworks/owner-project"))
                 .resolve("worker.yaml");
         Files.writeString(workerFile, "repository: owner/project\n");
         WorkerFileFinder finder = new WorkerFileFinder(temporaryDirectory,
