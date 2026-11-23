@@ -20,8 +20,12 @@ the facts of this machine:
 - `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
 - `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`. Each card on the board holds a slot of
   `parallel-issues`, also a card that waits for you. A card in `queued`, a done card, and a blocked card hold no
-  slot. The worker takes a card from `queued` only when a slot is free. An issue that left the queue gets a slot
-  before a queued issue, also after a restart of the worker.
+  slot. The worker takes a card from `queued`, or continues a blocked card, only when a slot is free. A card that
+  holds a slot already, for example an approved card, continues when a running action or a live session does not
+  use its slot. So the worker does not stop when the board has more cards than slots, for example after you make
+  `parallel-issues` smaller. After a failed GitHub check of a card that the worker owns, the poll takes no new
+  card. An issue that left the queue gets a slot before a queued issue, also after a restart of the worker. A
+  Stop waits for the running actions and the live sessions, but not for a card that waits for you.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `isolation`, `claude`, `live`, and `web`.
 

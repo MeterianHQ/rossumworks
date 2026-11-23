@@ -105,6 +105,8 @@ public final class Worker {
     private final WorkerEvents events;
     private final WorkerMove workerMove;
     private final AtomicBoolean stopReported = new AtomicBoolean();
+    /** Only the poll thread uses it. */
+    private boolean aCheckFailedInThisPoll;
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -153,6 +155,7 @@ public final class Worker {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
+        aCheckFailedInThisPoll = false;
         try {
             definitions.refresh();
             verifyEnoughRequestsRemain();
@@ -168,18 +171,32 @@ public final class Worker {
                 checkIssue(issue).ifPresent(startable::add);
             }
             liveSessionSlots.finishPoll(earlierLiveIssues, liveSessions::isOpen);
-            for (IssueRecord record : orderForTheSlots(startable, earlierLiveIssues)) {
-                verifyEnoughRequestsRemain();
-                if (!factorySwitch.isStopRequested()) {
-                    startIssue(record);
-                }
-            }
+            startIssues(orderForTheSlots(startable, earlierLiveIssues));
         } catch (GitHubException exception) {
             logGitHubFailure("The poll", exception);
         } catch (RuntimeException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "The poll failed.", exception);
         } finally {
             logRequestCounts();
+        }
+    }
+
+    /**
+     * Fail closed: after a failed check, the worker does not know the slot of each card. So it starts no card that
+     * takes a new slot in this poll. The other cards still start.
+     */
+    private void startIssues(List<IssueRecord> orderedRecords) {
+        if (aCheckFailedInThisPoll) {
+            LOGGER.log(System.Logger.Level.WARNING, "A check failed in this poll, so the worker takes no new card.");
+        }
+        for (IssueRecord record : orderedRecords) {
+            verifyEnoughRequestsRemain();
+            if (factorySwitch.isStopRequested()) {
+                continue;
+            }
+            if (!aCheckFailedInThisPoll || !cardSlots.takesANewSlot(record)) {
+                startIssue(record);
+            }
         }
     }
 
@@ -261,24 +278,31 @@ public final class Worker {
         return findIssuesWithASlot().size();
     }
 
-    /** An issue can be in work and have an open live session at the same time. It holds one slot only. */
-    private synchronized Set<Integer> findIssuesWithASlot() {
-        Set<Integer> issuesWithASlot = new HashSet<>(issuesInWork);
-        issuesWithASlot.addAll(liveSessionSlots.issues());
-        issuesWithASlot.addAll(cardSlots.issues());
+    /** The loops and the open live sessions. A stop of the factory waits for them, but not for a card at rest. */
+    public synchronized int countRunningWork() {
+        return findRunningWork().size();
+    }
+
+    /** An issue can be in work and have an open live session at the same time. It counts one time only. */
+    private Set<Integer> findRunningWork() {
+        Set<Integer> runningWork = new HashSet<>(issuesInWork);
+        runningWork.addAll(liveSessionSlots.findIssues());
+        return runningWork;
+    }
+
+    private Set<Integer> findIssuesWithASlot() {
+        Set<Integer> issuesWithASlot = findRunningWork();
+        issuesWithASlot.addAll(cardSlots.findIssues());
         return issuesWithASlot;
     }
 
     /**
-     * A queued card adds a card to the board, so it counts all the other cards with a slot. A card out of the
-     * queue has its slot on the board already, so it counts only the other loops and the open live sessions.
+     * A card that takes a new slot adds a card to the board, so it counts all the other cards with a slot. Any other
+     * card has its slot on the board already, so it counts only the other running work.
      */
-    private synchronized Set<Integer> findOtherIssuesWithASlot(IssueRecord record) {
-        Set<Integer> otherIssuesWithASlot = new HashSet<>(issuesInWork);
-        otherIssuesWithASlot.addAll(liveSessionSlots.issues());
-        if (isQueued(record)) {
-            otherIssuesWithASlot.addAll(cardSlots.issues());
-        }
+    private Set<Integer> findOtherIssuesWithASlot(IssueRecord record) {
+        Set<Integer> otherIssuesWithASlot = cardSlots.takesANewSlot(record) ? findIssuesWithASlot()
+                : findRunningWork();
         otherIssuesWithASlot.remove(record.issueNumber());
         return otherIssuesWithASlot;
     }
@@ -390,6 +414,13 @@ public final class Worker {
         writeRelease(issue.number());
     }
 
+    /** Only an issue that the worker owned before this poll can hold a slot that the worker does not know. */
+    private void rememberFailedCheck(Issue issue) {
+        if (issue.assignees().stream().anyMatch(assignee -> assignee.equalsIgnoreCase(workerLogin))) {
+            aCheckFailedInThisPoll = true;
+        }
+    }
+
     private Optional<IssueRecord> checkIssue(Issue issue) {
         return checkOneIssue(issue, () -> findStartableRecord(issue));
     }
@@ -401,9 +432,11 @@ public final class Worker {
         } catch (GitHubRateLimitException exception) {
             throw exception;
         } catch (GitHubException exception) {
+            rememberFailedCheck(issue);
             logGitHubFailure("The check of the issue #" + issue.number(), exception);
             return Optional.empty();
         } catch (RuntimeException exception) {
+            rememberFailedCheck(issue);
             LOGGER.log(System.Logger.Level.ERROR, "The check of the issue #" + issue.number() + " failed.",
                     exception);
             return Optional.empty();

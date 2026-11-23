@@ -21,7 +21,7 @@ final class CardSlots {
         this.facts = facts;
     }
 
-    /** The poll or the end of a loop knows the current record of the card. */
+    /** Gives the card a slot, or takes its slot away, from the current record of the card. */
     synchronized void remember(IssueRecord record) {
         if (holdsASlot(record)) {
             issuesWithASlot.add(record.issueNumber());
@@ -30,22 +30,31 @@ final class CardSlots {
         }
     }
 
-    /** The card left the worker, for example to another owner, or it gets a block. */
+    /** Takes the slot away from a card that leaves the worker, for example to another owner, or that gets a block. */
     synchronized void forget(int issueNumber) {
         issuesWithASlot.remove(issueNumber);
     }
 
-    /** A card without the label factory is not on the board any more. */
+    /** Takes the slot away from each card without the label factory, because it is not on the board any more. */
     synchronized void forgetAllExcept(Set<Integer> labeledIssues) {
         issuesWithASlot.retainAll(labeledIssues);
     }
 
-    synchronized Set<Integer> issues() {
+    synchronized Set<Integer> findIssues() {
         return Set.copyOf(issuesWithASlot);
     }
 
+    /** A queued card and a blocked card hold no slot. When they start, they add a card to the board. */
+    boolean takesANewSlot(IssueRecord record) {
+        return isQueued(record) || facts.isInBlockTarget(record);
+    }
+
     private boolean holdsASlot(IssueRecord record) {
-        return !ColumnNames.QUEUED.equals(record.column()) && !isDone(record) && !facts.isInBlockTarget(record);
+        return !isQueued(record) && !isDone(record) && !facts.isInBlockTarget(record);
+    }
+
+    private static boolean isQueued(IssueRecord record) {
+        return ColumnNames.QUEUED.equals(record.column());
     }
 
     private static boolean isDone(IssueRecord record) {

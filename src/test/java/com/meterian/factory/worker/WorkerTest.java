@@ -1386,6 +1386,81 @@ class WorkerTest {
     }
 
     @Test
+    void aBlockedCardDoesNotContinueOnAFullBoard() throws InterruptedException {
+        runToTheMergeApproval();
+        addLabeledIssue(OTHER_ISSUE);
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord inImplement = RecordStates.move(readRecord(OTHER_ISSUE).orElseThrow().withAgentSessionStarted(),
+                "implement");
+        IssueRecord blocked = RecordStates.move(inImplement, "blocked").withActionStarted();
+        gitHub.editComment(blocked.statusCommentId().orElseThrow(),
+                StatusComment.render(blocked, LIMITS, RecordStates.REVIEW_NAMES));
+        liveSessions.requestContinue(OTHER_ISSUE);
+        Worker worker = createWorker(new FakeAgentRunner(), 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(liveSessions.isContinueRequested(OTHER_ISSUE)).isTrue();
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow()).isEqualTo(blocked);
+    }
+
+    @Test
+    void anApprovedCardContinuesOnAFullBoard() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, APPROVE_LABEL);
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("done");
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).doesNotContain(OTHER_ISSUE);
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+    }
+
+    @Test
+    void takesNoNewCardWhenTheCheckOfAWaitingCardFails() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.failTheCommentsOf(ISSUE);
+        addLabeledIssue(OTHER_ISSUE);
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeNothing();
+        Worker worker = createWorker(agent, 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(agent.requests()).extracting(PhaseRequest::issueNumber).isEmpty();
+        assertThat(readRecord(OTHER_ISSUE).orElseThrow().column()).isEqualTo("queued");
+    }
+
+    @Test
+    void aLoopThatEndsAtRestKeepsItsSlotBeforeTheNextPoll() throws InterruptedException {
+        Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
+                .thenAssessRisk("medium", true), 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void aCardThatWaitsForYouIsNotRunningWork() throws InterruptedException {
+        runToTheMergeApproval();
+        Worker worker = createWorker(new FakeAgentRunner(), 1);
+
+        worker.pollOnce();
+        waitForTheLoops();
+
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+        assertThat(worker.countRunningWork()).isZero();
+    }
+
+    @Test
     void aSessionThatTheLoopOpensHoldsItsSlotBeforeTheNextPoll() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
         Worker worker = createWorker(agent, 1);

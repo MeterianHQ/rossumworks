@@ -49,7 +49,7 @@ final class LiveSessionSlots {
         return union;
     }
 
-    synchronized Set<Integer> issues() {
+    synchronized Set<Integer> findIssues() {
         return Set.copyOf(issuesInLiveSession);
     }
 }
