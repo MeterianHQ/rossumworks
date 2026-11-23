@@ -1,5 +1,8 @@
-# claude-ai-factory
-A simple AI factory using your Claude subscription, running on GitHub
+# RossumWorks
+A simple AI factory that uses your Claude subscription and runs on GitHub.
+
+The name comes from *R.U.R.* ("Rossum's Universal Robots"), the play by Karel Čapek from 1920.
+This play gave the world the word "robot". Its robots come from a factory, like the work of this project.
 
 ## Build
 
@@ -68,17 +71,17 @@ only: the record in the status comment keeps the state. The worker removes the o
 1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
    refuses to start when it is set.
 2. Log in with `gh auth login`. Or set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account.
-3. Download `claude-ai-factory-$VERSION.jar` from the
-   [GitHub releases](https://github.com/MeterianHQ/claude-ai-factory/releases). Or build the jar with
+3. Download `rossumworks-$VERSION.jar` from the
+   [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases). Or build the jar with
    `./mvnw verify`. In this README, `$VERSION` is the version of the jar, for example `0.2.0`.
 4. Go to a clone of the target repository. Run `java -jar <path of the jar> create`, for example
-   `java -jar ~/claude-ai-factory/target/claude-ai-factory-$VERSION.jar create`. Answer the questions.
+   `java -jar ~/rossumworks/target/rossumworks-$VERSION.jar create`. Answer the questions.
    Enter takes the default answer.
 5. Merge the PR `factory/setup`.
 6. In the same clone, run the command that `create` shows, for example `.factory/run.sh`.
 
 `run` without `--config` reads the owner and the name of the GitHub repository of the clone, for example
-`MeterianHQ/heidi-fix`. It then reads `~/.claude-ai-factory/MeterianHQ-heidi-fix/worker.yaml`. When the file
+`MeterianHQ/heidi-fix`. It then reads `~/.rossumworks/MeterianHQ-heidi-fix/worker.yaml`. When the file
 does not exist, the worker does not start, and the message tells you to run `create`. For a work folder that is
 not the default, give the file: `run --config <work folder>/worker.yaml`. `create` then shows this command.
 
@@ -98,18 +101,18 @@ The default `.factory` holds `factory.yaml` and the prompt files that it uses. `
 The default `.factory` also holds the script `run.sh`. `create` commits it with the execute permission. The
 script starts the worker with the latest release of the factory:
 
-1. It asks the GitHub API for the latest release of `MeterianHQ/claude-ai-factory`. It sends the token of
+1. It asks the GitHub API for the latest release of `MeterianHQ/rossumworks`. It sends the token of
    `FACTORY_GITHUB_TOKEN`, or else the token of `gh`, because the repository is private.
-2. It downloads the jar of that release into `~/.claude-ai-factory/jars`. A jar in this folder is not
+2. It downloads the jar of that release into `~/.rossumworks/jars`. A jar in this folder is not
    downloaded again.
 3. It goes to the root of the clone and runs `java -jar <the jar> run`. It gives its arguments to `run`, for
    example `.factory/run.sh --config <work folder>/worker.yaml`.
 
-`create` copies its own jar into `~/.claude-ai-factory/jars`, with the same file name. Then the first run of the
+`create` copies its own jar into `~/.rossumworks/jars`, with the same file name. Then the first run of the
 script needs no download when that jar is the latest release. `create` does not overwrite a jar in the folder.
 When the copy fails, `create` shows the problem and ends with success.
 
-When the download fails, the script uses the newest jar in `~/.claude-ai-factory/jars`. When that folder has no
+When the download fails, the script uses the newest jar in `~/.rossumworks/jars`. When that folder has no
 jar, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. When the repository
 already has a `.factory`, `create` adds no script, and it shows the `java -jar` command.
 
@@ -127,7 +130,7 @@ A parameter gives the answer and removes the question:
 | Parameter | Value | Default |
 |---|---|---|
 | `--repository owner/name` | The starting repository on GitHub. | The GitHub repository of `git remote get-url origin` in the current folder. |
-| `--work-directory <path>` | The work folder. | `~/.claude-ai-factory/<owner>-<name>` |
+| `--work-directory <path>` | The work folder. | `~/.rossumworks/<owner>-<name>` |
 | `--web <address:port>` | The address of the web page. `create` then asks for the password two times, and writes only its hash. Push Enter at the first question for no password. | `127.0.0.1:8090` |
 | `--no-web` | No web page. | |
 | `--terminal-command "<command>"` | The terminal command of the live mode. | `gnome-terminal --` when it is installed, else none. |
@@ -184,7 +187,7 @@ Two retries of a technical failure stay inside an action. Set them with a system
 | A review session fails, for example `claude` stops. The reviews run again. | `factory.retries.review-session` | `2` |
 | After a push, GitHub does not show the commit yet. The next poll checks again. | `factory.retries.forward-check` | `3` |
 
-For example: `java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-$VERSION.jar run`.
+For example: `java -Dfactory.retries.review-session=4 -jar target/rossumworks-$VERSION.jar run`.
 The value is the number of tries, and the first try counts. So the value `2` gives one try and one retry.
 After the last try, the issue goes to the `block` target of its workflow. A value that is not a whole number
 of 1 or more stops the worker at the start, with exit code 1. The message names the property.
@@ -371,7 +374,7 @@ The worker sees a label that the page adds in about 2 seconds. It sees a label f
 
 The factory uses its own tmux server, never your default tmux server. So the token of the worker never goes
 into the environment of your tmux server. To see a session, run
-`tmux -L claude-ai-factory attach -t factory-issue-<n>`. The factory turns on the mouse of each session, so
+`tmux -L rossumworks attach -t factory-issue-<n>`. The factory turns on the mouse of each session, so
 the mouse wheel scrolls the history. Hold Shift to select text for the clipboard.
 
 An open live session holds its slot of `parallel-issues`. Thus the factory takes no new issue while you talk to
@@ -479,7 +482,7 @@ configuration, the worker serves no page.
 
 The command `create` writes the section `web` for you. To set the password by hand, do these steps:
 
-1. Make the hash of a password: `java -jar target/claude-ai-factory-$VERSION.jar hash-password`.
+1. Make the hash of a password: `java -jar target/rossumworks-$VERSION.jar hash-password`.
    The command asks for the password two times. The password must have 12 characters or more.
 2. Copy the output line `password-hash: pbkdf2-sha256:...` into the `web` section of the configuration:
 

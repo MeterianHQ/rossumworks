@@ -16,7 +16,7 @@ class TmuxCommandTest {
 
     @Test
     void theFactoryServerIsNotTheDefaultServer() {
-        assertThat(TmuxCommand.FACTORY_SERVER).isEqualTo("claude-ai-factory");
+        assertThat(TmuxCommand.FACTORY_SERVER).isEqualTo("rossumworks");
     }
 
     @Test
@@ -27,7 +27,7 @@ class TmuxCommandTest {
         tmux.run("has-session", "-t", "=factory-issue-7");
 
         assertThat(Files.readAllLines(arguments))
-                .containsExactly("-L", "claude-ai-factory", "has-session", "-t", "=factory-issue-7");
+                .containsExactly("-L", "rossumworks", "has-session", "-t", "=factory-issue-7");
     }
 
     /** A tmux that writes each argument on a line and does nothing else: no tmux server starts. */

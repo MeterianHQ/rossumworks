@@ -81,9 +81,9 @@ public final class Main {
     public static final int EXIT_FAILURE = 1;
     static final int EXIT_API_KEY = 2;
 
-    private static final String USAGE = "Usage: java -jar claude-ai-factory.jar run [--config <file>]\n"
-            + "       java -jar claude-ai-factory.jar hash-password\n"
-            + "       java -jar claude-ai-factory.jar create [--repository owner/name] [--work-directory <path>] "
+    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
+            + "       java -jar rossumworks.jar hash-password\n"
+            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
             + "[--yes]";
     private static final URI GITHUB_API = URI.create("https://api.github.com");

@@ -9,7 +9,7 @@ import java.util.Optional;
 /** The folder of jars that .factory/run.sh reads before it downloads a release. */
 final class JarCache {
 
-    private static final String FOLDER = ".claude-ai-factory/jars";
+    private static final String FOLDER = ".rossumworks/jars";
     private static final String PARTIAL_SUFFIX = ".partial";
 
     private final Path directory;

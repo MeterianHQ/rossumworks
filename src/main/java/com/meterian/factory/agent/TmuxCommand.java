@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
 final class TmuxCommand {
 
     /** The socket name of the tmux server of the factory. The default server of the owner never gets a command. */
-    static final String FACTORY_SERVER = "claude-ai-factory";
+    static final String FACTORY_SERVER = "rossumworks";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 

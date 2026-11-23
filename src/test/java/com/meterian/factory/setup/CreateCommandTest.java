@@ -202,17 +202,17 @@ class CreateCommandTest {
         runCreate(answering("", "", "", "y"));
 
         assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
-                + "  java -jar claude-ai-factory.jar run" + System.lineSeparator()).doesNotContain("run.sh");
+                + "  java -jar rossumworks.jar run" + System.lineSeparator()).doesNotContain("run.sh");
     }
 
     @Test
     void copiesTheRunningJarIntoTheCacheOfTheRunScript() throws IOException {
         pushToMain("package.json", "{}\n");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "", "y"));
 
-        Path cachedJar = home.resolve(".claude-ai-factory/jars/claude-ai-factory-0.1.0.jar");
+        Path cachedJar = home.resolve(".rossumworks/jars/rossumworks-0.1.0.jar");
         assertThat(exitCode).isEqualTo(0);
         assertThat(cachedJar).hasContent("jar");
         assertThat(outputText()).contains("The command copied the jar to " + cachedJar + ".");
@@ -221,10 +221,10 @@ class CreateCommandTest {
     @Test
     void keepsAJarThatIsInTheCacheAlready() throws IOException {
         pushToMain(".factory/factory.yaml", "build: {}\n");
-        Path cachedJar = home.resolve(".claude-ai-factory/jars/claude-ai-factory-0.1.0.jar");
+        Path cachedJar = home.resolve(".rossumworks/jars/rossumworks-0.1.0.jar");
         Files.createDirectories(cachedJar.getParent());
         Files.writeString(cachedJar, "cached");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "y"));
 
@@ -236,14 +236,14 @@ class CreateCommandTest {
     @Test
     void aFailedCopyOfTheJarGivesTheProblemAndEndsWithSuccess() throws IOException {
         pushToMain("package.json", "{}\n");
-        Files.createDirectories(home.resolve(".claude-ai-factory"));
-        Files.writeString(home.resolve(".claude-ai-factory/jars"), "not a folder");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("claude-ai-factory-0.1.0.jar"), "jar"));
+        Files.createDirectories(home.resolve(".rossumworks"));
+        Files.writeString(home.resolve(".rossumworks/jars"), "not a folder");
+        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
-        assertThat(outputText()).contains("Cannot copy the jar to " + home.resolve(".claude-ai-factory/jars"));
+        assertThat(outputText()).contains("Cannot copy the jar to " + home.resolve(".rossumworks/jars"));
     }
 
     @Test
@@ -252,7 +252,7 @@ class CreateCommandTest {
 
         runCreate(answering("", "", "", "", "y"));
 
-        assertThat(home.resolve(".claude-ai-factory/jars")).doesNotExist();
+        assertThat(home.resolve(".rossumworks/jars")).doesNotExist();
     }
 
     @Test
@@ -435,7 +435,7 @@ class CreateCommandTest {
     }
 
     private Path workDirectory() {
-        return home.resolve(".claude-ai-factory/owner-project");
+        return home.resolve(".rossumworks/owner-project");
     }
 
     private Path workerFile() {

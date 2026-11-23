@@ -13,8 +13,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class LiveContextReaderTest {
 
-    private static final Path WORKTREE = Path.of("/home/u/.claude-ai-factory/work/issue-7");
-    private static final String FOLDER = "-home-u--claude-ai-factory-work-issue-7";
+    private static final Path WORKTREE = Path.of("/home/u/.rossumworks/work/issue-7");
+    private static final String FOLDER = "-home-u--rossumworks-work-issue-7";
 
     @TempDir
     Path claudeHome;

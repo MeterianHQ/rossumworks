@@ -458,7 +458,7 @@ system property of Java.
 Example:
 
 ```
-java -Dfactory.retries.review-session=4 -jar target/claude-ai-factory-$VERSION.jar run
+java -Dfactory.retries.review-session=4 -jar target/rossumworks-$VERSION.jar run
 ```
 
 ### 10.5 A change of the issue text
