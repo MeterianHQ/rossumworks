@@ -63,6 +63,17 @@ value is not set, the worker does not start. In subscription mode, the worker ig
 
 Each message that stops the start tells the owner what to change.
 
+After the start checks, `run` prints one line to the standard error. The line names the provider:
+
+- `The provider is subscription: the sessions use the claude login of the owner.`
+- `The provider is anthropic-api-key: the sessions use ANTHROPIC_API_KEY. The daily budget is $20.00.`
+
+The line never contains the key. `run` prints it before the other start messages, for example before the
+address of the web page.
+
+When a session does not agree with the provider, the stop message also names the provider, for example
+`The factory stopped: a claude session did not use the credential of the provider subscription.`
+
 `create` asks for the provider. Enter takes `subscription`. If the owner selects `anthropic-api-key`,
 `create` also asks for the daily budget. `create` makes the same start checks as `run`.
 
@@ -207,6 +218,7 @@ owner.
 Unit tests:
 
 - The four start cases of section 3, and the budget checks.
+- The provider line at start, for each provider. The test also checks that the line does not contain the key.
 - The check of each session for each provider. New stream files: an API key session, and a subscription
   session without usage windows.
 - `BudgetTracker`: below the budget, at the budget, and the reset at midnight.
