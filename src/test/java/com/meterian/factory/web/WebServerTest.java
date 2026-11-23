@@ -797,7 +797,7 @@ class WebServerTest {
 
         assertThat(answer.statusCode()).isEqualTo(200);
         assertThat(answer.body()).contains("data-issue=\"12\"").contains("src=\"/live.js\"")
-                .contains("<title>Claude AI Factory \u2014 #12</title>")
+                .contains("<title>RossumWorks \u2014 #12</title>")
                 .doesNotContainPattern("<script>\\s*\\S");
     }
 

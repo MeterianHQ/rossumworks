@@ -54,7 +54,7 @@ public final class BoardPage {
     }
 
     private void appendHeader(StringBuilder html, PageModel model) {
-        html.append("<header class=\"topbar\"><div class=\"brand\"><h1>Claude AI Factory</h1>")
+        html.append("<header class=\"topbar\"><div class=\"brand\"><h1>RossumWorks</h1>")
                 .append("<span class=\"repository\">").append(Html.escape(model.repositoryFullName()))
                 .append("</span></div>");
         appendHealth(html, model);
