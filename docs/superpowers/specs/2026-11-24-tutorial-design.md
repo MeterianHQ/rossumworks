@@ -86,15 +86,15 @@ The risk check decides the merge. When the card goes to `waits-for-approval`, th
 
 ### 6.2 Optional lessons
 
-Each lesson needs only the core. Each one gives its purpose, its steps, the expected board, and the other
-possible results.
+Each lesson needs only the core. Each lesson has the same parts in the same order: the purpose, the steps, the
+expected board, and the other possible results.
 
 | Lesson | Issue | Steps of the user | Result |
 |---|---|---|---|
-| `live-mode` | A discount rule that is not clear | Answer the question of the agent. When the agent asks no question, push Enter while the action `coding` runs. End with `/factory:continue`. | The conversation opens on each run when the user pushes Enter. |
+| `live-mode` | A discount rule that is not clear | Answer the question of the agent. When the agent asks no question, push Enter while the action `coding` runs. End with `/factory:continue`. | The conversation opens after the question, or after the user pushes Enter. |
 | `approval` | A change of the payment rule | Before the issue, set `mode: always-ask` in `.factory/factory.yaml`, and push the commit to the default branch. Add `factory:approve` when the card waits. | The merge always waits for the approval, after the reviews pass. |
 | `factory-change` | A change of the prompt `review-quality.md` in `.factory` | Read the PR. Add `factory:approve` when the card waits. | The merge always waits for the approval, after the reviews pass. |
-| `parallel` | Two discounts that change the same method of `PriceCalculator` | Add the label `factory` to the two issues together. | Two cards are in work when two slots are free. A conflict is possible. The text does not promise it. |
+| `parallel` | Two discounts that change the same method of `PriceCalculator` | Add the label `factory` to the two issues together. | The factory works on the two cards when two slots are free. A conflict is possible, but not certain. |
 
 A new issue uses the newest version of `.factory`. Thus the user pushes the mode of `approval` before the user
 adds the label. The last step of `approval` sets `mode: risk` again.
@@ -113,6 +113,32 @@ delete.
 The start of the tutorial tells the user that the agents run commands on their machine. It also tells that each
 issue uses the subscription: a coding session, four reviews, and a risk session, and more after a reject.
 
+### 6.5 Language
+
+All the tutorial texts use Simplified Technical English (ASD-STE100):
+
+- `docs/tutorial.md`, with the core, each lesson, "Problems", and "Clean up".
+- The section "Tutorial" of the README of `rossumworks`.
+- The `README.md` and the `CLAUDE.md` of the sample.
+- The titles and the bodies of the issues.
+- The messages of `create-issues.sh`.
+
+The rules for the lessons are:
+
+- Each step is a numbered sentence with one instruction and 20 words or less.
+- A description has sentences of 25 words or less, and paragraphs of six sentences or less.
+- The sentences use the active voice and the simple tenses.
+- One thing has one name in all the lessons. The names are the names of the board and of
+  `docs/factory-definition.md`, for example "card", "state", and "label".
+- A lesson explains a new technical name at its first use.
+- A warning comes before the step that it is about.
+
+The issue of `live-mode` is not clear about the discount rule on purpose. Its sentences still use Simplified
+Technical English: only a fact is missing.
+
+The `CLAUDE.md` of the sample tells the agents to write their code comments and documents in Simplified Technical
+English.
+
 ## 7. Test
 
 1. `./mvnw verify` passes on the sample, and `shellcheck` gives no finding.
@@ -121,6 +147,7 @@ issue uses the subscription: a coding session, four reviews, and a risk session,
 3. A test that the fix of `first-fix` needs fails on the sample. This test is not in the sample.
 4. A person follows the full tutorial in a new repository from the template. Each lesson runs at least once.
 5. The run of the core gives its time and its subscription use. The tutorial shows these measured values.
+6. A reviewer reads each text of section 6.5 against its rules, and corrects each sentence that breaks a rule.
 
 ## 8. Dependencies
 
