@@ -47,6 +47,17 @@ The folder `docs/superpowers` holds the design of each feature:
 Each file describes a feature at the date of the file. Do not change a file after the work ends. A new feature
 gets a new design file. Read the design of a feature before you change it.
 
+## The security of the dependencies
+
+| Automation | When | What it does |
+|---|---|---|
+| [Security](.github/workflows/security.yml) | After each push to `main`, and each Monday | Scans the dependencies with Meterian. The run fails when a score is below its threshold. |
+| [Autofix](.github/workflows/autofix.yml) | Each day | Opens a pull request with the Meterian dependency fixes. |
+| [Dependabot](.github/dependabot.yml) | Each week | Updates the GitHub actions and the Maven build plugins. Meterian owns the other dependencies. |
+
+The two Meterian workflows need the Actions secret `METERIAN_API_TOKEN`. Autofix also needs the repository
+setting "Allow GitHub Actions to create and approve pull requests".
+
 ## License
 
 RossumWorks uses the MIT License. See [LICENSE](LICENSE).

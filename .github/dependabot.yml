@@ -1,0 +1,18 @@
+version: 2
+
+updates:
+  # The pinned SHAs of the GitHub actions. The comment after each SHA gives
+  # the release, so Dependabot can update it.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Meterian owns the dependencies. Its autofix does not change the build
+  # plugins, so Dependabot updates the build plugins, and only those.
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-name: "org.apache.maven.plugins:*"
