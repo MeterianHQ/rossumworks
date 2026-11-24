@@ -105,8 +105,7 @@ public final class Worker {
     private final WorkerEvents events;
     private final WorkerMove workerMove;
     private final AtomicBoolean stopReported = new AtomicBoolean();
-    /** Only the poll thread uses it. */
-    private boolean aCheckFailedInThisPoll;
+    private final NewSlotRequests newSlotRequests = new NewSlotRequests();
     private volatile boolean apiKeyFound;
     private boolean labelsEnsured;
 
@@ -155,7 +154,7 @@ public final class Worker {
         if (isStopped() || rateLimitWait.isWaiting()) {
             return;
         }
-        aCheckFailedInThisPoll = false;
+        newSlotRequests.startPoll();
         try {
             definitions.refresh();
             verifyEnoughRequestsRemain();
@@ -166,10 +165,8 @@ public final class Worker {
             List<Issue> ownedIssues = claimOwnedIssues(labeledIssues);
             board.recordPoll(ownedIssues);
             Set<Integer> earlierLiveIssues = liveSessionSlots.startPoll();
-            for (Issue issue : ownedIssues) {
-                verifyEnoughRequestsRemain();
-                checkIssue(issue).ifPresent(startable::add);
-            }
+            checkIssues(ownedIssues, startable);
+            checkIssues(newSlotRequests.finishChecks(), startable);
             liveSessionSlots.finishPoll(earlierLiveIssues, liveSessions::isOpen);
             startIssues(orderForTheSlots(startable, earlierLiveIssues));
         } catch (GitHubException exception) {
@@ -181,12 +178,19 @@ public final class Worker {
         }
     }
 
+    private void checkIssues(List<Issue> issues, List<IssueRecord> startable) {
+        for (Issue issue : issues) {
+            verifyEnoughRequestsRemain();
+            checkIssue(issue).ifPresent(startable::add);
+        }
+    }
+
     /**
      * Fail closed: after a failed check, the worker does not know the slot of each card. So it starts no card that
      * takes a new slot in this poll. The other cards still start.
      */
     private void startIssues(List<IssueRecord> orderedRecords) {
-        if (aCheckFailedInThisPoll) {
+        if (newSlotRequests.hasAFailedCheck()) {
             LOGGER.log(System.Logger.Level.WARNING, "A check failed in this poll, so the worker takes no new card.");
         }
         for (IssueRecord record : orderedRecords) {
@@ -194,7 +198,7 @@ public final class Worker {
             if (factorySwitch.isStopRequested()) {
                 continue;
             }
-            if (!aCheckFailedInThisPoll || !cardSlots.takesANewSlot(record)) {
+            if (!newSlotRequests.hasAFailedCheck() || !cardSlots.takesANewSlot(record)) {
                 startIssue(record);
             }
         }
@@ -417,7 +421,7 @@ public final class Worker {
     /** Only an issue that the worker owned before this poll can hold a slot that the worker does not know. */
     private void rememberFailedCheck(Issue issue) {
         if (issue.assignees().stream().anyMatch(assignee -> assignee.equalsIgnoreCase(workerLogin))) {
-            aCheckFailedInThisPoll = true;
+            newSlotRequests.rememberFailedCheck();
         }
     }
 
@@ -482,13 +486,34 @@ public final class Worker {
         }
         IssueRecord afterStartAgain = StartAgainRequests.isRequested(issue)
                 ? startAgainRequests.startAgain(issue, record) : record;
-        IssueRecord current = EnterRequests.isRequested(issue) ? enterRequests.enter(afterStartAgain)
-                : afterStartAgain;
+        boolean entersNow = EnterRequests.isRequested(issue) && mayEnterNow(issue, afterStartAgain);
+        boolean waitsForTheEnter = EnterRequests.isRequested(issue) && !entersNow;
+        IssueRecord current = entersNow ? enterRequests.enter(afterStartAgain) : afterStartAgain;
         current = liveRecordCheck.forgetEndedSession(issue, current);
         rememberLiveSession(current);
         cardSlots.remember(current);
         board.recordIssue(issue, current);
-        return Optional.of(current).filter(found -> workflow.isStartable(issue, found));
+        return Optional.of(current).filter(found -> !waitsForTheEnter && workflow.isStartable(issue, found));
+    }
+
+    /**
+     * An enter on a card without a slot, for example a blocked card, waits for a free slot. The label stays, so a
+     * later poll enters. The card does not start while it waits, because the owner asks for the session. A card
+     * without an agent session opens no session, so its enter needs no slot.
+     */
+    private boolean mayEnterNow(Issue issue, IssueRecord record) {
+        boolean opensANewSession = record.agentSessionStarted() && cardSlots.takesANewSlot(record);
+        return !opensANewSession || requestANewSlot(issue);
+    }
+
+    private boolean requestANewSlot(Issue issue) {
+        return newSlotRequests.requestANewSlot(issue, () -> hasAFreeSlotForANewCard(issue.number()));
+    }
+
+    private synchronized boolean hasAFreeSlotForANewCard(int issueNumber) {
+        Set<Integer> otherIssuesWithASlot = findIssuesWithASlot();
+        otherIssuesWithASlot.remove(issueNumber);
+        return otherIssuesWithASlot.size() < configuration.limits().parallelIssues();
     }
 
     /**
@@ -509,12 +534,17 @@ public final class Worker {
     }
 
     /**
-     * Fail closed: without a definition version that loads, the worker does not take over the issue. The next poll
-     * tries again.
+     * Fail closed: without a definition version that loads, the worker does not take over the issue. A takeover
+     * that gives the card a slot, for example a wait for the approval, waits for a free slot. The next poll tries
+     * again.
      */
     private Optional<IssueRecord> takeOver(Issue issue, Optional<IssueRecord> earlierRecord) {
-        return createQueuedRecord(issue.number())
-                .map(queued -> ownershipTakeover.takeOver(issue, queued, earlierRecord));
+        Optional<IssueRecord> prepared = createQueuedRecord(issue.number())
+                .map(queued -> ownershipTakeover.prepare(issue, queued, earlierRecord));
+        if (prepared.isEmpty() || (cardSlots.holdsASlot(prepared.get()) && !requestANewSlot(issue))) {
+            return Optional.empty();
+        }
+        return Optional.of(ownershipTakeover.publish(issue, prepared.get()));
     }
 
     /** The card shows the waiting state of a request label also when the label comes from the GitHub app. */

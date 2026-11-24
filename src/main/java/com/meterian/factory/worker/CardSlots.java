@@ -49,7 +49,7 @@ final class CardSlots {
         return isQueued(record) || facts.isInBlockTarget(record);
     }
 
-    private boolean holdsASlot(IssueRecord record) {
+    boolean holdsASlot(IssueRecord record) {
         return !isQueued(record) && !isDone(record) && !facts.isInBlockTarget(record);
     }
 
