@@ -343,6 +343,16 @@ class ConfigurationLoaderTest {
                 .hasMessage("Configuration key limits.daily-budget-usd must be more than 0.");
     }
 
+    @Test
+    void refusesAnInfiniteBudget() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + """
+                limits:
+                  daily-budget-usd: 1.0e999
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key limits.daily-budget-usd must be more than 0.");
+    }
+
     private FactoryConfiguration load(String content) throws ConfigurationException, IOException {
         Path file = temporaryDirectory.resolve("factory.yaml");
         Files.writeString(file, content);

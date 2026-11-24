@@ -174,7 +174,7 @@ public final class ConfigurationLoader {
             throws ConfigurationException {
         String key = "daily-budget-usd";
         Optional<Double> value = section.findNumber(key);
-        if (value.isPresent() && value.get() <= 0.0) {
+        if (value.isPresent() && (!Double.isFinite(value.get()) || value.get() <= 0.0)) {
             throw section.createInvalidKeyException(key, "must be more than 0");
         }
         return value.map(BigDecimal::valueOf);

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Runs one agent phase and records it in the guard, and the context of the agent in charge. */
+/** Runs one agent phase, records the session in the phase guard, and records the context of the agent in charge. */
 final class PhaseRunner {
 
     private final AgentRunner agentRunner;
@@ -31,7 +31,7 @@ final class PhaseRunner {
 
     /** Runs a phase of the agent in charge of the issue. */
     SessionReport runPhase(PhaseRequest request) throws AgentException, CredentialMismatchException {
-        SessionReport report = runAndRecordUsage(request);
+        SessionReport report = runAndRecordInGuard(request);
         report.contextUsage().ifPresent(context -> contexts.record(request.issueNumber(), context));
         return report;
     }
@@ -39,7 +39,7 @@ final class PhaseRunner {
     /** Runs a phase in a new session that no other phase uses. The context bar does not show this session. */
     SessionReport runInNewSession(int issueNumber, Path worktree, String prompt, List<String> allowedTools)
             throws AgentException, CredentialMismatchException {
-        return runAndRecordUsage(
+        return runAndRecordInGuard(
                 new PhaseRequest(issueNumber, UUID.randomUUID(), true, worktree, prompt, allowedTools));
     }
 
@@ -54,7 +54,7 @@ final class PhaseRunner {
         return resumeTime.isEmpty();
     }
 
-    private SessionReport runAndRecordUsage(PhaseRequest request) throws AgentException, CredentialMismatchException {
+    private SessionReport runAndRecordInGuard(PhaseRequest request) throws AgentException, CredentialMismatchException {
         SessionReport report = agentRunner.runPhase(request);
         guard.recordSession(request.issueNumber(), report);
         return report;
