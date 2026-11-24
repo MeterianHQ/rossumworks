@@ -19,6 +19,11 @@ The build writes the jar to `target/rossumworks-$VERSION.jar`. Some tests show a
 The tests never use a real `claude`, a real GitHub repository, or the Anthropic API. They use fake programs
 and local git repositories.
 
+The workflow [Build](.github/workflows/build.yml) runs the same build for each pull request and for each push
+to `main`. It also checks the workflow files with `actionlint`.
+
+GitHub does not start Build for a pull request of Autofix. Close and reopen the pull request to start Build.
+
 ## The rules of the code
 
 The file [CLAUDE.md](CLAUDE.md) holds the rules of the project. They apply to people and to Claude. The rules

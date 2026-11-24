@@ -24,6 +24,8 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The pull request uses github.token. GitHub does not start other
+      # workflows for it, so close and reopen the pull request to run Build.
       - name: Fix the dependencies and open a pull request
         uses: MeterianHQ/meterian-github-action@9603528ad7eb3e76e7181d8d721bba25665a403d # v1.0.18
         env:
