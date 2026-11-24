@@ -83,7 +83,7 @@ class PageModelSourceTest {
                 workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
                 new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, factorySwitch, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
+        return new PageModelSource(board, factorySwitch, usage, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
                 pageRequests, new WorkspaceLayout(workDirectory), configuration, definitions, () -> definitionWarning,
                 () -> 1, clock);
     }

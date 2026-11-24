@@ -124,7 +124,8 @@ class WebServerTest {
                 workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
                 new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, factorySwitch, new UsageTracker(0.90, clock), new ContextTracker(),
+        UsageTracker usage = new UsageTracker(0.90, clock);
+        return new PageModelSource(board, factorySwitch, usage, usage, new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration,
                 DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);

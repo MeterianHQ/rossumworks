@@ -138,14 +138,14 @@ class BoardPageTest {
         Set<Integer> inBlockTarget = cards.stream().filter(card -> card.record().state().equals("blocked"))
                 .map(IssueCard::issueNumber).collect(Collectors.toSet());
         return new PageModel(snapshot, NOW, 2, 2, limits, reviewNames, inBlockTarget, IsolationMode.SAME_USER, POLL_INTERVAL,
-                usageWindows, usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces,
+                usageWindows, usageResumesAt, Optional.empty(), contexts, continueRequested, rememberedLabels, enterPlaces,
                 "MeterianHQ/target", viewerOnThisMachine, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
     }
 
     private static PageModel withColumns(PageModel model, List<String> columns) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
-                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
                 model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
                 model.definitionWarning(), model.factoryState(), columns);
     }
@@ -155,7 +155,7 @@ class BoardPageTest {
                 .collect(Collectors.toMap(IssueCard::issueNumber, card -> reviewNames));
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), namesByIssue, model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
-                model.usageWindows(), model.usageResumesAt(), model.contexts(), model.continueRequested(),
+                model.usageWindows(), model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(),
                 model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
                 model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
     }
@@ -163,7 +163,7 @@ class BoardPageTest {
     private static PageModel withFactoryState(PageModel model, FactoryState factoryState) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
-                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
                 model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
                 model.definitionWarning(), factoryState, model.columns());
     }

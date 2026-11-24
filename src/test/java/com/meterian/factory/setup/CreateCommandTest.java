@@ -315,7 +315,8 @@ class CreateCommandTest {
         int exitCode = runCreate(answering("", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
-        assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription.");
+        assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the provider is subscription. "
+                + "To use the key, set claude.provider to anthropic-api-key.");
         assertThat(workDirectory()).doesNotExist();
     }
 

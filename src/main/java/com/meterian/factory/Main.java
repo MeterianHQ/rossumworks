@@ -28,12 +28,16 @@ import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
+import com.meterian.factory.provider.Provider;
+import com.meterian.factory.provider.Providers;
 import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
 import com.meterian.factory.setup.RunningJar;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
+import com.meterian.factory.usage.CostEvents;
+import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.BoardPage;
@@ -109,14 +113,22 @@ public final class Main {
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
-                       FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
+                       PhaseGuard guard, FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
 
         static SharedState create(FactoryConfiguration configuration) {
+            return create(configuration, new SubscriptionProvider());
+        }
+
+        /** The budget of API key mode uses the time zone of this machine for its midnight. */
+        static SharedState create(FactoryConfiguration configuration, Provider provider) {
+            UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
+            WorkerEvents events = new WorkerEvents(EventsFile.inWorkFolder(configuration.workDirectory()),
+                    Clock.systemUTC());
+            CostEvents costEvents = new CostEvents(configuration.workDirectory().resolve(EventsFile.FILE_NAME), events);
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
-                    new PageRequests(Clock.systemUTC()),
-                    new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
-                    new FactorySwitch(configuration.workDirectory()), new LostIssues(),
-                    new WorkerEvents(EventsFile.inWorkFolder(configuration.workDirectory()), Clock.systemUTC()));
+                    new PageRequests(Clock.systemUTC()), usage,
+                    provider.createPhaseGuard(usage, costEvents, Clock.systemDefaultZone()),
+                    new FactorySwitch(configuration.workDirectory()), new LostIssues(), events);
         }
     }
 
@@ -186,7 +198,8 @@ public final class Main {
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
     @FunctionalInterface
     interface WorkerStarter {
-        int start(FactoryConfiguration configuration, RetrySettings retries, String token, PrintStream errors)
+        int start(FactoryConfiguration configuration, Provider provider, RetrySettings retries, String token,
+                  PrintStream errors)
                 throws InterruptedException, StartupException;
     }
 
@@ -208,14 +221,16 @@ public final class Main {
                    WorkerStarter workerStarter, Git git, WorkerFileFinder finder) {
         try {
             Path configurationFile = readConfigurationPath(arguments, finder);
-            StartChecks.verifyNoApiKey(environment);
             RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
+            StartChecks.verifyCredential(environment, configuration.claude().provider());
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
             Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.repository().sshUrl());
             String token = StartChecks.readToken(environment, ghToken);
             cloneRepositoryIfMissing(configuration, git);
-            return workerStarter.start(configuration, retries, token, errors);
+            Provider provider = Providers.create(configuration, environment);
+            errors.println(provider.describe());
+            return workerStarter.start(configuration, provider, retries, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -273,16 +288,16 @@ public final class Main {
                 .build();
     }
 
-    private static int runWorker(FactoryConfiguration configuration, RetrySettings retries, String token,
-                                 PrintStream errors)
+    private static int runWorker(FactoryConfiguration configuration, Provider provider, RetrySettings retries,
+                                 String token, PrintStream errors)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
-        SharedState shared = SharedState.create(configuration);
+        SharedState shared = SharedState.create(configuration, provider);
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
-                new SubscriptionProvider());
+                provider);
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
@@ -306,8 +321,10 @@ public final class Main {
             worker.requestEarlyPoll();
         });
         startContinueMarkerWatcher(continueMarkerWatcher, errors);
-        new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
-                UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
+        if (provider.readsUsageWindows()) {
+            new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
+                    UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
+        }
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
         try {
             worker.runUntilStopped();
@@ -320,7 +337,8 @@ public final class Main {
             errors.println("The factory stopped.");
             return EXIT_SUCCESS;
         }
-        errors.println("The factory stopped: a claude session used an API key.");
+        errors.println("The factory stopped: a claude session did not use the credential of the provider "
+                + provider.name().configurationValue() + ".");
         return EXIT_CREDENTIAL_MISMATCH;
     }
 
@@ -359,7 +377,7 @@ public final class Main {
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 createLogin(settings),
-                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
+                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
                         definitionWarning, issuesInWork, Clock.systemUTC()),
@@ -480,7 +498,7 @@ public final class Main {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
-                buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
+                buildRunner, MERGE_RETRY_DELAY, shared.guard(), layout, workerLogin, liveSessions,
                 shared.board(), shared.contexts(), shared.pageRequests(), retries, ownershipGuard,
                 shared.lostIssues(), shared.events());
     }

@@ -13,6 +13,7 @@ import com.meterian.factory.definition.ColumnNames;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
+import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.PageRequests;
@@ -34,6 +35,7 @@ public final class PageModelSource {
     private final BoardState board;
     private final FactorySwitch factorySwitch;
     private final UsageTracker usage;
+    private final PhaseGuard guard;
     private final ContextTracker contexts;
     private final LiveContextReader liveContexts;
     private final LiveSessions liveSessions;
@@ -46,13 +48,15 @@ public final class PageModelSource {
     private final IntSupplier issuesInWork;
     private final Clock clock;
 
-    public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, ContextTracker contexts,
+    public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, PhaseGuard guard,
+            ContextTracker contexts,
             LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
             WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
             Supplier<Optional<String>> definitionWarning, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.usage = usage;
+        this.guard = guard;
         this.contexts = contexts;
         this.liveContexts = liveContexts;
         this.liveSessions = liveSessions;
@@ -78,7 +82,7 @@ public final class PageModelSource {
                 configuration.limits().parallelIssues(), readLimits(snapshot), readReviewNames(snapshot),
                 readIssuesInBlockTarget(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
-                usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
+                guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
                 readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
                 definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow),
                 readColumns());

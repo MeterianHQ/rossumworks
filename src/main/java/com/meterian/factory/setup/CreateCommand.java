@@ -3,6 +3,7 @@ package com.meterian.factory.setup;
 import com.meterian.factory.Main;
 import com.meterian.factory.Main.StartupException;
 import com.meterian.factory.StartChecks;
+import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.GitException;
@@ -81,7 +82,7 @@ public final class CreateCommand {
     }
 
     private int create(CreateOptions options) throws SetupException, StartupException {
-        StartChecks.verifyNoApiKey(environment);
+        StartChecks.verifyCredential(environment, ProviderName.SUBSCRIPTION);
         StartChecks.verifyCommandsOnPath(REQUIRED_PROGRAMS, path());
         String token = StartChecks.readToken(environment, ghToken);
         SetupQuestions questions = new SetupQuestions(console, environment, this::isOnPath, home);
