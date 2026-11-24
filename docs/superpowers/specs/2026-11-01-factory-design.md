@@ -46,21 +46,21 @@ Anti-goal (the owner's words: "did not produce working or decent code"):
 
 These constraints come from the owner. They are not open to change.
 
-1. **Subscription only.** The factory runs the unmodified `claude` CLI
-   with the login of the owner. It never uses an API key. It never uses
-   the Claude Agent SDK, or an ACP adapter for Claude
-   (`@zed-industries/claude-code-acp`, `@agentclientprotocol/claude-agent-acp`).
+1. **Unmodified CLI.** The factory runs the unmodified `claude` CLI. It never uses the Claude Agent SDK, or
+   an ACP adapter for Claude (`@zed-industries/claude-code-acp`, `@agentclientprotocol/claude-agent-acp`).
+   The provider is the subscription of the owner or an Anthropic API key. See
+   `docs/superpowers/specs/2026-11-23-api-key-provider-design.md`.
+
    These adapters run on the Agent SDK. The Anthropic legal page tells
    developers to use the Agent SDK with an API key. It forbids third
    parties to send requests with the subscription credentials of a user.
    It permits a user to sign in to the unmodified Claude Code binary with
    the subscription of that user. The factory stays inside this
    permission.
-2. **No API key in the sessions.** The worker removes `ANTHROPIC_API_KEY`
-   and `ANTHROPIC_AUTH_TOKEN` from the environment of each `claude`
-   process. The `init` event of stream-json has the field `apiKeySource`.
-   If its value is not `"none"`, the worker stops the session and stops
-   the factory (fail closed).
+2. **One credential.** The worker removes every `ANTHROPIC_*` variable from the environment of each `claude`
+   process. In API key mode, each phase gets the key from an `apiKeyHelper` script. Each session must use the
+   credential of the provider. If it does not, the worker stops the session and stops the factory (fail
+   closed).
 3. **No internal endpoints.** The worker never calls an Anthropic endpoint
    with the login token from `~/.claude`. It gets the usage data only from
    the output of the CLI.

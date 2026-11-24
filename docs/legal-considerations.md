@@ -71,9 +71,8 @@ live mode of the factory when it uses an API key.
 To remove the risk:
 
 1. Ask Anthropic support for a written confirmation of your use.
-2. Or use an Anthropic API key. The design
-   `docs/superpowers/specs/2026-11-23-api-key-provider-design.md` adds this provider. If you use the key for
-   an organization, the Commercial Terms of Service apply.
+2. Or use an Anthropic API key. Set `claude.provider: anthropic-api-key` in `worker.yaml`. See the section
+   "Provider" of the README. If you use the key for an organization, the Commercial Terms of Service apply.
 
 ## 7. Sources
 
