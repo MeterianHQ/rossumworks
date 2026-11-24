@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.meterian.factory.definition.BuildDefinition;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -111,18 +110,19 @@ class BuildRunnerTest {
     }
 
     @Test
-    void endsTheBuildWhenTheCallingThreadIsInterrupted() throws IOException, InterruptedException {
+    void endsTheBuildWhenTheCallingThreadIsInterrupted() throws Exception {
         Path pidFile = worktree.resolve("build.pid");
-        Thread.currentThread().interrupt();
-        long start = System.nanoTime();
-
-        BuildOutcome outcome = new BuildRunner().run(worktree,
-                target("echo $$ > build.pid; sleep 30", Map.of()));
-
-        Thread.interrupted();
-        assertFalse(outcome.passed());
-        assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 5);
+        CompletableFuture<BuildOutcome> running = new CompletableFuture<>();
+        Thread caller = Thread.ofVirtual().start(() -> running.complete(new BuildRunner().run(worktree,
+                target("echo $$ > build.pid.partial; mv build.pid.partial build.pid; sleep 30", Map.of()))));
+        waitForFile(pidFile);
         long pid = Long.parseLong(Files.readString(pidFile).trim());
+
+        caller.interrupt();
+
+        BuildOutcome outcome = running.get(5, TimeUnit.SECONDS);
+        assertFalse(outcome.passed());
+        assertEquals("The build was interrupted.", outcome.outputTail());
         for (int attempt = 0; attempt < 40 && ProcessHandle.of(pid).isPresent(); attempt++) {
             Thread.sleep(50);
         }
@@ -147,6 +147,13 @@ class BuildRunnerTest {
                 BuildSettings.combine(build, Map.of("LANG", "C.utf8")));
 
         assertTrue(outcome.passed());
+    }
+
+    private void waitForFile(Path file) throws InterruptedException {
+        for (int attempt = 0; attempt < 400 && Files.notExists(file); attempt++) {
+            Thread.sleep(50);
+        }
+        assertTrue(Files.exists(file));
     }
 
     private BuildSettings target(String buildCommand, Map<String, String> buildEnvironment) {
