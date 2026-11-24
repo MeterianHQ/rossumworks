@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
 import com.meterian.factory.web.login.PasswordHash;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -30,15 +31,18 @@ public final class ConfigurationLoader {
         verifyNewForm(file, tree);
         ConfigurationSection root = new ConfigurationSection(tree, "");
         Path workDirectory = root.requirePath("work-directory");
+        WorkerLimits limits = readLimits(root);
+        ClaudeSettings claude = readClaudeSettings(root);
+        verifyBudgetOfProvider(claude, limits);
         return new FactoryConfiguration(
                 RepositoryName.parse(root.requireText("repository")),
                 workDirectory,
                 root.requirePath("gatekeeper-directory"),
                 root.findPath("live-directory").orElse(workDirectory.resolve("live")),
-                readLimits(root),
+                limits,
                 readBuildEnvironment(root),
                 readIsolationMode(root),
-                readClaudeSettings(root),
+                claude,
                 readWebSettings(root),
                 readTerminalCommand(root));
     }
@@ -92,7 +96,8 @@ public final class ConfigurationLoader {
         return new WorkerLimits(
                 readPositiveInteger(section, "parallel-issues", defaults.parallelIssues()),
                 readPollInterval(section, defaults.pollInterval()),
-                readUsageThreshold(section, defaults.usageThreshold()));
+                readUsageThreshold(section, defaults.usageThreshold()),
+                readDailyBudget(section));
     }
 
     private static int readPositiveInteger(ConfigurationSection section, String key, int defaultValue)
@@ -151,7 +156,35 @@ public final class ConfigurationLoader {
         }
         return new ClaudeSettings(
                 section.findText("command").orElse(ClaudeSettings.DEFAULT_COMMAND),
-                section.findTextList("disallowed-tools").orElse(ClaudeSettings.DEFAULT_DISALLOWED_TOOLS));
+                section.findTextList("disallowed-tools").orElse(ClaudeSettings.DEFAULT_DISALLOWED_TOOLS),
+                readProvider(section));
+    }
+
+    private static ProviderName readProvider(ConfigurationSection section) throws ConfigurationException {
+        String key = "provider";
+        String value = section.findText(key).orElse(ProviderName.SUBSCRIPTION.configurationValue());
+        Optional<ProviderName> provider = ProviderName.findByConfigurationValue(value);
+        if (provider.isEmpty()) {
+            throw section.createInvalidKeyException(key, "must be subscription or anthropic-api-key");
+        }
+        return provider.get();
+    }
+
+    private static Optional<BigDecimal> readDailyBudget(ConfigurationSection section)
+            throws ConfigurationException {
+        String key = "daily-budget-usd";
+        Optional<Double> value = section.findNumber(key);
+        if (value.isPresent() && value.get() <= 0.0) {
+            throw section.createInvalidKeyException(key, "must be more than 0");
+        }
+        return value.map(BigDecimal::valueOf);
+    }
+
+    private static void verifyBudgetOfProvider(ClaudeSettings claude, WorkerLimits limits)
+            throws ConfigurationException {
+        if (claude.provider() == ProviderName.ANTHROPIC_API_KEY && limits.dailyBudgetUsd().isEmpty()) {
+            throw new ConfigurationException("The provider anthropic-api-key needs the key limits.daily-budget-usd.");
+        }
     }
 
     private static Optional<WebSettings> readWebSettings(ConfigurationSection root) throws ConfigurationException {
