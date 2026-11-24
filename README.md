@@ -384,7 +384,9 @@ conversations, also for a target that has no such rule in its `CLAUDE.md`.
 ## Live mode
 
 In live mode the owner talks to the agent of an issue through Remote Control. The factory needs `tmux` and
-`jq` for this. The factory refuses to start without them. API key mode has no live mode. See "Provider".
+`jq` for this. The factory refuses to start without them.
+
+Only the subscription has the live mode. API key mode has no live mode. See "Provider".
 
 ### Enter
 
