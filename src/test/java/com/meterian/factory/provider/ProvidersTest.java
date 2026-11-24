@@ -24,7 +24,7 @@ class ProvidersTest {
         Path workDirectory = Files.createDirectory(temporaryDirectory.resolve("work"));
         Files.setPosixFilePermissions(workDirectory,
                 PosixFilePermissions.fromString("rwx------"));
-        FactoryConfiguration configuration = load(workDirectory);
+        FactoryConfiguration configuration = load(workDirectory, "anthropic-api-key");
 
         Providers.create(configuration, Map.of("ANTHROPIC_API_KEY", "  " + KEY + " \n"));
 
@@ -35,17 +35,29 @@ class ProvidersTest {
         assertThat(output).isEqualTo(KEY + "\n");
     }
 
-    private FactoryConfiguration load(Path workDirectory) throws Exception {
+    @Test
+    void aSubscriptionStartDeletesTheKeyFilesOfAnEarlierStart() throws Exception {
+        Path workDirectory = Files.createDirectory(temporaryDirectory.resolve("work"));
+        Files.setPosixFilePermissions(workDirectory, PosixFilePermissions.fromString("rwx------"));
+        Providers.create(load(workDirectory, "anthropic-api-key"), Map.of("ANTHROPIC_API_KEY", KEY));
+
+        Provider provider = Providers.create(load(workDirectory, "subscription"), Map.of());
+
+        assertThat(provider).isInstanceOf(SubscriptionProvider.class);
+        assertThat(workDirectory.resolve(ApiKeyFiles.FOLDER_NAME)).doesNotExist();
+    }
+
+    private FactoryConfiguration load(Path workDirectory, String provider) throws Exception {
         Path file = temporaryDirectory.resolve("factory.yaml");
         Files.writeString(file, """
                 repository: MeterianHQ/heidi-fix
                 work-directory: %s
                 gatekeeper-directory: /work/gatekeeper.git
                 claude:
-                  provider: anthropic-api-key
+                  provider: %s
                 limits:
                   daily-budget-usd: 20
-                """.formatted(workDirectory));
+                """.formatted(workDirectory, provider));
         return ConfigurationLoader.load(file);
     }
 }

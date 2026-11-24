@@ -1,6 +1,7 @@
 package com.meterian.factory.usage;
 
 import com.meterian.factory.agent.SessionReport;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -22,7 +23,8 @@ public final class BudgetTracker implements PhaseGuard {
     private LocalDate day;
     private BigDecimal costOfDay;
 
-    public BudgetTracker(BigDecimal dailyBudget, CostEvents costEvents, Clock clock) {
+    /** @throws IOException when events.jsonl cannot be read: then the cost of today is not known */
+    public BudgetTracker(BigDecimal dailyBudget, CostEvents costEvents, Clock clock) throws IOException {
         this.dailyBudget = dailyBudget;
         this.costEvents = costEvents;
         this.clock = clock;

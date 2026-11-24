@@ -216,7 +216,7 @@ public final class SetupQuestions {
             if (budget.isPresent()) {
                 return budget.get();
             }
-            console.show("Type a number more than 0, for example 20.");
+            console.show("Type a number from 0.01 to 1000000, for example 20.");
         }
     }
 

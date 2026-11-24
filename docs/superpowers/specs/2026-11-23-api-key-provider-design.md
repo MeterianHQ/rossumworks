@@ -76,7 +76,7 @@ When a session does not agree with the provider, the stop message also names the
 `The factory stopped: a claude session did not use the credential of the provider subscription.`
 
 `create` asks for the provider. Enter takes `subscription`. If the owner selects `anthropic-api-key`,
-`create` also asks for the daily budget. `create` makes the same start checks as `run`.
+`create` also asks for the daily budget, a number from 0.01 to 1000000. `create` makes the same start checks as `run`.
 
 ## 4. How a session gets the key
 
@@ -99,7 +99,13 @@ and the builds do not get the key.
 `BuildRunner` does not use the `Provider`. `UsageProbe` runs only in subscription mode.
 
 The agent runs as the owner, so it can read the helper file. This is the same risk as the claude login in
-`~/.claude`, which the agent can also read.
+`~/.claude`, which the agent can also read. To make this more difficult, the settings file also has the deny
+rules `Read(//<credentials folder>/**)` and `Edit(//<credentials folder>/**)`. These rules stop the file tools,
+and the Bash commands that `claude` can analyze, for example `cat`. They do not stop a script that opens the
+file.
+
+In subscription mode, the worker deletes the `credentials` folder at start. Thus a key of an earlier start in
+API key mode does not stay on the disk. If the worker cannot delete the folder, it does not start.
 
 The factory does not use `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`. On this machine, this variable forces the
 permission mode to `default`, and it starts a `bwrap` sandbox that fails (section 9, check 3).
@@ -146,7 +152,9 @@ The record of the cost:
   time, the issue number, and the cost.
 - At start, `CostEvents` reads `events.jsonl` and adds up the `cost` events of today.
 - Today starts at midnight, in the time zone of the worker machine.
-- `CostEvents` ignores a line that it cannot read, and writes a warning in the log.
+- `CostEvents` ignores a line that it cannot read, and writes a warning in the log. It replaces the bytes
+  that are not UTF-8, so a bad line does not hide the other lines.
+- If `CostEvents` cannot read the file, the worker does not start. The cost of today is then not known.
 
 The guard:
 
@@ -154,7 +162,9 @@ The guard:
   `findBudgetStatus`.
 - `UsageTracker` implements `PhaseGuard`, as before.
 - `BudgetTracker` implements `PhaseGuard`. It keeps the cost of today and the budget.
-- The `Provider` gives the guard. The worker asks the guard before each new phase.
+- The `Provider` gives the guard. The worker asks the guard before each new phase. In a review round, the
+  worker asks the guard before each review. When the guard stops a review, the issue keeps the verdicts
+  of the finished reviews and stays in its state.
 - When the cost of today is equal to the budget or more, no new phase starts until midnight. The worker
   writes a `wait` event, as it does for the usage windows.
 - A phase that runs continues to its end. Thus the cost of the day can go above the budget, by the cost of

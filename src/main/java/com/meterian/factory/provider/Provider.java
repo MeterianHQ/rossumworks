@@ -6,6 +6,7 @@ import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.usage.CostEvents;
 import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
+import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
 
@@ -31,5 +32,6 @@ public interface Provider {
     /** True when the sessions send usage windows, so that the usage probe can read them. */
     boolean readsUsageWindows();
 
-    PhaseGuard createPhaseGuard(UsageTracker usageTracker, CostEvents costEvents, Clock clock);
+    PhaseGuard createPhaseGuard(UsageTracker usageTracker, CostEvents costEvents, Clock clock)
+            throws IOException;
 }

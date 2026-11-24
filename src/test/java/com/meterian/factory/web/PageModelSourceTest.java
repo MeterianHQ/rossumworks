@@ -137,7 +137,7 @@ class PageModelSourceTest {
         assertThat(model.isolationMode()).isEqualTo(IsolationMode.SAME_USER);
         assertThat(model.repositoryFullName()).isEqualTo("MeterianHQ/target");
         assertThat(model.usageWindows()).extracting(UsageWindow::name).containsExactly("seven_day");
-        assertThat(model.usageResumesAt()).contains(NOW.plus(Duration.ofDays(1)));
+        assertThat(model.phasesResumeAt()).contains(NOW.plus(Duration.ofDays(1)));
     }
 
     @Test

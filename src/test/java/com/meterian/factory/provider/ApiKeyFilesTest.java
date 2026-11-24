@@ -55,6 +55,32 @@ class ApiKeyFilesTest {
     }
 
     @Test
+    void theSettingsFileDeniesTheFileToolsAtTheKeyFolder() throws Exception {
+        Path settings = ApiKeyFiles.write(workDirectory, KEY);
+
+        String folderPattern = "/" + workDirectory.resolve("credentials") + "/**";
+        assertThat(new ObjectMapper().readTree(settings.toFile()).at("/permissions/deny"))
+                .extracting(rule -> rule.asText())
+                .containsExactly("Read(" + folderPattern + ")", "Edit(" + folderPattern + ")");
+    }
+
+    @Test
+    void deletesTheFilesOfAnEarlierStart() throws Exception {
+        ApiKeyFiles.write(workDirectory, KEY);
+
+        ApiKeyFiles.delete(workDirectory);
+
+        assertThat(workDirectory.resolve("credentials")).doesNotExist();
+    }
+
+    @Test
+    void deletesNothingWithoutTheFolder() throws Exception {
+        ApiKeyFiles.delete(workDirectory);
+
+        assertThat(workDirectory).isEmptyDirectory();
+    }
+
+    @Test
     void makesAFolderThatExistsPrivate() throws Exception {
         Path folder = Files.createDirectory(workDirectory.resolve("credentials"));
         Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString("rwxr-xr-x"));

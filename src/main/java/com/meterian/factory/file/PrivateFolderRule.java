@@ -17,7 +17,7 @@ public final class PrivateFolderRule {
     private PrivateFolderRule() {
     }
 
-    /** Reads the mode, the owner and the group of the path, without a link. A link is judged as itself. */
+    /** Reads the mode, the owner and the group of the path, without a link. The check reads a link, not its target. */
     public static boolean isPrivate(Path folder) throws IOException {
         int mode = readMode(folder);
         int ownerId = (Integer) Files.getAttribute(folder, "unix:uid", LinkOption.NOFOLLOW_LINKS);

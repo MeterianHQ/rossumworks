@@ -43,8 +43,19 @@ public final class ApiKeyFiles {
         Path helper = folder.resolve(HELPER_FILE_NAME);
         AtomicFileWriter.write(helper, createHelper(apiKey), PRIVATE_EXECUTABLE_PERMISSIONS);
         Path settings = folder.resolve(SETTINGS_FILE_NAME);
-        AtomicFileWriter.write(settings, createSettings(helper), PRIVATE_FILE_PERMISSIONS);
+        AtomicFileWriter.write(settings, createSettings(helper, folder), PRIVATE_FILE_PERMISSIONS);
         return settings;
+    }
+
+    /** Deletes the files of an earlier start in API key mode, so that no key stays on the disk. */
+    public static void delete(Path workDirectory) throws IOException {
+        Path folder = workDirectory.toAbsolutePath().resolve(FOLDER_NAME);
+        if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        Files.deleteIfExists(folder.resolve(HELPER_FILE_NAME));
+        Files.deleteIfExists(folder.resolve(SETTINGS_FILE_NAME));
+        Files.delete(folder);
     }
 
     private static void createWorkFolderIfMissing(Path workDirectory) throws IOException {
@@ -91,9 +102,17 @@ public final class ApiKeyFiles {
         return script.getBytes(StandardCharsets.UTF_8);
     }
 
-    private static byte[] createSettings(Path helper) throws IOException {
+    /**
+     * The deny rules stop the file tools of the agent, and the Bash commands that claude can analyze, at the
+     * folder of the key. A prompt in an issue thus cannot easily copy the key into a commit.
+     */
+    private static byte[] createSettings(Path helper, Path folder) throws IOException {
         ObjectNode root = JSON.createObjectNode();
         root.put("apiKeyHelper", helper.toString());
+        String folderPattern = "/" + folder + "/**";
+        root.putObject("permissions").putArray("deny")
+                .add("Read(" + folderPattern + ")")
+                .add("Edit(" + folderPattern + ")");
         return JSON.writerWithDefaultPrettyPrinter().writeValueAsBytes(root);
     }
 }

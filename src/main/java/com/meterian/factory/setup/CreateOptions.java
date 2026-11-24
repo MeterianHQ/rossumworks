@@ -90,7 +90,7 @@ public record CreateOptions(
 
     private static BigDecimal parseDailyBudget(String value) throws SetupException {
         return ProviderChoice.parseDailyBudget(value).orElseThrow(() -> new SetupException(
-                "The daily budget must be a number more than 0.\n" + USAGE));
+                "The daily budget must be a number from 0.01 to 1000000.\n" + USAGE));
     }
 
     private static List<String> splitCommand(String command) {

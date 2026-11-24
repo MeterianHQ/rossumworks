@@ -87,10 +87,10 @@ public final class PageModelSource {
                 configuration.limits().parallelIssues(), readLimits(snapshot), readReviewNames(snapshot),
                 readIssuesInBlockTarget(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
-                guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
-                liveModeAvailable, definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), runningWork.getAsInt()),
-                readColumns());
+                guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot),
+                readRememberedLabels(snapshot), readEnterPlaces(snapshot), configuration.repository().fullName(),
+                viewerOnThisMachine, liveModeAvailable, definitionWarning.get(),
+                FactoryState.find(factorySwitch.isStopRequested(), runningWork.getAsInt()), readColumns());
     }
 
     private List<String> readColumns() {

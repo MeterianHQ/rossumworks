@@ -1,10 +1,12 @@
 package com.meterian.factory.usage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.testing.MutableClock;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,7 +41,7 @@ class CostEventsTest {
     }
 
     @Test
-    void addsUpOnlyTheCostEventsOfTheDay() {
+    void addsUpOnlyTheCostEventsOfTheDay() throws Exception {
         CostEvents costEvents = createCostEvents();
         costEvents.write(7, new BigDecimal("5.00"));
         clock.advance(Duration.ofHours(1));
@@ -64,7 +66,29 @@ class CostEventsTest {
     }
 
     @Test
-    void theCostIsZeroWithoutAFile() {
+    void ignoresOnlyTheLineWithBytesThatAreNotUtf8() throws Exception {
+        CostEvents costEvents = createCostEvents();
+        clock.advance(Duration.ofHours(1));
+        costEvents.write(7, new BigDecimal("5.00"));
+        Files.write(directory.resolve(EventsFile.FILE_NAME), new byte[] {'{', (byte) 0xC3, '\n'},
+                StandardOpenOption.APPEND);
+        costEvents.write(8, new BigDecimal("0.25"));
+
+        BigDecimal cost = costEvents.readCostOf(LocalDate.parse("2026-11-23"), ZoneOffset.UTC);
+
+        assertThat(cost).isEqualByComparingTo("5.25");
+    }
+
+    @Test
+    void aFileThatCannotBeReadGivesAnError() throws Exception {
+        Files.createDirectory(directory.resolve(EventsFile.FILE_NAME));
+
+        assertThatThrownBy(() -> createCostEvents().readCostOf(LocalDate.parse("2026-11-23"), ZoneOffset.UTC))
+                .isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void theCostIsZeroWithoutAFile() throws Exception {
         assertThat(createCostEvents().readCostOf(LocalDate.parse("2026-11-23"), ZoneOffset.UTC)).isZero();
     }
 }

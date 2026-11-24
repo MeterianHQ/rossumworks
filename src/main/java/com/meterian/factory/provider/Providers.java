@@ -17,9 +17,20 @@ public final class Providers {
     public static Provider create(FactoryConfiguration configuration, Map<String, String> environment)
             throws StartupException {
         return switch (configuration.claude().provider()) {
-            case SUBSCRIPTION -> new SubscriptionProvider();
+            case SUBSCRIPTION -> createSubscriptionProvider(configuration);
             case ANTHROPIC_API_KEY -> createApiKeyProvider(configuration, environment.get(API_KEY_VARIABLE));
         };
+    }
+
+    private static Provider createSubscriptionProvider(FactoryConfiguration configuration) throws StartupException {
+        try {
+            ApiKeyFiles.delete(configuration.workDirectory());
+            return new SubscriptionProvider();
+        } catch (IOException exception) {
+            throw new StartupException("The factory cannot delete the old API key files in "
+                    + configuration.workDirectory().resolve(ApiKeyFiles.FOLDER_NAME) + ": " + exception.getMessage()
+                    + ". Delete the folder, and start the worker again.");
+        }
     }
 
     private static Provider createApiKeyProvider(FactoryConfiguration configuration, String apiKey)

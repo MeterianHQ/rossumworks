@@ -36,7 +36,7 @@ class BudgetTrackerTest {
     }
 
     @Test
-    void permitsNewPhasesBelowTheBudget() {
+    void permitsNewPhasesBelowTheBudget() throws Exception {
         BudgetTracker tracker = new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock);
 
         tracker.recordSession(7, reportWithCost("9.99"));
@@ -47,7 +47,7 @@ class BudgetTrackerTest {
     }
 
     @Test
-    void stopsNewPhasesUntilMidnightAtTheBudget() {
+    void stopsNewPhasesUntilMidnightAtTheBudget() throws Exception {
         BudgetTracker tracker = new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock);
 
         tracker.recordSession(7, reportWithCost("6"));
@@ -58,7 +58,7 @@ class BudgetTrackerTest {
     }
 
     @Test
-    void startsAgainAtZeroOnTheNextDay() {
+    void startsAgainAtZeroOnTheNextDay() throws Exception {
         BudgetTracker tracker = new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock);
         tracker.recordSession(7, reportWithCost("12"));
 
@@ -69,7 +69,7 @@ class BudgetTrackerTest {
     }
 
     @Test
-    void readsTheCostOfTodayAfterARestart() {
+    void readsTheCostOfTodayAfterARestart() throws Exception {
         new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock).recordSession(7, reportWithCost("10"));
 
         BudgetTracker restarted = new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock);
@@ -78,7 +78,7 @@ class BudgetTrackerTest {
     }
 
     @Test
-    void aSessionWithoutCostAddsNothing() {
+    void aSessionWithoutCostAddsNothing() throws Exception {
         BudgetTracker tracker = new BudgetTracker(new BigDecimal("10"), createCostEvents(), clock);
 
         tracker.recordSession(7, new SessionReport(false, "The stream has no result line.", Optional.empty(),

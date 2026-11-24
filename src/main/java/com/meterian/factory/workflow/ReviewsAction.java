@@ -33,7 +33,7 @@ final class ReviewsAction implements Action {
                 || !services.git().headCommit(worktree).equals(headCommit)) {
             return ActionResult.block(outcome.record(), "A review changed the files.");
         }
-        if (outcome.sessionStopped()) {
+        if (outcome.sessionStopped() || outcome.guardStoppedReview()) {
             return ActionResult.stay(outcome.record());
         }
         if (outcome.sessionFailed()) {

@@ -68,7 +68,7 @@ public final class BoardPage {
         }
         describeFactoryState(model.factoryState())
                 .ifPresent(notice -> html.append("<p class=\"notice\">").append(notice).append("</p>"));
-        model.usageResumesAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
+        model.phasesResumeAt().ifPresent(resumesAt -> html.append("<p class=\"notice\">")
                 .append(Html.escape("New phases start again at " + formatTime(resumesAt) + "."))
                 .append("</p>"));
     }

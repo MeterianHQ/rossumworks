@@ -129,6 +129,16 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    /** Approves the review, then runs the side effect, for example a change of the guard. */
+    public synchronized FakeAgentRunner thenApproveReviewAnd(Action sideEffect) {
+        then(request -> {
+            writeResult(request,
+                    "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request) + "\", \"findings\": []}");
+            sideEffect.perform(request);
+        });
+        return this;
+    }
+
     public synchronized FakeAgentRunner thenApproveReviewWithNote(String noteTitle, String noteDetail) {
         then(request -> writeResult(request, "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request)
                 + "\", \"findings\": [], \"notes\": [{\"title\": \"" + noteTitle + "\", \"detail\": \""

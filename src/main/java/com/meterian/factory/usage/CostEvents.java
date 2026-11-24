@@ -4,9 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meterian.factory.events.WorkerEvents;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,18 +39,28 @@ public final class CostEvents {
         events.writeCost(issueNumber, costUsd);
     }
 
-    /** A file that cannot be read gives a warning, and the cost starts at zero. */
-    public BigDecimal readCostOf(LocalDate day, ZoneId zone) {
-        if (!Files.isRegularFile(eventsFile)) {
+    /**
+     * Replaces the bytes that are not UTF-8, and ignores each line that is not a cost event. Thus one bad line
+     * does not hide the cost of the other lines.
+     *
+     * @throws IOException when the file cannot be read: then the cost of the day is not known
+     */
+    public BigDecimal readCostOf(LocalDate day, ZoneId zone) throws IOException {
+        if (!Files.exists(eventsFile)) {
             return BigDecimal.ZERO;
         }
-        try (Stream<String> lines = Files.lines(eventsFile, StandardCharsets.UTF_8)) {
+        try (BufferedReader reader = openReplacingBadBytes(); Stream<String> lines = reader.lines()) {
             return lines.map(line -> readCostOfLine(line, day, zone)).reduce(BigDecimal.ZERO, BigDecimal::add);
-        } catch (IOException | UncheckedIOException exception) {
-            LOGGER.log(System.Logger.Level.WARNING, "The file " + eventsFile
-                    + " cannot be read. The cost of today starts at zero: " + exception.getMessage());
-            return BigDecimal.ZERO;
+        } catch (UncheckedIOException exception) {
+            throw exception.getCause();
         }
+    }
+
+    private BufferedReader openReplacingBadBytes() throws IOException {
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(CodingErrorAction.REPLACE);
+        return new BufferedReader(new InputStreamReader(Files.newInputStream(eventsFile), decoder));
     }
 
     private BigDecimal readCostOfLine(String line, LocalDate day, ZoneId zone) {

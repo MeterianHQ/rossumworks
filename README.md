@@ -29,10 +29,16 @@ In API key mode:
 
 - At start, the worker writes `<work-directory>/credentials/api-key-helper.sh` and `api-key-settings.json`.
   Only you can read them. Each phase gets `--settings <path of api-key-settings.json>`, and `claude` gets
-  the key from the helper. The worker removes the key from the environment of each child process, so the commands of the agent, the
-  builds, and the git hooks do not get it.
+  the key from the helper. The worker removes the key from the environment of each child process, so the
+  commands of the agent, the builds, and the git hooks do not get it.
+- The settings file also has `Read` and `Edit` deny rules for the `credentials` folder. These rules stop the
+  file tools of the agent. They do not stop all the commands, for example a script that opens the file.
+- When you change the provider back to `subscription`, the worker deletes the `credentials` folder at start.
 - The worker adds up the cost of each session of today in `events.jsonl`. At the budget, no new phase starts
-  until midnight, in the time zone of the machine. A phase that runs continues to its end.
+  until midnight, in the time zone of the machine. A phase that runs continues to its end. The worker also
+  asks the budget before each review of a review round.
+- The worker ignores a line of `events.jsonl` that it cannot read. If it cannot read the file, it does not
+  start.
 - The budget does not include a session that ends without a result. Thus also set a spend limit on the key in
   the Anthropic Console.
 - The board shows "Cost today" in place of the usage windows.

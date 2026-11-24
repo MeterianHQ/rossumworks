@@ -116,20 +116,29 @@ public final class Main {
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
                        PhaseGuard guard, FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
 
-        static SharedState create(FactoryConfiguration configuration) {
+        static SharedState create(FactoryConfiguration configuration) throws StartupException {
             return create(configuration, new SubscriptionProvider());
         }
 
         /** The budget of API key mode uses the time zone of this machine for its midnight. */
-        static SharedState create(FactoryConfiguration configuration, Provider provider) {
+        static SharedState create(FactoryConfiguration configuration, Provider provider) throws StartupException {
             UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
-            WorkerEvents events = new WorkerEvents(EventsFile.inWorkFolder(configuration.workDirectory()),
-                    Clock.systemUTC());
-            CostEvents costEvents = new CostEvents(configuration.workDirectory().resolve(EventsFile.FILE_NAME), events);
+            EventsFile eventsFile = EventsFile.inWorkFolder(configuration.workDirectory());
+            WorkerEvents events = new WorkerEvents(eventsFile, Clock.systemUTC());
+            PhaseGuard guard = createGuard(provider, usage, new CostEvents(eventsFile.file(), events));
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
-                    new PageRequests(Clock.systemUTC()), usage,
-                    provider.createPhaseGuard(usage, costEvents, Clock.systemDefaultZone()),
+                    new PageRequests(Clock.systemUTC()), usage, guard,
                     new FactorySwitch(configuration.workDirectory()), new LostIssues(), events);
+        }
+
+        private static PhaseGuard createGuard(Provider provider, UsageTracker usage, CostEvents costEvents)
+                throws StartupException {
+            try {
+                return provider.createPhaseGuard(usage, costEvents, Clock.systemDefaultZone());
+            } catch (IOException exception) {
+                throw new StartupException("The worker cannot read the cost of today from " + EventsFile.FILE_NAME
+                        + ": " + exception.getMessage() + ". Make the file readable, and start the worker again.");
+            }
         }
     }
 
@@ -389,13 +398,14 @@ public final class Main {
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 createLogin(settings),
-                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(), shared.contexts(),
-                        new LiveContextReader(claudeHome), liveSessions, liveModeAvailable, shared.pageRequests(),
+                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(),
+                        shared.contexts(), new LiveContextReader(claudeHome), liveSessions, liveModeAvailable,
+                        shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
                         definitionWarning, usedSlots, runningWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, liveModeAvailable, shared.board(), shared.factorySwitch(),
-                        earlyPollRequest, definitions)));
+                new PageActions(labels, shared.pageRequests(), liveSessions, liveModeAvailable, shared.board(),
+                        shared.factorySwitch(), earlyPollRequest, definitions)));
     }
 
     /** Without a password hash, the page has no login. */

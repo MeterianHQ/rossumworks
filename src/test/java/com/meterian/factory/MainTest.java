@@ -11,6 +11,7 @@ import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.provider.ApiKeyProvider;
@@ -38,6 +39,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -532,6 +534,18 @@ class MainTest {
     }
 
     @Test
+    void anEventsFileThatCannotBeReadStopsTheStartInApiKeyMode() throws Exception {
+        FactoryConfiguration configuration = configuration(Optional.empty());
+        Files.createDirectories(configuration.workDirectory().resolve(EventsFile.FILE_NAME));
+        Provider provider = new ApiKeyProvider(temporaryDirectory.resolve("api-key-settings.json"),
+                new BigDecimal("20"));
+
+        assertThatThrownBy(() -> Main.SharedState.create(configuration, provider))
+                .isInstanceOf(Main.StartupException.class)
+                .hasMessageStartingWith("The worker cannot read the cost of today from events.jsonl");
+    }
+
+    @Test
     void describesTheWebAddress() {
         assertThat(Main.describeWebAddress(webSettings("127.0.0.1", 8090))).isEqualTo("http://127.0.0.1:8090/");
         assertThat(Main.describeWebAddress(webSettings("::1", 8090))).isEqualTo("http://[::1]:8090/");
@@ -569,7 +583,7 @@ class MainTest {
     }
 
     @Test
-    void makesNoWebServerWithoutAWebSection() {
+    void makesNoWebServerWithoutAWebSection() throws Exception {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
@@ -581,7 +595,7 @@ class MainTest {
     }
 
     @Test
-    void aPortInUseStopsTheStart() throws IOException {
+    void aPortInUseStopsTheStart() throws Exception {
         try (ServerSocket occupied = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));

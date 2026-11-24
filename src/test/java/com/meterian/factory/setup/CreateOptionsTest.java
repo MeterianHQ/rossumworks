@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CreateOptionsTest {
 
@@ -92,10 +94,11 @@ class CreateOptionsTest {
                 .hasMessageStartingWith("The provider must be subscription or anthropic-api-key.");
     }
 
-    @Test
-    void refusesABudgetThatIsNotMoreThanZero() {
-        assertThatThrownBy(() -> CreateOptions.parse(List.of("--daily-budget-usd", "0")))
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "0.001", "1e-400", "1000000.01", "1e400"})
+    void refusesABudgetOutsideTheRange(String budget) {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--daily-budget-usd", budget)))
                 .isInstanceOf(SetupException.class)
-                .hasMessageStartingWith("The daily budget must be a number more than 0.");
+                .hasMessageStartingWith("The daily budget must be a number from 0.01 to 1000000.");
     }
 }

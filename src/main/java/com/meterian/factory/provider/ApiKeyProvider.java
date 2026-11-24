@@ -8,6 +8,7 @@ import com.meterian.factory.usage.CostEvents;
 import com.meterian.factory.usage.DollarAmount;
 import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -71,7 +72,8 @@ public final class ApiKeyProvider implements Provider {
     }
 
     @Override
-    public PhaseGuard createPhaseGuard(UsageTracker usageTracker, CostEvents costEvents, Clock clock) {
+    public PhaseGuard createPhaseGuard(UsageTracker usageTracker, CostEvents costEvents, Clock clock)
+            throws IOException {
         return new BudgetTracker(dailyBudgetUsd, costEvents, clock);
     }
 }

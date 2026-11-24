@@ -944,6 +944,22 @@ class IssueWorkflowTest {
     }
 
     @Test
+    void startsNoMoreReviewsWhenTheGuardClosesInTheRound() throws Exception {
+        Instant now = Instant.now();
+        agent.thenChangeFile().thenApproveReviewAnd(request -> usage.record(List.of(
+                new UsageWindow("five_hour", 0.95, now.plus(Duration.ofHours(1)), "allowed", now))));
+        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
+        IssueWorkflow workflow = createWorkflow("true", definitions);
+        IssueRecord ready = advanceUntilState(workflow, queuedRecord(), "review");
+
+        IssueRecord record = workflow.advance(ready);
+
+        assertThat(agent.requests()).hasSize(2);
+        assertThat(record.state()).isEqualTo("review");
+        assertThat(record.reviews()).isEqualTo(Map.of("security", Verdict.APPROVE));
+    }
+
+    @Test
     void aFailedReviewActionBlocksWithoutTheVerdictsOfTheEarlierRound() throws Exception {
         agent.thenChangeFile().thenApproveReview().thenRejectReview("Bad style")
                 .thenChangeFile().then(request -> {

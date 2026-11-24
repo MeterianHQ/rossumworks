@@ -50,7 +50,8 @@ public final class PageActions {
      * @param definitions      the definition version of each record, for the block target of Start again
      */
     public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions,
-            boolean liveModeAvailable, BoardState board, FactorySwitch factorySwitch, Runnable earlyPollRequest, DefinitionLookup definitions) {
+            boolean liveModeAvailable, BoardState board, FactorySwitch factorySwitch, Runnable earlyPollRequest,
+            DefinitionLookup definitions) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
