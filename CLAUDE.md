@@ -23,6 +23,8 @@ and Markdown documents.
 - Write six sentences or less in a paragraph.
 - Do not use slang, idioms, or figures of speech.
 - Keep the articles "a" and "the".
+- Use the terms of `docs/glossary.md`. When a new term is necessary, add it to
+  the glossary first.
 
 Technical names do not change. Class names, module names, command names, and
 file names stay as they are.

@@ -454,7 +454,7 @@ public final class Worker {
         }
     }
 
-    /** The factory does not check who added a request label, so each request label counts. See the README. */
+    /** The factory does not check who added a request label, so each request label counts. */
     private Optional<IssueRecord> findStartableRecord(Issue issue) {
         int issueNumber = issue.number();
         if (isBlockInProgress(issueNumber) || isReleaseInProgress(issueNumber)) {
