@@ -28,6 +28,7 @@ import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
+import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
 import com.meterian.factory.setup.RunningJar;
 import com.meterian.factory.setup.SystemSetupConsole;
@@ -280,7 +281,8 @@ public final class Main {
         String workerLogin = gitHub.authenticatedLogin();
         SharedState shared = SharedState.create(configuration);
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
-        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
+                new SubscriptionProvider());
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();

@@ -21,6 +21,12 @@ public final class ClaudeCommand {
 
     /** The prompt is not an argument: the runner writes it to the standard input, after the tool lists. */
     public static List<String> arguments(ClaudeSettings settings, PhaseRequest request) {
+        return arguments(settings, request, List.of());
+    }
+
+    /** @param providerArguments the arguments of the provider; they come before the tool lists */
+    public static List<String> arguments(ClaudeSettings settings, PhaseRequest request,
+                                         List<String> providerArguments) {
         List<String> arguments = new ArrayList<>();
         arguments.add(settings.command());
         arguments.add("-p");
@@ -29,6 +35,7 @@ public final class ClaudeCommand {
         arguments.addAll(List.of("--output-format", "stream-json", "--verbose"));
         arguments.addAll(List.of("--permission-mode", "acceptEdits"));
         arguments.addAll(humanLanguageArguments());
+        arguments.addAll(providerArguments);
         arguments.add("--allowedTools");
         arguments.addAll(request.allowedTools());
         arguments.add("--disallowedTools");

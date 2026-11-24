@@ -2,6 +2,7 @@ package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.process.ProcessGroup;
+import com.meterian.factory.provider.Provider;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.BufferedReader;
@@ -24,26 +25,27 @@ public final class ClaudeAgentRunner implements AgentRunner {
     private static final System.Logger LOGGER = System.getLogger(ClaudeAgentRunner.class.getName());
     private static final String STOPPED_TEXT = "The action was stopped.";
     private static final String STOPPING_TEXT = "The factory is stopping.";
-    private static final String NO_API_KEY = "none";
     private static final String UNKNOWN_SOURCE_MESSAGE = "The session did not report its credential source.";
 
     private final ClaudeSettings settings;
     private final Clock clock;
+    private final Provider provider;
     private final Map<String, String> parentEnvironment;
     private final IntConsumer afterRegistration;
     private final Path claudeHome;
     private final Map<Integer, Run> runs = new ConcurrentHashMap<>();
     private volatile boolean refusesNewPhases;
 
-    public ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome) {
-        this(settings, clock, claudeHome, System.getenv(), issueNumber -> { });
+    public ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome, Provider provider) {
+        this(settings, clock, claudeHome, provider, System.getenv(), issueNumber -> { });
     }
 
-    ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome, Map<String, String> parentEnvironment,
-            IntConsumer afterRegistration) {
+    ClaudeAgentRunner(ClaudeSettings settings, Clock clock, Path claudeHome, Provider provider,
+            Map<String, String> parentEnvironment, IntConsumer afterRegistration) {
         this.claudeHome = claudeHome;
         this.settings = settings;
         this.clock = clock;
+        this.provider = provider;
         this.parentEnvironment = parentEnvironment;
         this.afterRegistration = afterRegistration;
     }
@@ -88,7 +90,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
 
     private Process startProcess(PhaseRequest request) throws AgentException {
         List<String> command = new ArrayList<>(List.of("setsid", "--wait"));
-        command.addAll(ClaudeCommand.arguments(settings, request));
+        command.addAll(ClaudeCommand.arguments(settings, request, provider.phaseArguments()));
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(request.workingDirectory().toFile());
         builder.environment().clear();
@@ -123,7 +125,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
             String line;
             while ((line = reader.readLine()) != null) {
                 parser.accept(line);
-                verifyNoApiKey(parser, run);
+                verifyCredential(parser, run);
             }
             return buildReport(run, parser);
         } catch (IOException exception) {
@@ -137,11 +139,16 @@ public final class ClaudeAgentRunner implements AgentRunner {
         }
     }
 
-    private void verifyNoApiKey(StreamEventParser parser, Run run) throws CredentialMismatchException {
+    private void verifyCredential(StreamEventParser parser, Run run) throws CredentialMismatchException {
         Optional<String> source = parser.apiKeySource();
-        if (source.isPresent() && !NO_API_KEY.equals(source.get())) {
+        if (source.isEmpty()) {
+            return;
+        }
+        try {
+            provider.verifyCredentialSource(source.get());
+        } catch (CredentialMismatchException exception) {
             run.end();
-            throw new CredentialMismatchException("The session uses the credential source: " + source.get());
+            throw exception;
         }
     }
 
@@ -152,6 +159,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
         if (report.success() && report.apiKeySource().isEmpty()) {
             throw new CredentialMismatchException(UNKNOWN_SOURCE_MESSAGE);
         }
+        provider.verifyFinishedSession(report);
         if (run.isStopRequested() || (report.success() && exitCode != 0)) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),
                     report.contextUsage(), report.usageWindows(), run.isStopRequested(), report.costUsd());
