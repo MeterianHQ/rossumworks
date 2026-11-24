@@ -24,9 +24,10 @@ the facts of this machine:
   holds a slot already, for example an approved card, continues when a running action or a live session does not
   use its slot. So the worker does not stop when the board has more cards than slots, for example after you make
   `parallel-issues` smaller. After a failed GitHub check of a card that the worker owns, the poll takes no new
-  card. An enter on a blocked card and a takeover of a wait also need a free slot (see "Continuation" and the
-  live session). The poll decides them after it checks all the other cards. An issue that left the queue gets a slot before a queued issue, also after a restart of the worker. A
-  Stop waits for the running actions and the live sessions, but not for a card that waits for you.
+  card. An enter on a blocked card and a takeover of a wait also need a free slot (see "Enter" and
+  "Continuation"). The poll decides them after it checks all the other cards. An issue that left the queue gets
+  a slot before a queued issue, also after a restart of the worker. A Stop waits for the running actions and the
+  live sessions, but not for a card that waits for you.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `isolation`, `claude`, `live`, and `web`.
 
@@ -318,8 +319,9 @@ state with the action `finish`) gets no stop.
   to the `start` state: the factory makes the worktree from the branch, builds, and reviews again. Then it asks
   for the approval a second time. Without the branch, the issue starts from the beginning.
 - A wait keeps the card on the board, so it holds a slot of `parallel-issues`. When no slot is free, the
-  takeover waits, and the poll tries again later. A takeover into the `start` state or into the `block` target
-  needs no slot.
+  takeover waits, and the poll tries again later. The board shows the card with the note "The work of the earlier
+  owner waits for a free slot of parallel-issues." GitHub gets no record of the new owner before the takeover. A
+  takeover into the `start` state or into the `block` target needs no slot.
 - A wait in a state with the action `conversation`, for an answer to a question or for the end of a live
   conversation, does not pass on. The new owner continues the work and writes a note: the question stays on the
   machine of the earlier owner.

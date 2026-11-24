@@ -1460,7 +1460,10 @@ class WorkerTest {
         assertThat(worker.countRunningWork()).isZero();
     }
 
-    /** The other issue waits for the approval of the merge, at rest, so it holds a slot. */
+    /**
+     * The other issue waits for the approval of the merge, at rest, so it holds a slot. Its number is higher than
+     * the number of ISSUE, so the poll checks it after ISSUE. The tests of a new slot then also test the order.
+     */
     private void writeAWaitForTheApprovalOnTheOtherIssue() {
         addLabeledIssue(OTHER_ISSUE);
         createWorker(new FakeAgentRunner(), 0).pollOnce();
@@ -1509,6 +1512,20 @@ class WorkerTest {
     }
 
     @Test
+    void anEnterOnABlockedCardWaitsWhenTheCheckOfAnotherCardFails() throws InterruptedException {
+        blockTheIssueAfterItsWork();
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        gitHub.failTheCommentsOf(OTHER_ISSUE);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(gitHub.labelsOf(ISSUE)).contains(ENTER_LABEL);
+    }
+
+    @Test
     void anEnterOnAQueuedCardNeedsNoSlot() {
         writeAWaitForTheApprovalOnTheOtherIssue();
         gitHub.addLabel(ISSUE, ENTER_LABEL);
@@ -1545,6 +1562,8 @@ class WorkerTest {
 
         assertThat(readRecord(ISSUE)).isEmpty();
         assertThat(worker.countUsedSlots()).isEqualTo(1);
+        assertThat(findCard(board, ISSUE).orElseThrow().record().newestNote())
+                .contains("The work of the earlier owner waits for a free slot of parallel-issues.");
     }
 
     @Test

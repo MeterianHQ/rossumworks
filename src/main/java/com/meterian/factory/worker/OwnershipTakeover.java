@@ -41,8 +41,8 @@ final class OwnershipTakeover {
     }
 
     /**
-     * Writes the first record of the new owner. The caller can look at the record before it calls
-     * {@link #publish(Issue, IssueRecord)}, for example to find if the record holds a slot.
+     * Makes the first record of the new owner, but does not write it. The caller can look at the record, for
+     * example to find if it holds a slot, and then writes it with {@link #publish(Issue, IssueRecord)}.
      *
      * @param queued a new record in the start state of the current definition version
      */
@@ -59,10 +59,6 @@ final class OwnershipTakeover {
     /** The new status comment is the newest one of the worker, so the next poll does not take over again. */
     IssueRecord publish(Issue issue, IssueRecord prepared) {
         return statusPublisher.publishInNewComment(issue, prepared);
-    }
-
-    IssueRecord takeOver(Issue issue, IssueRecord queued, Optional<IssueRecord> earlierRecord) {
-        return publish(issue, prepare(issue, queued, earlierRecord));
     }
 
     /**

@@ -237,10 +237,14 @@ class OwnershipTakeoverTest {
     }
 
     private IssueRecord takeOverFrom(IssueRecord earlierRecord) {
-        return takeover.takeOver(issue, RecordStates.queued(ISSUE_NUMBER), Optional.of(earlierRecord));
+        return takeOver(Optional.of(earlierRecord));
     }
 
     private IssueRecord takeOverWithoutEarlierRecord() {
-        return takeover.takeOver(issue, RecordStates.queued(ISSUE_NUMBER), Optional.empty());
+        return takeOver(Optional.empty());
+    }
+
+    private IssueRecord takeOver(Optional<IssueRecord> earlierRecord) {
+        return takeover.publish(issue, takeover.prepare(issue, RecordStates.queued(ISSUE_NUMBER), earlierRecord));
     }
 }
