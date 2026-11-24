@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.meterian.factory.agent.ShellQuoting;
 import com.meterian.factory.file.AtomicFileWriter;
+import com.meterian.factory.file.PrivateFolderRule;
+import com.meterian.factory.file.PrivateFolderRule.ProcessIdentity;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -11,9 +13,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
-import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.nio.file.attribute.UserPrincipal;
 import java.util.List;
 
 /** Writes the apiKeyHelper script and its settings file in a folder that only the owner can read. */
@@ -53,16 +53,11 @@ public final class ApiKeyFiles {
     }
 
     private static void verifyWorkFolderIsPrivate(Path workDirectory) throws IOException {
-        if (isWritableByGroupOrOthers(workDirectory)) {
+        if (!PrivateFolderRule.isPrivate(workDirectory)) {
             throw new IOException("The work folder " + workDirectory + " is writable by other users."
-                    + " Remove the write permission of the group and the other users.");
+                    + " Remove the write permission of the other users, and of the group if it is not your"
+                    + " private group.");
         }
-    }
-
-    private static boolean isWritableByGroupOrOthers(Path folder) throws IOException {
-        return Files.getPosixFilePermissions(folder, LinkOption.NOFOLLOW_LINKS).stream()
-                .anyMatch(permission -> permission == PosixFilePermission.GROUP_WRITE
-                        || permission == PosixFilePermission.OTHERS_WRITE);
     }
 
     private static Path preparePrivateFolder(Path folder) throws IOException {
@@ -85,18 +80,9 @@ public final class ApiKeyFiles {
         if (!attributes.isDirectory()) {
             throw new IOException("The path " + folder + " is not a folder. Remove it.");
         }
-        if (!attributes.owner().equals(findOwnerOfTheUser())) {
+        int ownerId = (Integer) Files.getAttribute(folder, "unix:uid", LinkOption.NOFOLLOW_LINKS);
+        if (ownerId != ProcessIdentity.current().userId()) {
             throw new IOException("The folder " + folder + " does not belong to the current user.");
-        }
-    }
-
-    /** The owner of a file that the process creates is the user of the process. */
-    private static UserPrincipal findOwnerOfTheUser() throws IOException {
-        Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
-        try {
-            return Files.getOwner(probe);
-        } finally {
-            Files.deleteIfExists(probe);
         }
     }
 

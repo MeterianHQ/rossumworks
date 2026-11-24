@@ -2,12 +2,16 @@ package com.meterian.factory.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.meterian.factory.file.PrivateFolderRule;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -83,13 +87,13 @@ class ApiKeyFilesTest {
     }
 
     @Test
-    void refusesAWorkFolderThatTheGroupCanWrite() throws Exception {
-        Files.setPosixFilePermissions(workDirectory, PosixFilePermissions.fromString("rwxrwx---"));
+    void acceptsAWorkFolderThatOnlyThePrivateGroupOfTheUserCanWrite() throws Exception {
+        assumeTrue(hasPrivateGroup(workDirectory), "The temporary folder must have the private group of the user");
+        Files.setPosixFilePermissions(workDirectory, PosixFilePermissions.fromString("rwxrwxr-x"));
 
-        assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
-                .isInstanceOf(IOException.class)
-                .hasMessageContaining("is writable by other users")
-                .hasMessageNotContaining(KEY);
+        Path settings = ApiKeyFiles.write(workDirectory, KEY);
+
+        assertThat(settings).exists();
     }
 
     @Test
@@ -99,6 +103,13 @@ class ApiKeyFilesTest {
         assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("is writable by other users");
+    }
+
+    private static boolean hasPrivateGroup(Path folder) throws IOException {
+        PrivateFolderRule.ProcessIdentity identity = PrivateFolderRule.ProcessIdentity.current();
+        return identity.groupId() == (Integer) Files.getAttribute(folder, "unix:gid", LinkOption.NOFOLLOW_LINKS)
+                && identity.userName().equals(Files.readAttributes(folder, PosixFileAttributes.class,
+                        LinkOption.NOFOLLOW_LINKS).group().getName());
     }
 
     private static String permissionsOf(Path path) throws IOException {
