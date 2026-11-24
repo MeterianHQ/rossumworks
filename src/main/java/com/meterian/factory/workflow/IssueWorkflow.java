@@ -24,7 +24,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.usage.ContextTracker;
-import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.usage.PhaseGuard;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,13 +71,14 @@ public final class IssueWorkflow {
     /**
      * @param definitions     the definition version of each record
      * @param mergeRetryDelay the wait between two attempts of a squash merge
+     * @param guard           the guard that tells when a new phase may start
      * @param ownershipGuard  the check that this factory still owns the issue before a change on GitHub
      * @param lostIssues      the issues that another account owns now
      * @param events          the lines of the file events.jsonl, for a monitoring agent
      */
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          DefinitionLookup definitions,
-                         BuildRunner buildRunner, Duration mergeRetryDelay, UsageTracker usage,
+                         BuildRunner buildRunner, Duration mergeRetryDelay, PhaseGuard guard,
                          WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
                          PageRequests pageRequests, RetrySettings retrySettings, OwnershipGuard ownershipGuard,
@@ -92,7 +93,7 @@ public final class IssueWorkflow {
         this.ownerApproval = new OwnerApproval(gitHub);
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board, lostIssues);
         this.issueTextCheck = new IssueTextCheck(ownerApproval);
-        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, usage, contexts, events);
+        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, guard, contexts, events);
         this.liveMode = new LiveMode(git, gitHub, liveSessions, pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);

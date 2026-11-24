@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.agent.UsageWindow;
 import com.meterian.factory.testing.MutableClock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -18,6 +20,17 @@ class UsageTrackerTest {
 
     private final MutableClock clock = new MutableClock(NOW);
     private final UsageTracker tracker = new UsageTracker(0.90, clock);
+
+    @Test
+    void recordsTheUsageWindowsOfASession() {
+        UsageWindow full = new UsageWindow("five_hour", 0.95, NOW.plus(Duration.ofHours(1)), "allowed", NOW);
+
+        tracker.recordSession(7, new SessionReport(true, "ok", Optional.of("none"), Optional.empty(), List.of(full)));
+
+        assertEquals(Optional.of(NOW.plus(Duration.ofHours(1))), tracker.resumesAt());
+        assertEquals("usage limit", tracker.waitReason());
+        assertEquals(Optional.empty(), tracker.findBudgetStatus());
+    }
 
     @Test
     void allowsAPhaseWithNoData() {

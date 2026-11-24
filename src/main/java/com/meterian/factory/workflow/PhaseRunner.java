@@ -7,26 +7,24 @@ import com.meterian.factory.agent.PhaseRequest;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.usage.ContextTracker;
-import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.usage.PhaseGuard;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Runs one agent phase and records the usage windows of its report, and the context of the agent in charge. */
+/** Runs one agent phase and records it in the guard, and the context of the agent in charge. */
 final class PhaseRunner {
 
-    private static final String USAGE_WAIT_REASON = "usage limit";
-
     private final AgentRunner agentRunner;
-    private final UsageTracker usage;
+    private final PhaseGuard guard;
     private final ContextTracker contexts;
     private final WorkerEvents events;
 
-    PhaseRunner(AgentRunner agentRunner, UsageTracker usage, ContextTracker contexts, WorkerEvents events) {
+    PhaseRunner(AgentRunner agentRunner, PhaseGuard guard, ContextTracker contexts, WorkerEvents events) {
         this.agentRunner = agentRunner;
-        this.usage = usage;
+        this.guard = guard;
         this.contexts = contexts;
         this.events = events;
     }
@@ -49,16 +47,16 @@ final class PhaseRunner {
         return agentRunner.hasSavedSession(sessionId, worktree);
     }
 
-    /** A phase that may not start reports the wait for the usage limit. */
+    /** A phase that may not start reports the wait of the guard. */
     boolean mayStartPhase() {
-        Optional<Instant> resumeTime = usage.resumesAt();
-        resumeTime.ifPresent(until -> events.writeWait(USAGE_WAIT_REASON, until));
+        Optional<Instant> resumeTime = guard.resumesAt();
+        resumeTime.ifPresent(until -> events.writeWait(guard.waitReason(), until));
         return resumeTime.isEmpty();
     }
 
     private SessionReport runAndRecordUsage(PhaseRequest request) throws AgentException, CredentialMismatchException {
         SessionReport report = agentRunner.runPhase(request);
-        usage.record(report.usageWindows());
+        guard.recordSession(request.issueNumber(), report);
         return report;
     }
 }
