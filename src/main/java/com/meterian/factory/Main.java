@@ -312,8 +312,9 @@ public final class Main {
                 workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
                 shared.lostIssues(), shared.events());
         Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, provider.hasLiveMode(),
-                createLabelWriter(gitHub), definitions, definitions::warning,
-                worker::countUsedSlots, worker::requestEarlyPoll, claudeHome);
+                createLabelWriter(gitHub),
+                definitions, definitions::warning,
+                worker::countUsedSlots, worker::countRunningWork, worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
             shared.board().recordRequestChange();
@@ -383,14 +384,15 @@ public final class Main {
                                                LiveSessions liveSessions, boolean liveModeAvailable,
                                                LabelWriter labels, DefinitionLookup definitions,
                                                Supplier<Optional<String>> definitionWarning,
-                                               IntSupplier issuesInWork, Runnable earlyPollRequest,
+                                               IntSupplier usedSlots, IntSupplier runningWork,
+                                               Runnable earlyPollRequest,
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 createLogin(settings),
                 new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(), shared.contexts(),
                         new LiveContextReader(claudeHome), liveSessions, liveModeAvailable, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
-                        definitionWarning, issuesInWork, Clock.systemUTC()),
+                        definitionWarning, usedSlots, runningWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
                 new PageActions(labels, shared.pageRequests(), liveSessions, liveModeAvailable, shared.board(), shared.factorySwitch(),
                         earlyPollRequest, definitions)));

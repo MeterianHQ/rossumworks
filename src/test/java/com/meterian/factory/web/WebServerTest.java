@@ -128,7 +128,7 @@ class WebServerTest {
         return new PageModelSource(board, factorySwitch, usage, usage, new ContextTracker(),
                 new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, true, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration,
-                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
+                DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, () -> 1, clock);
     }
 
     private static IssueRecord afterTheImplementation() {

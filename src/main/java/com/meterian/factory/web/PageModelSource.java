@@ -46,7 +46,8 @@ public final class PageModelSource {
     private final DefinitionLookup definitions;
     private final IssueDefinitionFacts facts;
     private final Supplier<Optional<String>> definitionWarning;
-    private final IntSupplier issuesInWork;
+    private final IntSupplier usedSlots;
+    private final IntSupplier runningWork;
     private final Clock clock;
 
     public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, PhaseGuard guard,
@@ -54,7 +55,8 @@ public final class PageModelSource {
             LiveContextReader liveContexts, LiveSessions liveSessions, boolean liveModeAvailable,
             PageRequests pageRequests,
             WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
-            Supplier<Optional<String>> definitionWarning, IntSupplier issuesInWork, Clock clock) {
+            Supplier<Optional<String>> definitionWarning, IntSupplier usedSlots, IntSupplier runningWork,
+            Clock clock) {
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.usage = usage;
@@ -69,7 +71,8 @@ public final class PageModelSource {
         this.definitions = definitions;
         this.facts = new IssueDefinitionFacts(definitions);
         this.definitionWarning = definitionWarning;
-        this.issuesInWork = issuesInWork;
+        this.usedSlots = usedSlots;
+        this.runningWork = runningWork;
         this.clock = clock;
     }
 
@@ -80,14 +83,13 @@ public final class PageModelSource {
      */
     public PageModel read(boolean viewerOnThisMachine) {
         BoardSnapshot snapshot = board.snapshot();
-        int issuesInWorkNow = issuesInWork.getAsInt();
-        return new PageModel(snapshot, clock.instant(), issuesInWorkNow,
+        return new PageModel(snapshot, clock.instant(), usedSlots.getAsInt(),
                 configuration.limits().parallelIssues(), readLimits(snapshot), readReviewNames(snapshot),
                 readIssuesInBlockTarget(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
                 readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
-                liveModeAvailable, definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow),
+                liveModeAvailable, definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), runningWork.getAsInt()),
                 readColumns());
     }
 

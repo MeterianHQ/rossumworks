@@ -56,6 +56,8 @@ class PageModelSourceTest {
     private final PageRequests pageRequests = new PageRequests(clock);
     private DefinitionLookup definitions = DefinitionLookup.builtInOnly(DefinitionCommits.builtInWithImplementLimit(4));
     private Optional<String> definitionWarning = Optional.empty();
+    private int usedSlots = 1;
+    private int runningWork = 1;
 
     @Test
     void readsTheStateOfTheFactory() {
@@ -65,6 +67,19 @@ class PageModelSourceTest {
         factorySwitch.requestStop();
 
         assertThat(source.read(true).factoryState()).isEqualTo(FactoryState.STOPPING);
+    }
+
+    @Test
+    void aStopDoesNotWaitForACardThatWaitsForYou() {
+        usedSlots = 1;
+        runningWork = 0;
+        PageModelSource source = source();
+
+        factorySwitch.requestStop();
+
+        PageModel model = source.read(true);
+        assertThat(model.factoryState()).isEqualTo(FactoryState.STOPPED);
+        assertThat(model.issuesInWork()).isEqualTo(1);
     }
 
     @Test
@@ -85,7 +100,7 @@ class PageModelSourceTest {
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         return new PageModelSource(board, factorySwitch, usage, usage, contexts, new LiveContextReader(claudeHome()), liveSessions, true,
                 pageRequests, new WorkspaceLayout(workDirectory), configuration, definitions, () -> definitionWarning,
-                () -> 1, clock);
+                () -> usedSlots, () -> runningWork, clock);
     }
 
     private Path claudeHome() {

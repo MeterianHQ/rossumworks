@@ -50,9 +50,16 @@ the facts of this machine:
 - `work-directory`: the folder of the worker. The worker clones the repository into `<work-directory>/repository`
   at the start, when this folder does not exist. A clone that exists stays as it is.
 - `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
-- `limits`: `parallel-issues`, `poll-interval`, `usage-threshold`, and `daily-budget-usd`. An open live session counts against
-  `parallel-issues`, as an issue in work. An issue that left the queue gets a slot before a queued issue, also
-  after a restart of the worker.
+- `limits`: `parallel-issues`, `poll-interval`, `usage-threshold`, and `daily-budget-usd`. Each card on the board holds a slot of
+  `parallel-issues`, also a card that waits for you. A card in `queued`, a done card, and a blocked card hold no
+  slot. The worker takes a card from `queued`, or continues a blocked card, only when a slot is free. A card that
+  holds a slot already, for example an approved card, continues when a running action or a live session does not
+  use its slot. So the worker does not stop when the board has more cards than slots, for example after you make
+  `parallel-issues` smaller. After a failed GitHub check of a card that the worker owns, the poll takes no new
+  card. An enter on a blocked card and a takeover of a wait also need a free slot (see "Enter" and
+  "Continuation"). The poll decides them after it checks all the other cards. An issue that left the queue gets
+  a slot before a queued issue, also after a restart of the worker. A Stop waits for the running actions and the
+  live sessions, but not for a card that waits for you.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
 - `claude.provider`: `subscription` (the default) or `anthropic-api-key`. See "Provider".
 - `isolation`, `claude`, `live`, and `web`.
@@ -345,6 +352,10 @@ state with the action `finish`) gets no stop.
   same event of the `merge-gate` state goes, for example `waits-for-approval`. After the approval, the issue goes
   to the `start` state: the factory makes the worktree from the branch, builds, and reviews again. Then it asks
   for the approval a second time. Without the branch, the issue starts from the beginning.
+- A wait keeps the card on the board, so it holds a slot of `parallel-issues`. When no slot is free, the
+  takeover waits, and the poll tries again later. The board shows the card with the note "The work of the earlier
+  owner waits for a free slot of parallel-issues." GitHub gets no record of the new owner before the takeover. A
+  takeover into the `start` state or into the `block` target needs no slot.
 - A wait in a state with the action `conversation`, for an answer to a question or for the end of a live
   conversation, does not pass on. The new owner continues the work and writes a note: the question stays on the
   machine of the earlier owner.
@@ -413,9 +424,12 @@ into the environment of your tmux server. To see a session, run
 `tmux -L rossumworks attach -t factory-issue-<n>`. The factory turns on the mouse of each session, so
 the mouse wheel scrolls the history. Hold Shift to select text for the clipboard.
 
-An open live session holds its slot of `parallel-issues`. Thus the factory takes no new issue while you talk to
-the agent. A question of the agent also opens a live session, so an open question holds a slot until you answer
-it. After `/factory:continue`, the issue gets its slot again before any other issue.
+An open live session holds its slot of `parallel-issues`, as each card that waits for you. Thus the factory takes
+no new issue while you talk to the agent. A question of the agent also opens a live session, so an open question
+holds a slot until you answer it. After `/factory:continue`, the issue gets its slot again before any other issue.
+A blocked card holds no slot, so `factory:enter` on a blocked card waits for a free slot. The label stays, and the
+worker opens the session at a later poll. A queued card has no agent session yet, so its enter opens no session and
+needs no slot.
 
 The link of the conversation appears in a comment of the issue. The status comment also shows the line
 `Live conversation: <link>`. While the live session is open, the worker starts no other action for the issue.
