@@ -93,7 +93,9 @@ In API key mode, the sessions get the key from an `apiKeyHelper` script:
 - Each phase gets the arguments `--settings <path of api-key-settings.json>`, before the tool lists.
 - `claude` runs the helper, and it uses the output as the key.
 
-Thus the Bash tool of the agent, the hooks, and the builds do not get the key in their environment.
+The worker process has the key in its environment. The worker removes it from each child process: `claude`,
+the builds, git (and so the git hooks), tmux, and the other commands. Thus the Bash tool of the agent, the hooks,
+and the builds do not get the key.
 `BuildRunner` does not use the `Provider`. `UsageProbe` runs only in subscription mode.
 
 The agent runs as the owner, so it can read the helper file. This is the same risk as the claude login in

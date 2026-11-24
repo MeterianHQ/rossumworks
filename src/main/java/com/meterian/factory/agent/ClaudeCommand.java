@@ -1,6 +1,7 @@
 package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.process.ChildEnvironment;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,7 +10,6 @@ import java.util.Set;
 
 public final class ClaudeCommand {
 
-    private static final List<String> REMOVED_PREFIXES = List.of("ANTHROPIC_", "CLAUDE_CODE_USE_");
     private static final Set<String> REMOVED_NAMES = Set.of("GH_TOKEN", "GITHUB_TOKEN", "FACTORY_GITHUB_TOKEN");
 
     /** The rule for each text that an agent writes to a human: a question, a description, or a conversation. */
@@ -55,6 +55,6 @@ public final class ClaudeCommand {
     }
 
     private static boolean isRemoved(String name) {
-        return REMOVED_NAMES.contains(name) || REMOVED_PREFIXES.stream().anyMatch(name::startsWith);
+        return REMOVED_NAMES.contains(name) || ChildEnvironment.hasCredentialPrefix(name);
     }
 }

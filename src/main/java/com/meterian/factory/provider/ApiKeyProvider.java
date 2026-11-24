@@ -15,7 +15,8 @@ import java.util.List;
 
 /**
  * The sessions get an Anthropic API key from the apiKeyHelper of a settings file. A daily budget limits the cost.
- * The key is never in an environment, so the commands of the agent do not get it.
+ * The worker removes the key from the environment of each child process, so the commands of the agent,
+ * the builds, and the git hooks do not get it.
  */
 public final class ApiKeyProvider implements Provider {
 

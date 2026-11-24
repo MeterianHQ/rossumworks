@@ -2,6 +2,7 @@ package com.meterian.factory;
 
 import com.meterian.factory.Main.StartupException;
 import com.meterian.factory.configuration.ProviderName;
+import com.meterian.factory.process.ChildEnvironment;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -96,10 +97,11 @@ public final class StartChecks {
         Path outputFile = null;
         try {
             outputFile = Files.createTempFile("factory-token", ".out");
-            Process process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .redirectOutput(outputFile.toFile())
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
+                    .redirectError(ProcessBuilder.Redirect.DISCARD);
+            ChildEnvironment.removeAnthropicCredentials(builder.environment());
+            Process process = builder.start();
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
                 throw new StartupException("The command " + String.join(" ", command) + " did not answer in "

@@ -1,6 +1,7 @@
 package com.meterian.factory.setup;
 
 import com.meterian.factory.configuration.RepositoryName;
+import com.meterian.factory.process.ChildEnvironment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -19,10 +20,11 @@ final class OriginRemote {
     /** A folder that is not a git folder, or a remote that is not on GitHub, gives no repository. */
     static Optional<RepositoryName> readRepository(Path folder) {
         try {
-            Process process = new ProcessBuilder("git", "remote", "get-url", "origin")
+            ProcessBuilder builder = new ProcessBuilder("git", "remote", "get-url", "origin")
                     .directory(folder.toFile())
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
+                    .redirectError(ProcessBuilder.Redirect.DISCARD);
+            ChildEnvironment.removeAnthropicCredentials(builder.environment());
+            Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!process.waitFor(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();

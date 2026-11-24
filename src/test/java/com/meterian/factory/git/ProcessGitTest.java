@@ -198,6 +198,21 @@ class ProcessGitTest {
     }
 
     @Test
+    void doesNotGiveTheAnthropicKeyToAGitHook() throws IOException {
+        Path hook = clone.resolve(".git").resolve("hooks").resolve("pre-commit");
+        Path hookEnvironment = temporaryDirectory.resolve("hook-environment.txt");
+        Files.writeString(hook, "#!/bin/sh\nenv > '" + hookEnvironment + "'\n");
+        assertThat(hook.toFile().setExecutable(true)).isTrue();
+        Git keyedGit = new ProcessGit(Map.of("ANTHROPIC_API_KEY", "secret-key", "GH_TOKEN", "token"));
+        Files.writeString(clone.resolve("b.txt"), "new\n");
+
+        keyedGit.commitAll(clone, "Add b");
+
+        assertThat(Files.readAllLines(hookEnvironment)).noneMatch(line -> line.startsWith("ANTHROPIC_"))
+                .contains("GH_TOKEN=token");
+    }
+
+    @Test
     void removesTheInheritedVariablesThatRedirectGitOrAskForACredential() {
         Path otherRepository = createBare(temporaryDirectory.resolve("other.git"));
         ProcessGit hostileGit = new ProcessGit(Map.of(
