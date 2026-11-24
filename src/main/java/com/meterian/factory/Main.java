@@ -311,8 +311,8 @@ public final class Main {
         Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, shared.pageRequests(),
                 workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
                 shared.lostIssues(), shared.events());
-        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
-                definitions, definitions::warning,
+        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, provider.hasLiveMode(),
+                createLabelWriter(gitHub), definitions, definitions::warning,
                 worker::countUsedSlots, worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
         ContinueMarkerWatcher continueMarkerWatcher = new ContinueMarkerWatcher(configuration.liveDirectory(), () -> {
@@ -375,23 +375,24 @@ public final class Main {
      * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
      * client.
      *
+     * @param liveModeAvailable false when the provider has no live mode: the page then hides the live buttons
      * @param definitions       the definition version of each record, for the limits and the block target of its card
      * @param definitionWarning the reason why the definition of the default branch does not load
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
-                                               LiveSessions liveSessions, LabelWriter labels,
-                                               DefinitionLookup definitions,
+                                               LiveSessions liveSessions, boolean liveModeAvailable,
+                                               LabelWriter labels, DefinitionLookup definitions,
                                                Supplier<Optional<String>> definitionWarning,
                                                IntSupplier issuesInWork, Runnable earlyPollRequest,
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 createLogin(settings),
                 new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(), shared.contexts(),
-                        new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
+                        new LiveContextReader(claudeHome), liveSessions, liveModeAvailable, shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
                         definitionWarning, issuesInWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(), shared.factorySwitch(),
+                new PageActions(labels, shared.pageRequests(), liveSessions, liveModeAvailable, shared.board(), shared.factorySwitch(),
                         earlyPollRequest, definitions)));
     }
 

@@ -39,6 +39,7 @@ public final class PageModelSource {
     private final ContextTracker contexts;
     private final LiveContextReader liveContexts;
     private final LiveSessions liveSessions;
+    private final boolean liveModeAvailable;
     private final PageRequests pageRequests;
     private final WorkspaceLayout layout;
     private final FactoryConfiguration configuration;
@@ -50,7 +51,8 @@ public final class PageModelSource {
 
     public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, PhaseGuard guard,
             ContextTracker contexts,
-            LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
+            LiveContextReader liveContexts, LiveSessions liveSessions, boolean liveModeAvailable,
+            PageRequests pageRequests,
             WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
             Supplier<Optional<String>> definitionWarning, IntSupplier issuesInWork, Clock clock) {
         this.board = board;
@@ -60,6 +62,7 @@ public final class PageModelSource {
         this.contexts = contexts;
         this.liveContexts = liveContexts;
         this.liveSessions = liveSessions;
+        this.liveModeAvailable = liveModeAvailable;
         this.pageRequests = pageRequests;
         this.layout = layout;
         this.configuration = configuration;
@@ -84,7 +87,7 @@ public final class PageModelSource {
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
                 guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
                 readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
-                definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow),
+                liveModeAvailable, definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), issuesInWorkNow),
                 readColumns());
     }
 

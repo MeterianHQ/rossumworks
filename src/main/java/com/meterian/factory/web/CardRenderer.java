@@ -277,7 +277,7 @@ final class CardRenderer {
     private static boolean isPossible(PageAction action, IssueCard card, PageModel model) {
         return action.isPossible(card, model.continueRequested().contains(card.issueNumber()),
                 model.findRememberedLabels(card.issueNumber()), model.viewerOnThisMachine(),
-                model.isInBlockTarget(card.issueNumber()));
+                model.liveModeAvailable(), model.isInBlockTarget(card.issueNumber()));
     }
 
     /** A button of a place has a tooltip. Its accessible name has the name of the button and the tooltip. */

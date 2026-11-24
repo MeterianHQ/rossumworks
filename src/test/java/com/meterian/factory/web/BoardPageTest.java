@@ -141,7 +141,7 @@ class BoardPageTest {
                 .map(IssueCard::issueNumber).collect(Collectors.toSet());
         return new PageModel(snapshot, NOW, 2, 2, limits, reviewNames, inBlockTarget, IsolationMode.SAME_USER, POLL_INTERVAL,
                 usageWindows, usageResumesAt, Optional.empty(), contexts, continueRequested, rememberedLabels, enterPlaces,
-                "MeterianHQ/target", viewerOnThisMachine, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
+                "MeterianHQ/target", viewerOnThisMachine, true, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
     }
 
     private static PageModel withBudget(PageModel model, BudgetStatus budget) {
@@ -149,7 +149,7 @@ class BoardPageTest {
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
                 model.usageWindows(), model.usageResumesAt(), Optional.of(budget), model.contexts(),
                 model.continueRequested(), model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
-                model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
+                model.viewerOnThisMachine(), model.liveModeAvailable(), model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     @Test
@@ -167,7 +167,7 @@ class BoardPageTest {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
                 model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), model.liveModeAvailable(),
                 model.definitionWarning(), model.factoryState(), columns);
     }
 
@@ -178,14 +178,14 @@ class BoardPageTest {
                 model.limits(), namesByIssue, model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
                 model.usageWindows(), model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(),
                 model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
-                model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
+                model.viewerOnThisMachine(), model.liveModeAvailable(), model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     private static PageModel withFactoryState(PageModel model, FactoryState factoryState) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
                 model.usageResumesAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), model.liveModeAvailable(),
                 model.definitionWarning(), factoryState, model.columns());
     }
 
@@ -287,6 +287,34 @@ class BoardPageTest {
                 "/approve", "/block");
         assertThat(html).doesNotContain("/enter-phone").doesNotContain("Phone");
         assertThat(html).doesNotContain("\u2197").doesNotContain("class=\"icon\"");
+    }
+
+    @Test
+    void withoutTheLiveModeTheCardHasNoEnterButton() {
+        PageModel model = withoutTheLiveMode(model(List.of(card(waitsForApproval(12)))));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).contains("/issues/12/approve", "/issues/12/block");
+        assertThat(html).doesNotContain("/enter-terminal").doesNotContain("/enter-browser")
+                .doesNotContain("enter-group").doesNotContain(">Terminal<").doesNotContain(">Browser<");
+    }
+
+    @Test
+    void withoutTheLiveModeTheCardHasNoOpenTerminalButton() {
+        PageModel model = withoutTheLiveMode(model(List.of(card(liveRecord(12, LINK)))));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).doesNotContain("/open-terminal").doesNotContain(">Terminal<");
+    }
+
+    private static PageModel withoutTheLiveMode(PageModel model) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
+                model.usageWindows(), model.usageResumesAt(), model.budget(), model.contexts(),
+                model.continueRequested(), model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
+                model.viewerOnThisMachine(), false, model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     @Test

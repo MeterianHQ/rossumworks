@@ -38,6 +38,7 @@ In API key mode:
 - The board shows "Cost today" in place of the usage windows.
 - There is no live mode. An interactive `claude` gets "credit balance too low" with a key that works in print
   mode. When an issue needs you, the factory blocks it with a note, and you answer on GitHub.
+  The board does not show the buttons of the live mode, and the server refuses them.
 
 ## Configuration
 

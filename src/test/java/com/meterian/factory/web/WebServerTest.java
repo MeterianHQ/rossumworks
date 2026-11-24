@@ -126,7 +126,7 @@ class WebServerTest {
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         UsageTracker usage = new UsageTracker(0.90, clock);
         return new PageModelSource(board, factorySwitch, usage, usage, new ContextTracker(),
-                new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, pageRequests,
+                new LiveContextReader(temporaryDirectory.resolve("claude-home")), liveSessions, true, pageRequests,
                 new WorkspaceLayout(workDirectory), configuration,
                 DefinitionLookup.builtInOnly(BuiltInDefinition.load()), Optional::empty, () -> 1, clock);
     }
@@ -779,8 +779,43 @@ class WebServerTest {
         assertThat(earlyPollRequests.get()).isZero();
     }
 
+    @Test
+    void anEnterWithoutTheLiveModeIsNotPossible() {
+        recordCard(waitsInTheBlockTarget());
+
+        PageActions.ActionResult terminal = createPageActionsWithoutTheLiveMode()
+                .perform(ISSUE_NUMBER, PageAction.ENTER_TERMINAL, Optional.of(currentFingerprint()), true);
+        PageActions.ActionResult browser = createPageActionsWithoutTheLiveMode()
+                .perform(ISSUE_NUMBER, PageAction.ENTER_BROWSER, Optional.of(currentFingerprint()), true);
+
+        assertThat(terminal.outcome()).isEqualTo(PageActions.ActionOutcome.NOT_POSSIBLE);
+        assertThat(browser.outcome()).isEqualTo(PageActions.ActionOutcome.NOT_POSSIBLE);
+        assertThat(labelCalls).isEmpty();
+        assertThat(pageRequests.isRemembered(ISSUE_NUMBER, "factory:enter")).isFalse();
+        assertThat(earlyPollRequests.get()).isZero();
+    }
+
+    @Test
+    void anOpenTerminalWithoutTheLiveModeIsNotPossible() {
+        recordCard(liveConversationWithLink());
+
+        PageActions.ActionResult result = createPageActionsWithoutTheLiveMode()
+                .perform(ISSUE_NUMBER, PageAction.OPEN_TERMINAL, Optional.of(currentFingerprint()), true);
+
+        assertThat(result.outcome()).isEqualTo(PageActions.ActionOutcome.NOT_POSSIBLE);
+        assertThat(liveSessions.openedTerminals()).isEmpty();
+    }
+
+    private PageActions createPageActionsWithoutTheLiveMode() {
+        return createPageActions(false);
+    }
+
     private PageActions createPageActions() {
-        return new PageActions(createLabelWriter(), pageRequests, liveSessions, board,
+        return createPageActions(true);
+    }
+
+    private PageActions createPageActions(boolean liveModeAvailable) {
+        return new PageActions(createLabelWriter(), pageRequests, liveSessions, liveModeAvailable, board,
                 factorySwitch, earlyPollRequests::incrementAndGet, DefinitionLookup.builtInOnly(BuiltInDefinition.load()));
     }
 

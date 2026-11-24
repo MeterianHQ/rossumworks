@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
  * @param limits            the limits of the states of each card, by issue number, from the definition of its record
  * @param reviewNames       the names of the reviews of each card, by issue number, from the definition of its record
  * @param inBlockTarget     the issues whose state is the block target of the definition of their record
+ * @param liveModeAvailable  false in API key mode: the page then shows no live mode button
  * @param definitionWarning the reason why the definition of the default branch does not load, if it does not
  * @param factoryState      the state of the whole factory: running, stopping, or stopped
  * @param budget            the cost of today and the daily budget, only in API key mode
@@ -45,6 +46,7 @@ public record PageModel(
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
         boolean viewerOnThisMachine,
+        boolean liveModeAvailable,
         Optional<String> definitionWarning,
         FactoryState factoryState,
         List<String> columns) {

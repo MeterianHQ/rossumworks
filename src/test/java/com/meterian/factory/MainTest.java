@@ -573,7 +573,7 @@ class MainTest {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
+                new FakeLiveSessions(), true, Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
                 Optional::empty, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
@@ -586,7 +586,7 @@ class MainTest {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
+                    new FakeLiveSessions(), true, Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
                     Optional::empty, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -603,7 +603,7 @@ class MainTest {
         gitHub.addIssue(12, "Fix the login", "body");
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(RecordStates.queued(12).withAgentSessionStarted(), "waits-for-approval"));
-        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
+        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(), true,
                 Main.createLabelWriter(gitHub), BUILT_IN, Optional::empty, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);
