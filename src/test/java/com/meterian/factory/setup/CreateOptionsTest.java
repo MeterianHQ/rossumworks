@@ -1,5 +1,9 @@
 package com.meterian.factory.setup;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
+import java.math.BigDecimal;
+import com.meterian.factory.configuration.ProviderName;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -70,5 +74,28 @@ class CreateOptionsTest {
 
             assertTrue(exception.getMessage().contains("--build-command"));
         }
+    }
+
+    @Test
+    void readsTheProviderAndTheBudget() throws Exception {
+        CreateOptions options = CreateOptions.parse(
+                List.of("--provider", "anthropic-api-key", "--daily-budget-usd", "15.5"));
+
+        assertThat(options.provider()).contains(ProviderName.ANTHROPIC_API_KEY);
+        assertThat(options.dailyBudgetUsd()).hasValueSatisfying(budget -> assertThat(budget).isEqualByComparingTo("15.5"));
+    }
+
+    @Test
+    void refusesAnUnknownProvider() {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--provider", "ollama")))
+                .isInstanceOf(SetupException.class)
+                .hasMessageStartingWith("The provider must be subscription or anthropic-api-key.");
+    }
+
+    @Test
+    void refusesABudgetThatIsNotMoreThanZero() {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--daily-budget-usd", "0")))
+                .isInstanceOf(SetupException.class)
+                .hasMessageStartingWith("The daily budget must be a number more than 0.");
     }
 }

@@ -12,7 +12,14 @@ public record WorkerSettings(
         Path workDirectory,
         Optional<WebPage> web,
         Optional<List<String>> terminalCommand,
-        Optional<String> javaHome) {
+        Optional<String> javaHome,
+        ProviderChoice provider) {
+
+    /** The subscription is the default provider. */
+    public WorkerSettings(RepositoryName repository, Path workDirectory, Optional<WebPage> web,
+                          Optional<List<String>> terminalCommand, Optional<String> javaHome) {
+        this(repository, workDirectory, web, terminalCommand, javaHome, ProviderChoice.subscription());
+    }
 
     /** The work folder that create proposes and that run finds without --config. */
     public static Path defaultWorkDirectory(Path home, RepositoryName repository) {

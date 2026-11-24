@@ -1,9 +1,11 @@
 package com.meterian.factory.setup;
 
 import com.meterian.factory.configuration.ConfigurationException;
+import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.web.login.PasswordHash;
 import com.meterian.factory.web.login.PasswordRules;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -177,6 +179,45 @@ public final class SetupQuestions {
                 ? console.ask("The terminal command", DEFAULT_TERMINAL_COMMAND)
                 : DEFAULT_TERMINAL_COMMAND;
         return Optional.of(Arrays.stream(answer.strip().split("\\s+")).toList());
+    }
+
+    /** Without a terminal, the default is the subscription. Enter also takes the subscription. */
+    public ProviderChoice askProvider(CreateOptions options) throws SetupException {
+        ProviderName name = options.provider().isPresent() ? options.provider().get() : askProviderName();
+        if (name == ProviderName.SUBSCRIPTION) {
+            return ProviderChoice.subscription();
+        }
+        BigDecimal budget = options.dailyBudgetUsd().isPresent() ? options.dailyBudgetUsd().get() : askDailyBudget();
+        return new ProviderChoice(name, Optional.of(budget));
+    }
+
+    private ProviderName askProviderName() throws SetupException {
+        if (!console.isInteractive()) {
+            return ProviderName.SUBSCRIPTION;
+        }
+        while (true) {
+            String answer = console.ask("The provider (subscription or anthropic-api-key)",
+                    ProviderName.SUBSCRIPTION.configurationValue());
+            Optional<ProviderName> name = ProviderName.findByConfigurationValue(answer.strip());
+            if (name.isPresent()) {
+                return name.get();
+            }
+            console.show("Type subscription or anthropic-api-key.");
+        }
+    }
+
+    private BigDecimal askDailyBudget() throws SetupException {
+        if (!console.isInteractive()) {
+            throw new SetupException("Give --daily-budget-usd with --provider anthropic-api-key.");
+        }
+        while (true) {
+            Optional<BigDecimal> budget = ProviderChoice.parseDailyBudget(
+                    console.ask("The daily budget in US dollars", ""));
+            if (budget.isPresent()) {
+                return budget.get();
+            }
+            console.show("Type a number more than 0, for example 20.");
+        }
     }
 
     public RepositoryBuild askBuild(CreateOptions options, Optional<RepositoryBuild> found, boolean isJava)

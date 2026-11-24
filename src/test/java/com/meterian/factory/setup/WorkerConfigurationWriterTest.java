@@ -1,5 +1,7 @@
 package com.meterian.factory.setup;
 
+import java.math.BigDecimal;
+import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.configuration.ConfigurationException;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -86,5 +88,41 @@ class WorkerConfigurationWriterTest {
         assertThatThrownBy(() -> WorkerConfigurationWriter.write(second))
                 .isInstanceOf(FileAlreadyExistsException.class);
         assertThat(Files.readString(first.configurationFile())).isEqualTo(WorkerConfigurationWriter.render(first));
+    }
+
+    @Test
+    void writesTheApiKeyProviderAndTheBudget() throws Exception {
+        WorkerSettings settings = new WorkerSettings(RepositoryName.parse("MeterianHQ/sample"), Path.of("/work"),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                new ProviderChoice(ProviderName.ANTHROPIC_API_KEY, Optional.of(new BigDecimal("20"))));
+
+        String text = WorkerConfigurationWriter.render(settings);
+
+        assertThat(text).contains("claude:\n  provider: anthropic-api-key\nlimits:\n  daily-budget-usd: 20\n");
+    }
+
+    @Test
+    void theApiKeyProviderLoadsWithTheConfigurationLoader() throws Exception {
+        WorkerSettings settings = new WorkerSettings(RepositoryName.parse("MeterianHQ/sample"), workDirectory,
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                new ProviderChoice(ProviderName.ANTHROPIC_API_KEY, Optional.of(new BigDecimal("20"))));
+
+        WorkerConfigurationWriter.write(settings);
+        FactoryConfiguration configuration = ConfigurationLoader.load(settings.configurationFile());
+
+        assertThat(configuration.claude().provider()).isEqualTo(ProviderName.ANTHROPIC_API_KEY);
+        assertThat(configuration.limits().dailyBudgetUsd()).hasValueSatisfying(
+                budget -> assertThat(budget).isEqualByComparingTo("20"));
+    }
+
+    @Test
+    void theSubscriptionGivesOnlyAComment() throws Exception {
+        WorkerSettings settings = new WorkerSettings(RepositoryName.parse("MeterianHQ/sample"), Path.of("/work"),
+                Optional.empty(), Optional.empty(), Optional.empty());
+
+        String text = WorkerConfigurationWriter.render(settings);
+
+        assertThat(text).contains("# claude:\n#   provider: anthropic-api-key")
+                .doesNotContain("\nclaude:").doesNotContain("\nlimits:");
     }
 }

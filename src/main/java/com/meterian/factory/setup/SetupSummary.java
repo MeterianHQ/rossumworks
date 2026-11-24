@@ -1,5 +1,6 @@
 package com.meterian.factory.setup;
 
+import com.meterian.factory.usage.DollarAmount;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,7 +28,13 @@ final class SetupSummary {
                 + "Web page: " + describeWebPage(settings.web()) + '\n'
                 + "Terminal command: " + settings.terminalCommand().map(command -> String.join(" ", command))
                         .orElse("none") + '\n'
-                + "JAVA_HOME: " + settings.javaHome().orElse("not set") + '\n';
+                + "JAVA_HOME: " + settings.javaHome().orElse("not set") + '\n'
+                + "Provider: " + describeProvider(settings.provider()) + '\n';
+    }
+
+    private static String describeProvider(ProviderChoice provider) {
+        return provider.name().configurationValue() + provider.dailyBudgetUsd()
+                .map(budget -> ", daily budget " + DollarAmount.format(budget)).orElse("");
     }
 
     private static String describeWebPage(Optional<WebPage> web) {

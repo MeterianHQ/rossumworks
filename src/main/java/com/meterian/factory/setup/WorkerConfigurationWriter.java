@@ -24,6 +24,7 @@ public final class WorkerConfigurationWriter {
         text.append("gatekeeper-directory: ")
                 .append(YamlText.quote(settings.gatekeeperDirectory().toString())).append('\n');
         appendBuildEnvironment(text, settings);
+        appendProvider(text, settings);
         appendTerminalCommand(text, settings);
         appendWebPage(text, settings);
         return text.toString();
@@ -36,6 +37,18 @@ public final class WorkerConfigurationWriter {
         } else {
             text.append("# build:\n#   environment:\n#     JAVA_HOME: /path/to/jdk\n");
         }
+    }
+
+    private static void appendProvider(StringBuilder text, WorkerSettings settings) {
+        ProviderChoice provider = settings.provider();
+        if (provider.dailyBudgetUsd().isEmpty()) {
+            text.append("# claude:\n#   provider: anthropic-api-key   # needs ANTHROPIC_API_KEY\n")
+                    .append("# limits:\n#   daily-budget-usd: 20\n");
+            return;
+        }
+        text.append("claude:\n  provider: ").append(provider.name().configurationValue()).append('\n');
+        text.append("limits:\n  daily-budget-usd: ").append(provider.dailyBudgetUsd().get().toPlainString())
+                .append('\n');
     }
 
     private static void appendTerminalCommand(StringBuilder text, WorkerSettings settings) {

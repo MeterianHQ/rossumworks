@@ -69,14 +69,14 @@ class CreateCommandTest {
     @Test
     void setsUpARepositoryWithDefaults() throws Exception {
         pushToMain("package.json", "{}\n");
-        FakeSetupConsole console = answering("", "", "", "", "y");
+        FakeSetupConsole console = answering("", "", "", "", "", "y");
 
         int exitCode = runCreate(console);
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(console.questions).containsExactly("The starting repository (owner/name)", "The work folder",
                 "The web page address (address:port, or none for no page)", "Password for the web page (Enter for no password): ",
-                "Repeat the password: ", "The build command", "Write the files and open the pull request? [y/n]");
+                "Repeat the password: ", "The provider (subscription or anthropic-api-key)", "The build command", "Write the files and open the pull request? [y/n]");
         FactoryConfiguration configuration = ConfigurationLoader.load(workerFile());
         assertThat(configuration.repository()).isEqualTo(new RepositoryName("owner", "project"));
         assertThat(configuration.workDirectory()).isEqualTo(workDirectory());
@@ -95,7 +95,7 @@ class CreateCommandTest {
     void aNoAtTheConfirmationWritesNoFileAndPushesNothing() {
         pushToMain("package.json", "{}\n");
 
-        int exitCode = runCreate(answering("", "", "", "", "n"));
+        int exitCode = runCreate(answering("", "", "", "", "", "n"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(workerFile()).doesNotExist();
@@ -108,7 +108,7 @@ class CreateCommandTest {
     @Test
     void anExistingFactoryFolderGivesNoPullRequest() throws Exception {
         pushToMain(".factory/factory.yaml", "build: {}\n");
-        FakeSetupConsole console = answering("", "", "", "y");
+        FakeSetupConsole console = answering("", "", "", "", "y");
 
         int exitCode = runCreate(console);
 
@@ -140,7 +140,7 @@ class CreateCommandTest {
         String headBefore = run(github, "rev-parse", "factory/setup");
         PullRequest existing = gitHub.createPullRequest("factory/setup", "main", "Set up", "body");
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(outputText()).contains(existing.url());
@@ -154,7 +154,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         refuseEveryPushToGitHub();
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("GitHub does not have the branch factory/setup.");
@@ -162,7 +162,7 @@ class CreateCommandTest {
         assertThat(gitHub.pullRequests()).isEmpty();
         errorBytes.reset();
 
-        int secondExitCode = runCreate(answering("", "", "", "", "y"));
+        int secondExitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(secondExitCode).isEqualTo(1);
         assertThat(errorText()).contains("GitHub does not have the branch factory/setup.")
@@ -175,7 +175,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         gitHub.failTheNextPullRequestCreation();
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("GitHub answered 502 for POST /pulls");
@@ -187,7 +187,7 @@ class CreateCommandTest {
     void theDefaultWorkFolderGivesTheStartCommandWithoutTheOptionConfig() {
         pushToMain("package.json", "{}\n");
 
-        runCreate(answering("", "", "", "", "y"));
+        runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
                 + "  .factory/run.sh" + System.lineSeparator()
@@ -199,7 +199,7 @@ class CreateCommandTest {
     void anExistingFactoryFolderGivesTheStartCommandWithTheJar() {
         pushToMain(".factory/factory.yaml", "build: {}\n");
 
-        runCreate(answering("", "", "", "y"));
+        runCreate(answering("", "", "", "", "y"));
 
         assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
                 + "  java -jar rossumworks.jar run" + System.lineSeparator()).doesNotContain("run.sh");
@@ -210,7 +210,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         Path cachedJar = home.resolve(".rossumworks/jars/rossumworks-0.1.0.jar");
         assertThat(exitCode).isEqualTo(0);
@@ -226,7 +226,7 @@ class CreateCommandTest {
         Files.writeString(cachedJar, "cached");
         runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
-        int exitCode = runCreate(answering("", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(cachedJar).hasContent("cached");
@@ -240,7 +240,7 @@ class CreateCommandTest {
         Files.writeString(home.resolve(".rossumworks/jars"), "not a folder");
         runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(outputText()).contains("Cannot copy the jar to " + home.resolve(".rossumworks/jars"));
@@ -250,7 +250,7 @@ class CreateCommandTest {
     void withoutARunningJarTheCacheStaysEmpty() {
         pushToMain("package.json", "{}\n");
 
-        runCreate(answering("", "", "", "", "y"));
+        runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(home.resolve(".rossumworks/jars")).doesNotExist();
     }
@@ -259,7 +259,7 @@ class CreateCommandTest {
     void thePullRequestHasTheExecutableRunScript() {
         pushToMain("package.json", "{}\n");
 
-        runCreate(answering("", "", "", "", "y"));
+        runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(run(github, "ls-tree", "factory/setup", ".factory/run.sh")).startsWith("100755 blob ");
     }
@@ -269,7 +269,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         Path otherWorkDirectory = temporaryDirectory.resolve("other-work");
 
-        int exitCode = runCreate(answering("", otherWorkDirectory.toString(), "", "", "y"));
+        int exitCode = runCreate(answering("", otherWorkDirectory.toString(), "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(outputText()).contains(DEFAULT_START_LINE + System.lineSeparator()
@@ -281,7 +281,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         gitHub.failTheNextAssignment();
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         ConfigurationLoader.load(workerFile());
@@ -299,7 +299,7 @@ class CreateCommandTest {
         Files.createDirectories(workDirectory());
         Files.writeString(workerFile(), "old\n");
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("The file " + workerFile() + " exists. The command never overwrites it.");
@@ -312,7 +312,7 @@ class CreateCommandTest {
     void anApiKeyStopsTheCommand() {
         environment.put("ANTHROPIC_API_KEY", "key");
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the provider is subscription. "
@@ -324,7 +324,7 @@ class CreateCommandTest {
     void aMissingProgramStopsTheCommand() throws IOException {
         Files.delete(programs.resolve("tmux"));
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("The factory needs these commands on the PATH: tmux");
@@ -360,7 +360,7 @@ class CreateCommandTest {
         pushToMain("mvnw", "#!/bin/sh\n");
         environment.put("JAVA_HOME", "/opt/jdk-21");
 
-        int exitCode = runCreate(answering("", "", "", "", "y"));
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(exitCode).isEqualTo(0);
         assertThat(ConfigurationLoader.load(workerFile()).buildEnvironment()).containsEntry("JAVA_HOME", "/opt/jdk-21");
@@ -371,7 +371,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         environment.put("JAVA_HOME", "/opt/jdk-21");
 
-        runCreate(answering("", "", "", "", "y"));
+        runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(ConfigurationLoader.load(workerFile()).buildEnvironment()).doesNotContainKey("JAVA_HOME");
     }
