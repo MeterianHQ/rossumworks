@@ -41,18 +41,24 @@ final class OwnershipTakeover {
     }
 
     /**
-     * The new status comment is the newest one of the worker, so the next poll does not take over again.
+     * Makes the first record of the new owner, but does not write it. The caller can look at the record, for
+     * example to find if it holds a slot, and then writes it with {@link #publish(Issue, IssueRecord)}.
      *
      * @param queued a new record in the start state of the current definition version
      */
-    IssueRecord takeOver(Issue issue, IssueRecord queued, Optional<IssueRecord> earlierRecord) {
+    IssueRecord prepare(Issue issue, IssueRecord queued, Optional<IssueRecord> earlierRecord) {
         IssueRecord record = keepAcceptedIssueText(queued, earlierRecord);
         record = continuePushedBranch(issue.number(), record)
                 .withNote("The factory of " + workerLogin + " continues the work of an earlier owner.");
         if (earlierRecord.isPresent()) {
             record = keepBlockOrWait(record, earlierRecord.get());
         }
-        return statusPublisher.publishInNewComment(issue, record);
+        return record;
+    }
+
+    /** The new status comment is the newest one of the worker, so the next poll does not take over again. */
+    IssueRecord publish(Issue issue, IssueRecord prepared) {
+        return statusPublisher.publishInNewComment(issue, prepared);
     }
 
     /**

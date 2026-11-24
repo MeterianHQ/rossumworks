@@ -1460,6 +1460,125 @@ class WorkerTest {
         assertThat(worker.countRunningWork()).isZero();
     }
 
+    /**
+     * The other issue waits for the approval of the merge, at rest, so it holds a slot. Its number is higher than
+     * the number of ISSUE, so the poll checks it after ISSUE. The tests of a new slot then also test the order.
+     */
+    private void writeAWaitForTheApprovalOnTheOtherIssue() {
+        addLabeledIssue(OTHER_ISSUE);
+        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        IssueRecord waiting = RecordStates.move(readRecord(OTHER_ISSUE).orElseThrow().withAgentSessionStarted(),
+                "waits-for-approval").withActionStarted();
+        gitHub.editComment(waiting.statusCommentId().orElseThrow(),
+                StatusComment.render(waiting, LIMITS, RecordStates.REVIEW_NAMES));
+    }
+
+    /** The issue runs to the wait for the approval, and the owner then blocks it. The worktree stays. */
+    private void blockTheIssueAfterItsWork() throws InterruptedException {
+        runToTheMergeApproval();
+        gitHub.addLabel(ISSUE, BLOCK_LABEL);
+        createWorker(new FakeAgentRunner(), 2).pollOnce();
+        waitForTheLoops();
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isEqualTo("blocked");
+    }
+
+    @Test
+    void anEnterOnABlockedCardWaitsForAFreeSlot() throws InterruptedException {
+        blockTheIssueAfterItsWork();
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 1);
+
+        worker.pollOnce();
+
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(gitHub.labelsOf(ISSUE)).contains(ENTER_LABEL);
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isEqualTo("blocked");
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    void anEnterOnABlockedCardOpensTheSessionWithAFreeSlot() throws InterruptedException {
+        blockTheIssueAfterItsWork();
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        assertThat(liveSessions.openCalls()).hasSize(1);
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("live");
+        assertThat(worker.countUsedSlots()).isEqualTo(2);
+    }
+
+    @Test
+    void anEnterOnABlockedCardWaitsWhenTheCheckOfAnotherCardFails() throws InterruptedException {
+        blockTheIssueAfterItsWork();
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        gitHub.failTheCommentsOf(OTHER_ISSUE);
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(gitHub.labelsOf(ISSUE)).contains(ENTER_LABEL);
+    }
+
+    @Test
+    void anEnterOnAQueuedCardNeedsNoSlot() {
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        gitHub.addLabel(ISSUE, ENTER_LABEL);
+        Worker worker = createWorker(new FakeAgentRunner(), 1);
+
+        worker.pollOnce();
+
+        assertThat(liveSessions.openCalls()).isEmpty();
+        assertThat(gitHub.labelsOf(ISSUE)).doesNotContain(ENTER_LABEL);
+        assertThat(readRecord(ISSUE).orElseThrow().column()).isEqualTo("queued");
+    }
+
+    /**
+     * The factory of alice pushed the branch of the issue and waits for the approval of the merge. The caller
+     * removes the label first, so that no earlier poll takes the issue into the queue.
+     */
+    private void writeATakeOverOfAWaitForTheApproval() {
+        recordAnEarlierAssignmentOfAlice();
+        pushTheBranchOfAlice();
+        addRecordOfAlice(RecordStates.move(RecordStates.queued(ISSUE), "waits-for-approval")
+                .withIssueTextHash(IssueText.computeHash(gitHub.issue(ISSUE))));
+        gitHub.assignBy(ISSUE, WORKER_LOGIN);
+        gitHub.addLabel(ISSUE, FACTORY_LABEL);
+    }
+
+    @Test
+    void aTakeOverOfAWaitForTheApprovalWaitsForAFreeSlot() {
+        gitHub.removeLabel(ISSUE, FACTORY_LABEL);
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        writeATakeOverOfAWaitForTheApproval();
+        Worker worker = createWorker(new FakeAgentRunner(), 1);
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE)).isEmpty();
+        assertThat(worker.countUsedSlots()).isEqualTo(1);
+        assertThat(findCard(board, ISSUE).orElseThrow().record().newestNote())
+                .contains("The work of the earlier owner waits for a free slot of parallel-issues.");
+    }
+
+    @Test
+    void aTakeOverOfAWaitForTheApprovalTakesAFreeSlot() {
+        gitHub.removeLabel(ISSUE, FACTORY_LABEL);
+        writeAWaitForTheApprovalOnTheOtherIssue();
+        writeATakeOverOfAWaitForTheApproval();
+        Worker worker = createWorker(new FakeAgentRunner(), 2);
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE).orElseThrow().state()).isEqualTo("waits-for-approval");
+        assertThat(worker.countUsedSlots()).isEqualTo(2);
+    }
+
     @Test
     void aSessionThatTheLoopOpensHoldsItsSlotBeforeTheNextPoll() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenWaitForStop().thatIsStopped();
@@ -2461,7 +2580,8 @@ class WorkerTest {
         assertThat(readRecord(ISSUE).orElseThrow().handOver()).contains(HandOver.RELEASED);
         reassignToTheWorker();
 
-        createWorker(new FakeAgentRunner(), 0).pollOnce();
+        createWorker(new FakeAgentRunner(), 1).pollOnce();
+        waitForTheLoops();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.handOver()).contains(HandOver.CONTINUES_PUSHED_BRANCH);
