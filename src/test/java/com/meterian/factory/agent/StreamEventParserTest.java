@@ -1,5 +1,6 @@
 package com.meterian.factory.agent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,6 +33,26 @@ class StreamEventParserTest {
     void readsTheApiKeySource() throws IOException {
         assertEquals(Optional.of("none"), parse("success.jsonl").apiKeySource());
         assertEquals(Optional.of("ANTHROPIC_API_KEY"), parse("api-key.jsonl").report().apiKeySource());
+    }
+
+    @Test
+    void readsTheCostOfTheSession() {
+        StreamEventParser parser = new StreamEventParser(Clock.systemUTC());
+
+        parser.accept("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\","
+                + "\"total_cost_usd\":0.1222932}");
+
+        assertThat(parser.report().costUsd()).hasValueSatisfying(
+                cost -> assertThat(cost).isEqualByComparingTo("0.1222932"));
+    }
+
+    @Test
+    void aSessionWithoutResultHasNoCost() {
+        StreamEventParser parser = new StreamEventParser(Clock.systemUTC());
+
+        parser.accept("{\"type\":\"system\",\"subtype\":\"init\",\"apiKeySource\":\"none\"}");
+
+        assertThat(parser.report().costUsd()).isEmpty();
     }
 
     @Test

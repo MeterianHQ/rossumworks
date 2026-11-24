@@ -154,7 +154,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
         }
         if (run.isStopRequested() || (report.success() && exitCode != 0)) {
             return new SessionReport(false, report.resultText(), report.apiKeySource(),
-                    report.contextUsage(), report.usageWindows(), run.isStopRequested());
+                    report.contextUsage(), report.usageWindows(), run.isStopRequested(), report.costUsd());
         }
         return report;
     }
