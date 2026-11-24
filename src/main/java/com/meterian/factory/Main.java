@@ -6,6 +6,7 @@ import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
+import com.meterian.factory.agent.UnavailableLiveSessions;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.build.BuildRunner;
@@ -301,9 +302,7 @@ public final class Main {
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
-        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
-                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
-                configuration.terminalCommand());
+        LiveSessions liveSessions = createLiveSessions(configuration, provider, liveFiles);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
                 workerLogin, liveSessions, shared, definitions, retries);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
@@ -340,6 +339,16 @@ public final class Main {
         errors.println("The factory stopped: a claude session did not use the credential of the provider "
                 + provider.name().configurationValue() + ".");
         return EXIT_CREDENTIAL_MISMATCH;
+    }
+
+    /** API key mode has no live mode: an interactive claude gets no answer with the key. */
+    private static LiveSessions createLiveSessions(FactoryConfiguration configuration, Provider provider,
+                                                   LiveFiles liveFiles) {
+        if (!provider.hasLiveMode()) {
+            return new UnavailableLiveSessions();
+        }
+        return new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT, configuration.terminalCommand());
     }
 
     /**
