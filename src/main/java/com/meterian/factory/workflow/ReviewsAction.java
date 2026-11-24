@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
@@ -22,7 +22,7 @@ final class ReviewsAction implements Action {
 
     @Override
     public ActionResult run(Issue issue, IssueRecord record, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         if (!services.phaseRunner().mayStartPhase()) {
             return ActionResult.stay(record);
         }
@@ -33,7 +33,7 @@ final class ReviewsAction implements Action {
                 || !services.git().headCommit(worktree).equals(headCommit)) {
             return ActionResult.block(outcome.record(), "A review changed the files.");
         }
-        if (outcome.sessionStopped()) {
+        if (outcome.sessionStopped() || outcome.guardStoppedReview()) {
             return ActionResult.stay(outcome.record());
         }
         if (outcome.sessionFailed()) {

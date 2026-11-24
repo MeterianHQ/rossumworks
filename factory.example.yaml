@@ -6,13 +6,15 @@ gatekeeper-directory: /home/bbossola/.rossumworks/gatekeeper.git
 limits:                 # all keys optional
   parallel-issues: 2
   poll-interval: 60s
-  usage-threshold: 0.90
+  usage-threshold: 0.90         # subscription only
+  # daily-budget-usd: 20.00     # necessary when claude.provider is anthropic-api-key
 build:                  # optional: the variables of this machine; a value here replaces the value of .factory
   environment:
     JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
 isolation:              # optional
   mode: same-user
 claude:                 # optional
+  # provider: anthropic-api-key   # default: subscription; anthropic-api-key needs ANTHROPIC_API_KEY
   command: claude
   disallowed-tools: ["Bash(git push*)", "Bash(gh *)", WebFetch, WebSearch]
 # live:                 # optional

@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public interface AgentRunner {
 
-    SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException;
+    SessionReport runPhase(PhaseRequest request) throws AgentException, CredentialMismatchException;
 
     void stopPhase(int issueNumber);
 

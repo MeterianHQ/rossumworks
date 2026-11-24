@@ -1,6 +1,6 @@
 package com.meterian.factory.worker;
 
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.FactorySwitch;
@@ -108,7 +108,7 @@ public final class Worker {
     private final WorkerMove workerMove;
     private final AtomicBoolean stopReported = new AtomicBoolean();
     private final PollSlotChecks pollSlotChecks = new PollSlotChecks();
-    private volatile boolean apiKeyFound;
+    private volatile boolean credentialMismatchFound;
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
@@ -239,9 +239,9 @@ public final class Worker {
         return stopSignal.getCount() == 0;
     }
 
-    /** Tells if the worker stopped because a claude session used an API key. */
-    public boolean foundAnApiKey() {
-        return apiKeyFound;
+    /** Tells if the worker stopped because a claude session did not use the credential of the provider. */
+    public boolean foundACredentialMismatch() {
+        return credentialMismatchFound;
     }
 
     /**
@@ -718,8 +718,8 @@ public final class Worker {
                 kept = enterRequests.enter(RecordFacts.keep(kept, interruptedResult));
                 interruptedResult = Optional.empty();
             }
-        } catch (ApiKeyDetectedException exception) {
-            stopOnApiKey(issueNumber, exception);
+        } catch (CredentialMismatchException exception) {
+            stopOnCredentialMismatch(issueNumber, exception);
         } catch (OwnershipLostException exception) {
             rememberIssueOfAnotherOwner(issueNumber);
         } catch (GitHubException exception) {
@@ -965,10 +965,10 @@ public final class Worker {
     }
 
     /** Fail closed: the worker stops and ends the phases that run. */
-    private void stopOnApiKey(int issueNumber, ApiKeyDetectedException exception) {
-        LOGGER.log(System.Logger.Level.ERROR, "The issue #{0} found an API key: {1}", issueNumber,
+    private void stopOnCredentialMismatch(int issueNumber, CredentialMismatchException exception) {
+        LOGGER.log(System.Logger.Level.ERROR, "The issue #{0} found a credential mismatch: {1}", issueNumber,
                 exception.getMessage());
-        apiKeyFound = true;
+        credentialMismatchFound = true;
         stopSignal.countDown();
         pollWait.stop();
         phaseStopper.refuseNewWork();

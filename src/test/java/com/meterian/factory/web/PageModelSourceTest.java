@@ -98,7 +98,7 @@ class PageModelSourceTest {
                 workDirectory, temporaryDirectory.resolve("gatekeeper.git"), temporaryDirectory.resolve("live"),
                 new WorkerLimits(3, Duration.ofSeconds(45), 0.90), Map.of(), IsolationMode.SAME_USER,
                 ClaudeSettings.createDefaults(), Optional.empty(), FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
-        return new PageModelSource(board, factorySwitch, usage, contexts, new LiveContextReader(claudeHome()), liveSessions,
+        return new PageModelSource(board, factorySwitch, usage, usage, contexts, new LiveContextReader(claudeHome()), liveSessions, true,
                 pageRequests, new WorkspaceLayout(workDirectory), configuration, definitions, () -> definitionWarning,
                 () -> usedSlots, () -> runningWork, clock);
     }
@@ -137,7 +137,7 @@ class PageModelSourceTest {
         assertThat(model.isolationMode()).isEqualTo(IsolationMode.SAME_USER);
         assertThat(model.repositoryFullName()).isEqualTo("MeterianHQ/target");
         assertThat(model.usageWindows()).extracting(UsageWindow::name).containsExactly("seven_day");
-        assertThat(model.usageResumesAt()).contains(NOW.plus(Duration.ofDays(1)));
+        assertThat(model.phasesResumeAt()).contains(NOW.plus(Duration.ofDays(1)));
     }
 
     @Test

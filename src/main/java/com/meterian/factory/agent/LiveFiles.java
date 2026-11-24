@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.meterian.factory.file.AtomicFileWriter;
+import com.meterian.factory.file.PrivateFolderRule;
+import com.meterian.factory.file.PrivateFolderRule.ProcessIdentity;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -11,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.LocalDate;
@@ -25,10 +26,6 @@ public final class LiveFiles {
     private static final Pattern CONTINUE_MARKER_NAME = Pattern.compile("issue-\\d+\\.continue");
     private static final String FILE_PERMISSIONS = "rw-r--r--";
     private static final String EXECUTABLE_PERMISSIONS = "rwxr-xr-x";
-    private static final int STICKY_BIT = 01000;
-    private static final int GROUP_WRITE_BIT = 0020;
-    private static final int OTHERS_WRITE_BIT = 0002;
-    private static final int ROOT_USER_ID = 0;
     private static final String PRIVATE_FILE_PERMISSIONS = "rw-------";
     private static final String PRIVATE_DIRECTORY_PERMISSIONS = "rwx------";
     private static final String PRIVATE_EXECUTABLE_PERMISSIONS = "rwx------";
@@ -68,12 +65,11 @@ public final class LiveFiles {
     private void verifyParentsArePrivate() throws IOException {
         ProcessIdentity identity = ProcessIdentity.current();
         for (Path parent = findNearestExistingParent().toRealPath(); parent != null; parent = parent.getParent()) {
-            int mode = (Integer) Files.getAttribute(parent, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+            int mode = PrivateFolderRule.readMode(parent);
             int ownerId = (Integer) Files.getAttribute(parent, "unix:uid", LinkOption.NOFOLLOW_LINKS);
             int groupId = (Integer) Files.getAttribute(parent, "unix:gid", LinkOption.NOFOLLOW_LINKS);
-            String groupName = Files.readAttributes(parent, PosixFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
-                    .group().getName();
-            if (!isSafeParent(mode, ownerId, groupId, groupName, identity)) {
+            String groupName = PrivateFolderRule.readGroupName(parent);
+            if (!PrivateFolderRule.isSafe(mode, ownerId, groupId, groupName, identity)) {
                 throw new IllegalStateException(describeUnsafeParent(parent, mode, groupName));
             }
         }
@@ -88,47 +84,9 @@ public final class LiveFiles {
     }
 
     static String describeUnsafeParent(Path parent, int mode, String groupName) {
-        String writer = (mode & OTHERS_WRITE_BIT) != 0 ? "others" : "the group " + groupName;
+        String writer = PrivateFolderRule.isWritableByOthers(mode) ? "others" : "the group " + groupName;
         return "The folder " + parent + " can be written by " + writer + ". Run: chmod go-w " + parent
                 + ", or choose a live-directory in a private folder.";
-    }
-
-    /**
-     * A folder passes when the group and others cannot write to it. It also passes when it is sticky and belongs
-     * to root or to the user, or when only the private group of the user can write to it.
-     */
-    static boolean isSafeParent(int mode, int ownerId, int groupId, String groupName, ProcessIdentity identity) {
-        boolean isWritableByOthers = (mode & OTHERS_WRITE_BIT) != 0;
-        boolean isWritableByGroup = (mode & GROUP_WRITE_BIT) != 0;
-        if (!isWritableByOthers && !isWritableByGroup) {
-            return true;
-        }
-        boolean isSticky = (mode & STICKY_BIT) != 0;
-        if (isSticky && (ownerId == ROOT_USER_ID || ownerId == identity.userId())) {
-            return true;
-        }
-        boolean hasPrivateGroup = ownerId == identity.userId() && groupId == identity.groupId()
-                && groupName.equals(identity.userName());
-        return !isWritableByOthers && hasPrivateGroup;
-    }
-
-    /** The user and the group of the process, read once from a file that the process creates. */
-    record ProcessIdentity(int userId, int groupId, String userName) {
-
-        private static ProcessIdentity current;
-
-        static synchronized ProcessIdentity current() throws IOException {
-            if (current == null) {
-                Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
-                try {
-                    current = new ProcessIdentity((Integer) Files.getAttribute(probe, "unix:uid"),
-                            (Integer) Files.getAttribute(probe, "unix:gid"), System.getProperty("user.name"));
-                } finally {
-                    Files.deleteIfExists(probe);
-                }
-            }
-            return current;
-        }
     }
 
     private void verifyLiveDirectoryIsPrivate() throws IOException {

@@ -1,5 +1,6 @@
 package com.meterian.factory.git;
 
+import com.meterian.factory.process.ChildEnvironment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -70,6 +71,7 @@ final class GitProcess {
                 .redirectError(errorFile.toFile());
         Map<String, String> environment = builder.environment();
         environment.putAll(extraEnvironment);
+        ChildEnvironment.removeAnthropicCredentials(environment);
         environment.keySet().removeAll(REDIRECTING_VARIABLES);
         environment.putAll(ISOLATION);
         return builder.start();

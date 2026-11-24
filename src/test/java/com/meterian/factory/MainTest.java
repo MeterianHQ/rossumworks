@@ -11,8 +11,11 @@ import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
+import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.provider.ApiKeyProvider;
+import com.meterian.factory.provider.Provider;
 import com.meterian.factory.setup.CreateOptions;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.state.IssueRecord;
@@ -36,10 +39,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,7 +76,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached the token");
                 },
-                (configuration, retries, token, errorStream) -> {
+                (configuration, provider, retries, token, errorStream) -> {
                     throw new AssertionError("The test reached the worker");
                 }, createRecordingGit(new ArrayList<>()));
     }
@@ -109,7 +115,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, retries, token, errorStream) -> {
+                (loaded, provider, retries, token, errorStream) -> {
                     startedWithClone.add(loaded.cloneDirectory());
                     assertThat(clone).isDirectory();
                     return 0;
@@ -131,7 +137,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, retries, token, errorStream) -> 0, createRecordingGit(clones));
+                (loaded, provider, retries, token, errorStream) -> 0, createRecordingGit(clones));
 
         assertThat(exitCode).isZero();
         assertThat(clones).isEmpty();
@@ -164,7 +170,7 @@ class MainTest {
                     () -> {
                         throw new AssertionError("The test reached gh");
                     },
-                    (loaded, retries, token, errorStream) -> {
+                    (loaded, provider, retries, token, errorStream) -> {
                         throw new AssertionError("The test reached the worker");
                     }, createRecordingGit(new ArrayList<>()));
 
@@ -187,7 +193,7 @@ class MainTest {
                     () -> {
                         throw new AssertionError("The test reached gh");
                     },
-                    (loaded, retries, token, errorStream) -> {
+                    (loaded, provider, retries, token, errorStream) -> {
                         startedWith.add(retries);
                         return 0;
                     }, createRecordingGit(new ArrayList<>()));
@@ -210,7 +216,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, retries, token, errorStream) -> {
+                (loaded, provider, retries, token, errorStream) -> {
                     throw new IllegalArgumentException("A defect of the worker");
                 }, createRecordingGit(new ArrayList<>())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("A defect of the worker");
@@ -252,14 +258,84 @@ class MainTest {
         });
     }
 
+    private Path writeApiKeyConfiguration() throws IOException {
+        Files.createDirectory(temporaryDirectory.resolve("work"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        Path file = temporaryDirectory.resolve("api-key.yaml");
+        Files.writeString(file, """
+                repository: MeterianHQ/sample
+                claude:
+                  command: claude
+                  provider: anthropic-api-key
+                limits:
+                  daily-budget-usd: 20
+                work-directory: %s
+                gatekeeper-directory: %s
+                """.formatted(temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git")));
+        return file;
+    }
+
+    private Map<String, String> withVariable(Map<String, String> environment, String name, String value) {
+        Map<String, String> changed = new HashMap<>(environment);
+        changed.put(name, value);
+        return changed;
+    }
+
     @Test
-    void refusesToStartWithAnApiKey() {
-        int exitCode = runMain(new String[] {"run", "--config", "missing.yaml"},
-                Map.of("ANTHROPIC_API_KEY", "secret", "PATH", "/usr/bin:/bin"));
+    void refusesTheSubscriptionWithAnApiKey() throws IOException {
+        Path configuration = writeConfiguration("claude");
+
+        int exitCode = runMain(new String[] {"run", "--config", configuration.toString()},
+                withVariable(createEnvironmentWithAllCommands(), "ANTHROPIC_API_KEY", "secret"));
 
         assertThat(exitCode).isEqualTo(1);
-        assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription.")
-                .doesNotContain("secret");
+        assertThat(errorText()).contains("Remove ANTHROPIC_API_KEY: the provider is subscription. "
+                + "To use the key, set claude.provider to anthropic-api-key.").doesNotContain("secret");
+    }
+
+    @Test
+    void refusesTheApiKeyProviderWithoutAKey() throws IOException {
+        int exitCode = runMain(new String[] {"run", "--config", writeApiKeyConfiguration().toString()},
+                createEnvironmentWithAllCommands());
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(errorText()).contains("Set ANTHROPIC_API_KEY: the provider is anthropic-api-key. "
+                + "To use the claude login, remove claude.provider.");
+    }
+
+    @Test
+    void printsTheApiKeyProviderAtStart() throws IOException {
+        List<Provider> started = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", writeApiKeyConfiguration().toString()},
+                withVariable(createEnvironmentWithAllCommands(), "ANTHROPIC_API_KEY", "secret"), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, provider, retries, token, errorStream) -> {
+                    started.add(provider);
+                    return 0;
+                }, createRecordingGit(new ArrayList<>()));
+
+        assertThat(exitCode).isZero();
+        assertThat(started).singleElement().isInstanceOf(ApiKeyProvider.class);
+        assertThat(errorText()).contains("The provider is anthropic-api-key: the sessions use an Anthropic API "
+                + "key. The daily budget is $20.00.").doesNotContain("secret");
+        assertThat(temporaryDirectory.resolve("work/credentials/api-key-settings.json")).isRegularFile();
+    }
+
+    @Test
+    void printsTheSubscriptionProviderAtStart() throws IOException {
+        int exitCode = Main.run(new String[] {"run", "--config", writeConfiguration("claude").toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, provider, retries, token, errorStream) -> 0, createRecordingGit(new ArrayList<>()));
+
+        assertThat(exitCode).isZero();
+        assertThat(errorText())
+                .contains("The provider is subscription: the sessions use the claude login of the owner.");
     }
 
     @Test
@@ -458,6 +534,18 @@ class MainTest {
     }
 
     @Test
+    void anEventsFileThatCannotBeReadStopsTheStartInApiKeyMode() throws Exception {
+        FactoryConfiguration configuration = configuration(Optional.empty());
+        Files.createDirectories(configuration.workDirectory().resolve(EventsFile.FILE_NAME));
+        Provider provider = new ApiKeyProvider(temporaryDirectory.resolve("api-key-settings.json"),
+                new BigDecimal("20"));
+
+        assertThatThrownBy(() -> Main.SharedState.create(configuration, provider))
+                .isInstanceOf(Main.StartupException.class)
+                .hasMessageStartingWith("The worker cannot read the cost of today from events.jsonl");
+    }
+
+    @Test
     void describesTheWebAddress() {
         assertThat(Main.describeWebAddress(webSettings("127.0.0.1", 8090))).isEqualTo("http://127.0.0.1:8090/");
         assertThat(Main.describeWebAddress(webSettings("::1", 8090))).isEqualTo("http://[::1]:8090/");
@@ -495,11 +583,11 @@ class MainTest {
     }
 
     @Test
-    void makesNoWebServerWithoutAWebSection() {
+    void makesNoWebServerWithoutAWebSection() throws Exception {
         FactoryConfiguration configuration = configuration(Optional.empty());
 
         Optional<WebServer> server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
+                new FakeLiveSessions(), true, Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
                 Optional::empty, () -> 0, () -> 0, () -> { },
                 temporaryDirectory.resolve("claude-home"));
 
@@ -507,12 +595,12 @@ class MainTest {
     }
 
     @Test
-    void aPortInUseStopsTheStart() throws IOException {
+    void aPortInUseStopsTheStart() throws Exception {
         try (ServerSocket occupied = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             int port = occupied.getLocalPort();
             FactoryConfiguration configuration = configuration(Optional.of(webSettings("127.0.0.1", port)));
             WebServer server = Main.createWebServer(configuration, Main.SharedState.create(configuration),
-                    new FakeLiveSessions(), Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
+                    new FakeLiveSessions(), true, Main.createLabelWriter(new FakeGitHubClient()), BUILT_IN,
                     Optional::empty, () -> 0, () -> 0, () -> { }, temporaryDirectory.resolve("claude-home")).orElseThrow();
 
             assertThatThrownBy(() -> Main.startWebServer(server, configuration.web().orElseThrow(), errors))
@@ -529,7 +617,7 @@ class MainTest {
         gitHub.addIssue(12, "Fix the login", "body");
         shared.board().recordIssue(new Issue(12, "Fix the login", "body", Set.of("factory")),
                 RecordStates.move(RecordStates.queued(12).withAgentSessionStarted(), "waits-for-approval"));
-        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(),
+        WebServer server = Main.createWebServer(configuration, shared, new FakeLiveSessions(), true,
                 Main.createLabelWriter(gitHub), BUILT_IN, Optional::empty, () -> 1, () -> 1, () -> { },
                 temporaryDirectory.resolve("claude-home")).orElseThrow();
         Main.startWebServer(server, configuration.web().orElseThrow(), errors);

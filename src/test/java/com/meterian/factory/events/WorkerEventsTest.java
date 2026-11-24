@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.MutableClock;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -114,5 +115,13 @@ class WorkerEventsTest {
 
         assertThat(collected.ofType("wait")).extracting(line -> line.path("reason").asText())
                 .containsExactly("usage limit", "github rate limit", "usage limit");
+    }
+
+    @Test
+    void writesTheCostOfASession() {
+        events.writeCost(7, new BigDecimal("0.25"));
+
+        assertThat(collected.lines()).containsExactly(
+                "{\"time\":\"2026-11-22T17:20:05Z\",\"type\":\"cost\",\"issue\":7,\"cost_usd\":0.25}");
     }
 }

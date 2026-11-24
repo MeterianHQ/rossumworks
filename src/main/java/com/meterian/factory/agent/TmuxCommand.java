@@ -1,5 +1,6 @@
 package com.meterian.factory.agent;
 
+import com.meterian.factory.process.ChildEnvironment;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -78,11 +79,12 @@ final class TmuxCommand {
         command.add(program);
         command.addAll(serverOptions);
         command.addAll(List.of(arguments));
-        return new ProcessBuilder(command)
+        ProcessBuilder builder = new ProcessBuilder(command)
                 .redirectInput(ProcessBuilder.Redirect.from(Path.of("/dev/null").toFile()))
                 .redirectOutput(outputFile.toFile())
-                .redirectError(errorFile.toFile())
-                .start();
+                .redirectError(errorFile.toFile());
+        ChildEnvironment.removeAnthropicCredentials(builder.environment());
+        return builder.start();
     }
 
     private void waitForTheEnd(Process process, String[] arguments) throws LiveSessionException {

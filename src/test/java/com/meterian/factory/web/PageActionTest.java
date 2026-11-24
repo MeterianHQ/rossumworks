@@ -41,17 +41,22 @@ class PageActionTest {
 
     /** The rule of the action when the page remembers no request. */
     private static boolean isPossible(PageAction action, IssueCard card, boolean continueRequested) {
-        return action.isPossible(card, continueRequested, Set.of(), true, isInBlockTarget(card));
+        return action.isPossible(card, continueRequested, Set.of(), true, true, isInBlockTarget(card));
     }
 
     /** The rule of the action for a viewer on this machine, without a continue request. */
     private static boolean isPossibleOnThisMachine(PageAction action, IssueCard card, Set<String> rememberedLabels) {
-        return action.isPossible(card, false, rememberedLabels, true, isInBlockTarget(card));
+        return action.isPossible(card, false, rememberedLabels, true, true, isInBlockTarget(card));
     }
 
     /** The rule of the action for a viewer on another device. */
     private static boolean isPossibleFromAnotherDevice(PageAction action, IssueCard card) {
-        return action.isPossible(card, false, Set.of(), false, isInBlockTarget(card));
+        return action.isPossible(card, false, Set.of(), false, true, isInBlockTarget(card));
+    }
+
+    /** The rule of the action in API key mode, for a viewer on this machine. */
+    private static boolean isPossibleWithoutTheLiveMode(PageAction action, IssueCard card) {
+        return action.isPossible(card, false, Set.of(), true, false, isInBlockTarget(card));
     }
 
     @Test
@@ -206,6 +211,34 @@ class PageActionTest {
         assertThat(isPossible(PageAction.ENTER_BROWSER, started, false)).isTrue();
         assertThat(isPossible(PageAction.ENTER_TERMINAL, live, false)).isFalse();
         assertThat(isPossible(PageAction.ENTER_BROWSER, live, false)).isFalse();
+    }
+
+    @Test
+    void onlyTheLiveActionsNeedTheLiveMode() {
+        assertThat(Arrays.stream(PageAction.values()).filter(PageAction::needsLiveMode))
+                .containsExactly(PageAction.ENTER_TERMINAL, PageAction.ENTER_BROWSER, PageAction.OPEN_TERMINAL);
+    }
+
+    @Test
+    void aLiveActionIsNotPossibleWithoutTheLiveMode() {
+        IssueCard started = card(startedRecord("implement"));
+        IssueCard live = card(liveRecord(Optional.of(LINK)));
+
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.ENTER_TERMINAL, started)).isFalse();
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.ENTER_BROWSER, started)).isFalse();
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.OPEN_TERMINAL, live)).isFalse();
+    }
+
+    @Test
+    void theOtherActionsDoNotNeedTheLiveMode() {
+        IssueCard started = card(startedRecord("implement"));
+        IssueCard merge = card(startedRecord("waits-for-approval"));
+        IssueCard blocked = card(startedRecord("blocked"));
+
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.APPROVE, merge)).isTrue();
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.BLOCK, started)).isTrue();
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.START_AGAIN, blocked)).isTrue();
+        assertThat(isPossibleWithoutTheLiveMode(PageAction.CONTINUE, blocked)).isTrue();
     }
 
     @Test

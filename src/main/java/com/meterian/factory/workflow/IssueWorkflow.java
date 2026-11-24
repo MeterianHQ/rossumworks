@@ -2,7 +2,7 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.board.BoardUpdates;
@@ -24,7 +24,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.usage.ContextTracker;
-import com.meterian.factory.usage.UsageTracker;
+import com.meterian.factory.usage.PhaseGuard;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,13 +71,14 @@ public final class IssueWorkflow {
     /**
      * @param definitions     the definition version of each record
      * @param mergeRetryDelay the wait between two attempts of a squash merge
+     * @param guard           the guard that tells when a new phase may start
      * @param ownershipGuard  the check that this factory still owns the issue before a change on GitHub
      * @param lostIssues      the issues that another account owns now
      * @param events          the lines of the file events.jsonl, for a monitoring agent
      */
     public IssueWorkflow(FactoryConfiguration configuration, GitHubClient gitHub, Git git, AgentRunner agentRunner,
                          DefinitionLookup definitions,
-                         BuildRunner buildRunner, Duration mergeRetryDelay, UsageTracker usage,
+                         BuildRunner buildRunner, Duration mergeRetryDelay, PhaseGuard guard,
                          WorkspaceLayout layout, String workerLogin,
                          LiveSessions liveSessions, BoardUpdates board, ContextTracker contexts,
                          PageRequests pageRequests, RetrySettings retrySettings, OwnershipGuard ownershipGuard,
@@ -92,7 +93,7 @@ public final class IssueWorkflow {
         this.ownerApproval = new OwnerApproval(gitHub);
         StatusPublisher statusPublisher = new StatusPublisher(gitHub, workerLogin, definitions, board, lostIssues);
         this.issueTextCheck = new IssueTextCheck(ownerApproval);
-        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, usage, contexts, events);
+        PhaseRunner phaseRunner = new PhaseRunner(agentRunner, guard, contexts, events);
         this.liveMode = new LiveMode(git, gitHub, liveSessions, pageRequests);
         this.livePublisher = new LiveRecordPublisher(statusPublisher, liveSessions);
         this.unknownSessionCloser = new UnknownSessionCloser(liveSessions);
@@ -105,7 +106,7 @@ public final class IssueWorkflow {
     }
 
     /** The review notes go to the pull request only after the record of their round is on GitHub. */
-    public IssueRecord advance(IssueRecord record) throws ApiKeyDetectedException {
+    public IssueRecord advance(IssueRecord record) throws CredentialMismatchException {
         reviewNotesToPublish.remove(record.issueNumber());
         Issue issue = gitHub.issue(record.issueNumber());
         IssueRecord next = runCurrentAction(issue, record);
@@ -123,7 +124,7 @@ public final class IssueWorkflow {
         try {
             IssueRecord next = enterTheConversation(issue, record);
             return livePublisher.publish(issue, record, next);
-        } catch (ApiKeyDetectedException exception) {
+        } catch (CredentialMismatchException exception) {
             throw new IllegalStateException("The conversation action runs no agent session.", exception);
         }
     }
@@ -190,7 +191,7 @@ public final class IssueWorkflow {
         }
     }
 
-    private IssueRecord enterTheConversation(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+    private IssueRecord enterTheConversation(Issue issue, IssueRecord record) throws CredentialMismatchException {
         if (record.action().equals(Optional.of(ActionType.FINISH))) {
             return record.withNote(DONE_NOTE);
         }
@@ -214,7 +215,7 @@ public final class IssueWorkflow {
      * Fail closed: while a session that the record does not know can run, no action starts. An issue whose
      * definition version does not load runs no action.
      */
-    private IssueRecord runCurrentAction(Issue issue, IssueRecord record) throws ApiKeyDetectedException {
+    private IssueRecord runCurrentAction(Issue issue, IssueRecord record) throws CredentialMismatchException {
         Optional<IssueRecord> withoutUnknownSession = unknownSessionCloser.closeUnknownSession(record);
         if (withoutUnknownSession.isEmpty()) {
             return record;
@@ -247,7 +248,7 @@ public final class IssueWorkflow {
 
     /** A refused agent session keeps the record from before the action: the worker shuts down. */
     private IssueRecord runActionAndCatchFailures(Issue issue, IssueRecord record, ActionSet actionSet)
-            throws ApiKeyDetectedException {
+            throws CredentialMismatchException {
         try {
             return runAction(issue, record, actionSet, layout.worktree(record.issueNumber()));
         } catch (PhaseRefusedException refused) {
@@ -266,7 +267,7 @@ public final class IssueWorkflow {
      * text does not start when the text changed.
      */
     private IssueRecord runAction(Issue issue, IssueRecord record, ActionSet actionSet, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         FactoryDefinition definition = actionSet.definition();
         Action action = actionSet.actionOf(record.action());
         if (isInTheFinishState(record)) {
@@ -283,7 +284,7 @@ public final class IssueWorkflow {
 
     /** An entry counts only when the action starts, so a limit that refuses the entry does not count it. */
     private IssueRecord startAction(Issue issue, IssueRecord record, ActionSet actionSet, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         FactoryDefinition definition = actionSet.definition();
         Optional<IssueRecord> refused = limitCheck.refuseEntry(definition, record, worktree);
         if (refused.isPresent()) {

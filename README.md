@@ -1,5 +1,5 @@
 # RossumWorks
-A simple AI factory that uses your Claude subscription and runs on GitHub.
+A simple AI factory that uses your Claude subscription or an Anthropic API key, and runs on GitHub.
 
 The name comes from *R.U.R.* ("Rossum's Universal Robots"), the play by Karel Čapek from 1920.
 This play gave the world the word "robot". Its robots come from a factory, like the work of this project.
@@ -7,6 +7,44 @@ This play gave the world the word "robot". Its robots come from a factory, like 
 ## Build
 
 Run `./mvnw verify`. The build needs a JDK 21 or later.
+
+## Legal considerations
+
+The factory runs the `claude` CLI with your subscription, from a script. The Anthropic Consumer Terms do not
+permit access to the services through a script, except with an API key or with an explicit permission. Other
+Anthropic documents permit the unmodified `claude` CLI with your own subscription, and also in scripts. The
+documents do not agree. Read `docs/legal-considerations.md` before you use the factory.
+
+## Provider
+
+The factory uses one provider for all its claude sessions. The key `claude.provider` of `worker.yaml` selects
+it. At start, the worker prints the provider in one line.
+
+- `subscription`: the sessions use your `claude` login. Do not set `ANTHROPIC_API_KEY`: if it is set, the
+  worker does not start. Each session must send usage windows. A session without them stops the factory.
+- `anthropic-api-key`: the worker reads the key from `ANTHROPIC_API_KEY`. If it is not set, the worker does
+  not start. The key `limits.daily-budget-usd` is necessary.
+
+In API key mode:
+
+- At start, the worker writes `<work-directory>/credentials/api-key-helper.sh` and `api-key-settings.json`.
+  Only you can read them. Each phase gets `--settings <path of api-key-settings.json>`, and `claude` gets
+  the key from the helper. The worker removes the key from the environment of each child process, so the
+  commands of the agent, the builds, and the git hooks do not get it.
+- The settings file also has `Read` and `Edit` deny rules for the `credentials` folder. These rules stop the
+  file tools of the agent. They do not stop all the commands, for example a script that opens the file.
+- When you change the provider back to `subscription`, the worker deletes the `credentials` folder at start.
+- The worker adds up the cost of each session of today in `events.jsonl`. At the budget, no new phase starts
+  until midnight, in the time zone of the machine. A phase that runs continues to its end. The worker also
+  asks the budget before each review of a review round.
+- The worker ignores a line of `events.jsonl` that it cannot read. If it cannot read the file, it does not
+  start.
+- The budget does not include a session that ends without a result. Thus also set a spend limit on the key in
+  the Anthropic Console.
+- The board shows "Cost today" in place of the usage windows.
+- There is no live mode. An interactive `claude` gets "credit balance too low" with a key that works in print
+  mode. When an issue needs you, the factory blocks it with a note, and you answer on GitHub.
+  The board does not show the buttons of the live mode, and the server refuses them.
 
 ## Configuration
 
@@ -18,7 +56,7 @@ the facts of this machine:
 - `work-directory`: the folder of the worker. The worker clones the repository into `<work-directory>/repository`
   at the start, when this folder does not exist. A clone that exists stays as it is.
 - `gatekeeper-directory` and `live-directory`: the folders of the gatekeeper and of the live files.
-- `limits`: `parallel-issues`, `poll-interval`, and `usage-threshold`. Each card on the board holds a slot of
+- `limits`: `parallel-issues`, `poll-interval`, `usage-threshold`, and `daily-budget-usd`. Each card on the board holds a slot of
   `parallel-issues`, also a card that waits for you. A card in `queued`, a done card, and a blocked card hold no
   slot. The worker takes a card from `queued`, or continues a blocked card, only when a slot is free. A card that
   holds a slot already, for example an approved card, continues when a running action or a live session does not
@@ -29,6 +67,7 @@ the facts of this machine:
   a slot before a queued issue, also after a restart of the worker. A Stop waits for the running actions and the
   live sessions, but not for a card that waits for you.
 - `build.environment`: the variables of this machine, for example `JAVA_HOME`.
+- `claude.provider`: `subscription` (the default) or `anthropic-api-key`. See "Provider".
 - `isolation`, `claude`, `live`, and `web`.
 
 The workflow, the build, the merge target, and the allowed tools are in the folder `.factory`
@@ -75,8 +114,8 @@ The factory needs no GitHub Project. The worker creates its labels in the target
 `factory:is:<column>`, on its first use, for example `factory:is:in-review`. The label of a column is for display
 only: the record in the status comment keeps the state. The worker removes the old labels `factory:status:<name>`.
 
-1. Log in to the `claude` CLI with your Claude subscription. Do not set `ANTHROPIC_API_KEY`: the factory
-   refuses to start when it is set.
+1. Select the provider (see "Provider"). For the subscription, log in to the `claude` CLI and do not set
+   `ANTHROPIC_API_KEY`. For an API key, set `ANTHROPIC_API_KEY`.
 2. Log in with `gh auth login`. Or set `FACTORY_GITHUB_TOKEN` to a GitHub token of the worker account.
 3. Download `rossumworks-$VERSION.jar` from the
    [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases). Or build the jar with
@@ -181,7 +220,7 @@ notification for these comments. With a separate worker account, the owner gets 
 issues that the owner watches. With a separate worker account, assign the issues to the worker account or to
 nobody. An issue that is assigned to a human gets no work.
 
-The worker exits with code 2 when a `claude` session uses an API key. It exits with code 1 when a check
+The worker exits with code 2 when a `claude` session does not use the credential of the provider. It exits with code 1 when a check
 before the start fails. Ctrl-C stops the running `claude` sessions. The interrupted actions run again from
 their start at the next run.
 
@@ -223,6 +262,7 @@ The other fields depend on the type:
 | `pr` | The factory opens or merges a pull request. | `event` (`opened`, `merged`), `url`, `commit` (for `merged`) |
 | `blocked` | An issue goes to the block target. | `reason` |
 | `question` | The agent asks the owner a question. | `first_line` |
+| `cost` | A session ends with a cost. | `issue`, `cost_usd` |
 | `wait` | The worker waits for a rate limit or a usage limit. | `reason` (`github rate limit`, `usage limit`), `until` (UTC) |
 
 - `move`: a move without an event has no field `event`, for example a limit or a block. The field `entries`
@@ -363,6 +403,8 @@ conversations, also for a target that has no such rule in its `CLAUDE.md`.
 
 In live mode the owner talks to the agent of an issue through Remote Control. The factory needs `tmux` and
 `jq` for this. The factory refuses to start without them.
+
+Only the subscription has the live mode. API key mode has no live mode. See "Provider".
 
 ### Enter
 
@@ -536,8 +578,8 @@ attempts for 15 minutes, also the correct password.
 ### Content
 
 The header shows the health of the worker: its start time, the time of the last GitHub check, the issues in
-work against the limit, and the isolation mode. It also shows each usage window of the subscription with its
-percent. The tooltip of a usage window tells the time of the value. A phone shows no tooltip. When `.factory` of
+work against the limit, and the isolation mode. With the subscription, it also shows each usage window with its
+percent. With an API key, it shows "Cost today". The tooltip of a usage window tells the time of the value. A phone shows no tooltip. When `.factory` of
 the default branch does not load, a warning line at the top of the board gives the reason.
 
 At its start, the worker runs one very short `claude -p` session to read the usage, so that the page shows it

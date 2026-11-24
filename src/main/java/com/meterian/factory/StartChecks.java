@@ -1,6 +1,8 @@
 package com.meterian.factory;
 
 import com.meterian.factory.Main.StartupException;
+import com.meterian.factory.configuration.ProviderName;
+import com.meterian.factory.process.ChildEnvironment;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-/** The checks that the commands run and create make before they start: the API key, the programs, the token. */
+/** The checks that the commands run and create make before they start: the credential, the programs, the token. */
 public final class StartChecks {
 
     private static final String API_KEY_VARIABLE = "ANTHROPIC_API_KEY";
@@ -31,9 +33,17 @@ public final class StartChecks {
         Optional<String> read() throws StartupException;
     }
 
-    public static void verifyNoApiKey(Map<String, String> environment) throws StartupException {
-        if (environment.containsKey(API_KEY_VARIABLE)) {
-            throw new StartupException("Remove ANTHROPIC_API_KEY: the factory uses only the Claude subscription.");
+    /** The variable ANTHROPIC_API_KEY must agree with the provider of the configuration. */
+    public static void verifyCredential(Map<String, String> environment, ProviderName provider)
+            throws StartupException {
+        boolean hasApiKey = !environment.getOrDefault(API_KEY_VARIABLE, "").isBlank();
+        if (provider == ProviderName.SUBSCRIPTION && hasApiKey) {
+            throw new StartupException("Remove ANTHROPIC_API_KEY: the provider is subscription. "
+                    + "To use the key, set claude.provider to anthropic-api-key.");
+        }
+        if (provider == ProviderName.ANTHROPIC_API_KEY && !hasApiKey) {
+            throw new StartupException("Set ANTHROPIC_API_KEY: the provider is anthropic-api-key. "
+                    + "To use the claude login, remove claude.provider.");
         }
     }
 
@@ -87,10 +97,11 @@ public final class StartChecks {
         Path outputFile = null;
         try {
             outputFile = Files.createTempFile("factory-token", ".out");
-            Process process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .redirectOutput(outputFile.toFile())
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
+                    .redirectError(ProcessBuilder.Redirect.DISCARD);
+            ChildEnvironment.removeAnthropicCredentials(builder.environment());
+            Process process = builder.start();
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
                 throw new StartupException("The command " + String.join(" ", command) + " did not answer in "

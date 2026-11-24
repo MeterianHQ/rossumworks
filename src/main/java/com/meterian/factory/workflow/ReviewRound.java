@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.prompt.Finding;
@@ -24,20 +24,25 @@ final class ReviewRound {
 
     /**
      * The record with the verdicts, the findings of the rejecting reviews, and the notes of all reviews, or a
-     * session that failed or that the worker stopped. After a failed or a stopped session, the record has the
-     * verdicts of the reviews that finished.
+     * session that failed or that the worker stopped, or a review that the guard did not let start. In these
+     * three cases, the record has the verdicts of the reviews that finished.
      *
      * @param findingCounts the count of the findings of each review, by review name, in the order of the reviews
      */
     record Outcome(IssueRecord record, List<Finding> findings, List<ReviewNote> notes, List<String> reviewNames,
-                   Map<String, Integer> findingCounts, boolean sessionFailed, boolean sessionStopped) {
+                   Map<String, Integer> findingCounts, boolean sessionFailed, boolean sessionStopped,
+                   boolean guardStoppedReview) {
 
         static Outcome failedSession(IssueRecord record) {
-            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), true, false);
+            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), true, false, false);
         }
 
         static Outcome stoppedSession(IssueRecord record) {
-            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), false, true);
+            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), false, true, false);
+        }
+
+        static Outcome guardStoppedReview(IssueRecord record) {
+            return new Outcome(record, List.of(), List.of(), List.of(), Map.of(), false, false, true);
         }
 
         boolean allApprove() {
@@ -59,13 +64,16 @@ final class ReviewRound {
     }
 
     Outcome review(Issue issue, IssueRecord record, Path worktree, String treeHash)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         IssueRecord reviewed = statusPublisher.publish(issue, record, record.withoutReviews());
         List<Finding> findings = new ArrayList<>();
         List<ReviewNote> notes = new ArrayList<>();
         Map<String, Integer> findingCounts = new LinkedHashMap<>();
         List<String> reviewNames = prompts.reviewNames();
         for (String reviewName : reviewNames) {
+            if (!phaseRunner.mayStartPhase()) {
+                return Outcome.guardStoppedReview(reviewed);
+            }
             SessionReport report = runReview(issue, reviewName, worktree, treeHash);
             if (report.stopped()) {
                 return Outcome.stoppedSession(reviewed);
@@ -84,11 +92,11 @@ final class ReviewRound {
             findings.addAll(rejection);
             findingCounts.put(reviewName, rejection.size());
         }
-        return new Outcome(reviewed, findings, notes, reviewNames, findingCounts, false, false);
+        return new Outcome(reviewed, findings, notes, reviewNames, findingCounts, false, false, false);
     }
 
     private SessionReport runReview(Issue issue, String reviewName, Path worktree, String treeHash)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         new FactoryFolder(worktree).deleteReviewResult(reviewName);
         String prompt = prompts.review(reviewName, issue, treeHash);
         return phaseRunner.runInNewSession(issue.number(), worktree, prompt, allowedTools);

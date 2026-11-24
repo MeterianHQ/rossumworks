@@ -137,32 +137,6 @@ class LiveFilesTest {
     }
 
     @Test
-    void aParentOfTheCurrentUserWithThePrivateGroupMayBeWritableByTheGroup() {
-        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
-
-        assertThat(LiveFiles.isSafeParent(0775, 1000, 1000, "alice", me)).isTrue();
-    }
-
-    @Test
-    void aParentWithAnotherGroupThatCanWriteIsNotSafe() {
-        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
-
-        assertThat(LiveFiles.isSafeParent(0775, 1000, 4, "adm", me)).isFalse();
-        assertThat(LiveFiles.isSafeParent(0775, 1000, 1000, "staff", me)).isFalse();
-        assertThat(LiveFiles.isSafeParent(0775, 0, 1000, "alice", me)).isFalse();
-    }
-
-    @Test
-    void aParentThatOthersCanWriteIsNotSafeWithThePrivateGroup() {
-        LiveFiles.ProcessIdentity me = new LiveFiles.ProcessIdentity(1000, 1000, "alice");
-
-        assertThat(LiveFiles.isSafeParent(0777, 1000, 1000, "alice", me)).isFalse();
-        assertThat(LiveFiles.isSafeParent(01777, 1000, 1000, "alice", me)).isTrue();
-        assertThat(LiveFiles.isSafeParent(01777, 0, 0, "root", me)).isTrue();
-        assertThat(LiveFiles.isSafeParent(01777, 1001, 1001, "bob", me)).isFalse();
-    }
-
-    @Test
     void installJudgesALinkedParentByItsRealTarget() throws IOException {
         Path target = Files.createDirectories(temporaryDirectory.resolve("real-target"));
         Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rwxrwxrwx"));

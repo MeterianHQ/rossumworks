@@ -1,7 +1,9 @@
 package com.meterian.factory.setup;
 
 import com.meterian.factory.configuration.ConfigurationException;
+import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.configuration.RepositoryName;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -15,11 +17,14 @@ public record CreateOptions(
         boolean noWeb,
         Optional<List<String>> terminalCommand,
         Optional<String> buildCommand,
-        boolean yes) {
+        boolean yes,
+        Optional<ProviderName> provider,
+        Optional<BigDecimal> dailyBudgetUsd) {
 
     public static final String USAGE = "Usage: java -jar rossumworks.jar create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
-            + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"] [--yes]";
+            + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>] [--yes]";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
         Optional<RepositoryName> repository = Optional.empty();
@@ -29,6 +34,8 @@ public record CreateOptions(
         Optional<List<String>> terminalCommand = Optional.empty();
         Optional<String> buildCommand = Optional.empty();
         boolean yes = false;
+        Optional<ProviderName> provider = Optional.empty();
+        Optional<BigDecimal> dailyBudgetUsd = Optional.empty();
         for (int index = 0; index < arguments.size(); index++) {
             String parameter = arguments.get(index);
             switch (parameter) {
@@ -39,13 +46,17 @@ public record CreateOptions(
                 case "--web" -> web = Optional.of(readValue(arguments, ++index, parameter));
                 case "--terminal-command" -> terminalCommand = Optional.of(splitCommand(readValue(arguments, ++index, parameter)));
                 case "--build-command" -> buildCommand = Optional.of(readBuildCommand(arguments, ++index, parameter));
+                case "--provider" -> provider = Optional.of(parseProvider(readValue(arguments, ++index, parameter)));
+                case "--daily-budget-usd" ->
+                        dailyBudgetUsd = Optional.of(parseDailyBudget(readValue(arguments, ++index, parameter)));
                 default -> throw new SetupException("Unknown parameter " + parameter + ".\n" + USAGE);
             }
         }
         if (web.isPresent() && noWeb) {
             throw new SetupException("Give --web or --no-web, not both.\n" + USAGE);
         }
-        return new CreateOptions(repository, workDirectory, web, noWeb, terminalCommand, buildCommand, yes);
+        return new CreateOptions(repository, workDirectory, web, noWeb, terminalCommand, buildCommand, yes,
+                provider, dailyBudgetUsd);
     }
 
     private static String readValue(List<String> arguments, int index, String parameter) throws SetupException {
@@ -70,6 +81,16 @@ public record CreateOptions(
         } catch (ConfigurationException exception) {
             throw new SetupException("The repository must have the form owner/name, for example MeterianHQ/heidi-fix.");
         }
+    }
+
+    private static ProviderName parseProvider(String value) throws SetupException {
+        return ProviderName.findByConfigurationValue(value).orElseThrow(() -> new SetupException(
+                "The provider must be subscription or anthropic-api-key.\n" + USAGE));
+    }
+
+    private static BigDecimal parseDailyBudget(String value) throws SetupException {
+        return ProviderChoice.parseDailyBudget(value).orElseThrow(() -> new SetupException(
+                "The daily budget must be a number from 0.01 to 1000000.\n" + USAGE));
     }
 
     private static List<String> splitCommand(String command) {

@@ -77,6 +77,15 @@ class ClaudeCommandTest {
         assertThat(arguments.subList(toolsStart, toolsEnd)).containsExactly("Read", "Bash(npm test)");
     }
 
+    @Test
+    void theProviderArgumentsComeBeforeTheToolLists() {
+        List<String> arguments = ClaudeCommand.arguments(settings, requestOf(true),
+                List.of("--settings", "/work/credentials/api-key-settings.json"));
+
+        assertThat(arguments).containsSubsequence("--settings", "/work/credentials/api-key-settings.json",
+                "--allowedTools");
+    }
+
     private PhaseRequest requestOf(boolean newSession) {
         return new PhaseRequest(7, sessionId, newSession, Path.of("."), "Fix it", TestTools.ALLOWED_TOOLS);
     }

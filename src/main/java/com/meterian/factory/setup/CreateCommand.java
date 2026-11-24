@@ -81,7 +81,6 @@ public final class CreateCommand {
     }
 
     private int create(CreateOptions options) throws SetupException, StartupException {
-        StartChecks.verifyNoApiKey(environment);
         StartChecks.verifyCommandsOnPath(REQUIRED_PROGRAMS, path());
         String token = StartChecks.readToken(environment, ghToken);
         SetupQuestions questions = new SetupQuestions(console, environment, this::isOnPath, home);
@@ -90,12 +89,14 @@ public final class CreateCommand {
         verifyNoWorkerFile(WorkerSettings.configurationFileIn(workDirectory));
         Optional<WebPage> web = questions.askWeb(options);
         Optional<List<String>> terminalCommand = questions.askTerminalCommand(options);
+        ProviderChoice provider = questions.askProvider(options);
+        StartChecks.verifyCredential(environment, provider.name());
         GitHubClient gitHub = gitHubConnector.connect(repository, token);
         RepositorySetup setup = new RepositorySetup(git, gitHub, gitHubConnector.cloneUrl(repository));
         Path clone = workDirectory.resolve(CLONE_FOLDER);
         RepositoryFacts facts = setup.read(clone);
         WorkerSettings settings = new WorkerSettings(repository, workDirectory, web, terminalCommand,
-                findJavaHome(facts));
+                findJavaHome(facts), provider);
         if (facts.hasFactory()) {
             return writeOnlyTheWorkerFile(options, questions, settings);
         }

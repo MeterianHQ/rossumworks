@@ -2,6 +2,7 @@ package com.meterian.factory.events;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -107,6 +108,11 @@ public final class WorkerEvents {
         fields.put("reason", reason);
         fields.put("until", until.truncatedTo(ChronoUnit.SECONDS).toString());
         write("wait", Optional.empty(), fields);
+    }
+
+    /** The cost of one claude session in US dollars. The daily budget of API key mode adds up these lines. */
+    public void writeCost(int issueNumber, BigDecimal costUsd) {
+        write("cost", Optional.of(issueNumber), Map.of("cost_usd", costUsd));
     }
 
     private void writeWorkerEvent(String event, String version, String repository) {

@@ -291,6 +291,68 @@ class ConfigurationLoaderTest {
         }
     }
 
+    @Test
+    void theProviderIsTheSubscriptionByDefault() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS);
+
+        assertThat(configuration.claude().provider()).isEqualTo(ProviderName.SUBSCRIPTION);
+        assertThat(configuration.limits().dailyBudgetUsd()).isEmpty();
+    }
+
+    @Test
+    void readsTheApiKeyProviderAndTheBudget() throws Exception {
+        FactoryConfiguration configuration = load(REQUIRED_KEYS + """
+                claude:
+                  provider: anthropic-api-key
+                limits:
+                  daily-budget-usd: 20.50
+                """);
+
+        assertThat(configuration.claude().provider()).isEqualTo(ProviderName.ANTHROPIC_API_KEY);
+        assertThat(configuration.limits().dailyBudgetUsd()).hasValueSatisfying(
+                budget -> assertThat(budget).isEqualByComparingTo("20.50"));
+    }
+
+    @Test
+    void refusesAnUnknownProvider() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + """
+                claude:
+                  provider: ollama
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key claude.provider must be subscription or anthropic-api-key.");
+    }
+
+    @Test
+    void theApiKeyProviderNeedsTheBudget() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + """
+                claude:
+                  provider: anthropic-api-key
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("The provider anthropic-api-key needs the key limits.daily-budget-usd.");
+    }
+
+    @Test
+    void refusesABudgetOfZero() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + """
+                limits:
+                  daily-budget-usd: 0
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key limits.daily-budget-usd must be more than 0.");
+    }
+
+    @Test
+    void refusesAnInfiniteBudget() {
+        assertThatThrownBy(() -> load(REQUIRED_KEYS + """
+                limits:
+                  daily-budget-usd: 1.0e999
+                """))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage("Configuration key limits.daily-budget-usd must be more than 0.");
+    }
+
     private FactoryConfiguration load(String content) throws ConfigurationException, IOException {
         Path file = temporaryDirectory.resolve("factory.yaml");
         Files.writeString(file, content);

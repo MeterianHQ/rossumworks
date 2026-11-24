@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meterian.factory.testing.TestTools;
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.provider.ApiKeyProvider;
+import com.meterian.factory.provider.Provider;
+import com.meterian.factory.provider.SubscriptionProvider;
+import java.math.BigDecimal;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -24,6 +28,9 @@ import org.junit.jupiter.api.io.TempDir;
 class ClaudeAgentRunnerTest {
 
     private static final Duration LIMIT = Duration.ofSeconds(5);
+
+    private static final Provider API_KEY_PROVIDER = new ApiKeyProvider(
+            Path.of("/work/credentials/api-key-settings.json"), new BigDecimal("20"));
 
     @TempDir
     Path directory;
@@ -48,7 +55,7 @@ class ClaudeAgentRunnerTest {
         ClaudeAgentRunner runner = runnerFor("api-key-init-first.jsonl", "30", "0");
         long start = System.nanoTime();
 
-        assertThatThrownBy(() -> runner.runPhase(requestOf(7))).isInstanceOf(ApiKeyDetectedException.class);
+        assertThatThrownBy(() -> runner.runPhase(requestOf(7))).isInstanceOf(CredentialMismatchException.class);
 
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(LIMIT);
     }
@@ -86,7 +93,7 @@ class ClaudeAgentRunnerTest {
         ClaudeAgentRunner runner = runnerFor("success-without-init.jsonl", "", "0");
 
         assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
-                .isInstanceOf(ApiKeyDetectedException.class)
+                .isInstanceOf(CredentialMismatchException.class)
                 .hasMessage("The session did not report its credential source.");
     }
 
@@ -122,8 +129,8 @@ class ClaudeAgentRunnerTest {
     void honorsAStopRequestedBeforeTheProcessStarts() throws Exception {
         ClaudeSettings settings = settingsFor("success.jsonl", Map.of("FAKE_CLAUDE_SLEEP", "30"));
         ClaudeAgentRunner[] holder = new ClaudeAgentRunner[1];
-        holder[0] = new ClaudeAgentRunner(settings, Clock.systemUTC(), directory, System.getenv(),
-                issueNumber -> holder[0].stopPhase(issueNumber));
+        holder[0] = new ClaudeAgentRunner(settings, Clock.systemUTC(), directory, new SubscriptionProvider(),
+                System.getenv(), issueNumber -> holder[0].stopPhase(issueNumber));
         long start = System.nanoTime();
 
         SessionReport report = holder[0].runPhase(requestOf(7));
@@ -211,6 +218,44 @@ class ClaudeAgentRunnerTest {
         assertThat(waitUntilDead(readChildPid())).isTrue();
     }
 
+    @Test
+    void stopsASubscriptionSessionWithoutUsageWindows() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("success-without-windows.jsonl", "", "0");
+
+        assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
+                .isInstanceOf(CredentialMismatchException.class)
+                .hasMessage("The session sent no usage windows. The provider subscription expects them.");
+    }
+
+    @Test
+    void acceptsAHelperSessionInApiKeyMode() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("api-key-helper.jsonl", Map.of(), System.getenv(), API_KEY_PROVIDER);
+
+        assertThat(runner.runPhase(requestOf(7)).success()).isTrue();
+    }
+
+    @Test
+    void stopsASubscriptionSessionInApiKeyMode() throws Exception {
+        ClaudeAgentRunner runner = runnerFor("success.jsonl", Map.of(), System.getenv(), API_KEY_PROVIDER);
+
+        assertThatThrownBy(() -> runner.runPhase(requestOf(7)))
+                .isInstanceOf(CredentialMismatchException.class)
+                .hasMessage("The session uses the credential source none. "
+                        + "The provider anthropic-api-key expects apiKeyHelper.");
+    }
+
+    @Test
+    void givesTheSettingsFileAndNoKeyInApiKeyMode() throws Exception {
+        Map<String, String> parent = Map.of("ANTHROPIC_API_KEY", "from-the-shell", "PATH", System.getenv("PATH"));
+
+        runnerFor("api-key-helper.jsonl", Map.of(), parent, API_KEY_PROVIDER).runPhase(requestOf(7));
+
+        assertThat(Files.readAllLines(directory.resolve("arguments.txt")))
+                .containsSubsequence("--settings", "/work/credentials/api-key-settings.json");
+        assertThat(Files.readString(directory.resolve("environment.txt")))
+                .doesNotContain("ANTHROPIC_API_KEY", "from-the-shell");
+    }
+
     private long readChildPid() throws IOException {
         return Long.parseLong(Files.readString(directory.resolve("child.pid")).trim());
     }
@@ -252,7 +297,12 @@ class ClaudeAgentRunnerTest {
 
     private ClaudeAgentRunner runnerFor(String stream, Map<String, String> options, Map<String, String> parent)
             throws IOException, URISyntaxException {
-        return new ClaudeAgentRunner(settingsFor(stream, options), Clock.systemUTC(), directory, parent,
+        return runnerFor(stream, options, parent, new SubscriptionProvider());
+    }
+
+    private ClaudeAgentRunner runnerFor(String stream, Map<String, String> options, Map<String, String> parent,
+            Provider provider) throws IOException, URISyntaxException {
+        return new ClaudeAgentRunner(settingsFor(stream, options), Clock.systemUTC(), directory, provider, parent,
                 issueNumber -> { });
     }
 

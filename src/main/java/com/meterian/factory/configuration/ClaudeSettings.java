@@ -2,7 +2,7 @@ package com.meterian.factory.configuration;
 
 import java.util.List;
 
-public record ClaudeSettings(String command, List<String> disallowedTools) {
+public record ClaudeSettings(String command, List<String> disallowedTools, ProviderName provider) {
 
     public static final String DEFAULT_COMMAND = "claude";
 
@@ -10,6 +10,11 @@ public record ClaudeSettings(String command, List<String> disallowedTools) {
             "Bash(git push*)", "Bash(git remote*)", "Bash(git config*)", "Bash(gh *)",
             "Bash(ssh *)", "Bash(scp *)", "Bash(curl *)", "Bash(wget *)",
             "WebFetch", "WebSearch");
+
+    /** The subscription is the default provider. */
+    public ClaudeSettings(String command, List<String> disallowedTools) {
+        this(command, disallowedTools, ProviderName.SUBSCRIPTION);
+    }
 
     public static ClaudeSettings createDefaults() {
         return new ClaudeSettings(DEFAULT_COMMAND, DEFAULT_DISALLOWED_TOOLS);

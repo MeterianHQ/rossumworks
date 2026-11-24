@@ -1,7 +1,7 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.agent.AgentException;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.prompt.Finding;
@@ -25,7 +25,7 @@ final class RiskAction implements Action {
 
     @Override
     public ActionResult run(Issue issue, IssueRecord record, Path worktree)
-            throws AgentException, ApiKeyDetectedException {
+            throws AgentException, CredentialMismatchException {
         if (!services.phaseRunner().mayStartPhase()) {
             return ActionResult.stay(record);
         }
