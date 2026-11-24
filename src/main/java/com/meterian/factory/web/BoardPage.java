@@ -5,6 +5,7 @@ import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.board.IssueCard;
 import com.meterian.factory.definition.ColumnNames;
+import com.meterian.factory.usage.DollarAmount;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -80,6 +81,8 @@ public final class BoardPage {
         appendTile(html, "Issues in work", model.issuesInWork() + " of " + model.parallelLimit());
         appendTile(html, "Isolation", describeIsolation(model));
         model.usageWindows().forEach(window -> appendUsageTile(html, window));
+        model.budget().ifPresent(budget -> appendTile(html, "Cost today",
+                DollarAmount.format(budget.costToday()) + " of " + DollarAmount.format(budget.dailyBudget())));
         html.append("</div>");
     }
 

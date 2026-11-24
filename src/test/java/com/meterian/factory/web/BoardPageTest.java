@@ -14,6 +14,8 @@ import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.RecordStates;
+import com.meterian.factory.usage.BudgetStatus;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -140,6 +142,25 @@ class BoardPageTest {
         return new PageModel(snapshot, NOW, 2, 2, limits, reviewNames, inBlockTarget, IsolationMode.SAME_USER, POLL_INTERVAL,
                 usageWindows, usageResumesAt, Optional.empty(), contexts, continueRequested, rememberedLabels, enterPlaces,
                 "MeterianHQ/target", viewerOnThisMachine, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
+    }
+
+    private static PageModel withBudget(PageModel model, BudgetStatus budget) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
+                model.usageWindows(), model.usageResumesAt(), Optional.of(budget), model.contexts(),
+                model.continueRequested(), model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
+                model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
+    }
+
+    @Test
+    void showsTheCostOfTodayInApiKeyMode() {
+        PageModel model = withBudget(model(List.of(), Optional.of(NOW), List.of(), Optional.empty(), Map.of()),
+                new BudgetStatus(new BigDecimal("4.123"), new BigDecimal("20")));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).contains("<div class=\"tile\"><span class=\"tile-label\">Cost today</span>"
+                + "<span class=\"tile-value\">$4.12 of $20.00</span></div>");
     }
 
     private static PageModel withColumns(PageModel model, List<String> columns) {
