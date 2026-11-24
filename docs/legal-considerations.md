@@ -7,9 +7,11 @@ them at any time, so read the current versions before you decide.
 ## 1. What the factory does
 
 - The factory runs the unmodified `claude` CLI.
-- In the current version, each session uses the Claude subscription of the owner.
+- With the provider `subscription`, each session uses your Claude subscription. With the provider
+  `anthropic-api-key`, each session uses an Anthropic API key.
 - The factory never uses the Claude Agent SDK, and it never calls an Anthropic endpoint directly.
-- A Java worker starts the sessions with `claude -p`, without a human. Thus the factory is a script.
+- A Java worker starts the sessions with `claude -p`, without a human. Thus the factory is a script. Only a live
+  conversation uses an interactive `claude` session, and a person talks to the agent there.
 
 ## 2. Statements against the use of a subscription
 
@@ -28,14 +30,14 @@ to use our Services for any commercial or business purposes". The same page also
 consumers who live in the United Kingdom. It is not clear to which users this clause applies. Read the
 section yourself if you use the factory for the work of a company.
 
-**Consumer Terms, note on organizations.** If you act on behalf of an organization, the Commercial Terms of
+**Consumer Terms, note on organizations.** You can act on behalf of an organization. Then the Commercial Terms of
 Service govern your use of an Anthropic API key.
 
 ## 3. Statements for the use of a subscription
 
 **Claude Code legal page.** The restrictions on third-party developers do not "prevent an end user from
 signing in to the unmodified Claude Code binary with their own Claude subscription". The factory does
-this: the owner signs in to the unmodified binary with the subscription of the owner.
+this: you sign in to the unmodified binary with your own subscription.
 
 **Headless documentation.** Anthropic documents `claude -p` "for scripts and CI/CD" and for "a scheduled
 job". Only the `--bare` mode needs an API key. You can say that this is the "explicitly permit" exception of
@@ -56,8 +58,8 @@ permitted. The current legal page does not contain that sentence.
 
 ## 5. Remote Control
 
-Remote Control needs a claude.ai subscription. It does not work with an API key. This has an effect on the
-live mode of the factory when it uses an API key.
+Remote Control needs a claude.ai subscription. It does not work with an API key. Thus
+the factory has no live mode with an API key.
 
 ## 6. Conclusion
 
@@ -65,14 +67,14 @@ live mode of the factory when it uses an API key.
   permitted.
 - No Anthropic document says clearly that the unmodified `claude` CLI in a script is forbidden.
 - The factory has the strongest position that is possible with a subscription: the unmodified binary, the
-  login of the owner, no API key, no Agent SDK, and no internal endpoints.
+  your own login, no API key, no Agent SDK, and no internal endpoints.
 - Item 7 is still a risk. An API key removes this risk, because item 7 has an exception for it.
 
 To remove the risk:
 
 1. Ask Anthropic support for a written confirmation of your use.
-2. Or use an Anthropic API key. Set `claude.provider: anthropic-api-key` in `worker.yaml`. See the section
-   "Provider" of the README. If you use the key for an organization, the Commercial Terms of Service apply.
+2. Or use an Anthropic API key. Set `claude.provider: anthropic-api-key` in `worker.yaml`. See
+   [Providers](providers.md). If you use the key for an organization, the Commercial Terms of Service apply.
 
 ## 7. Sources
 
