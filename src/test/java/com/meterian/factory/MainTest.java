@@ -40,6 +40,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -256,6 +257,8 @@ class MainTest {
     }
 
     private Path writeApiKeyConfiguration() throws IOException {
+        Files.createDirectory(temporaryDirectory.resolve("work"),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         Path file = temporaryDirectory.resolve("api-key.yaml");
         Files.writeString(file, """
                 repository: MeterianHQ/sample

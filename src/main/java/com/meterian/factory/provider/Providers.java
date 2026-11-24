@@ -25,7 +25,7 @@ public final class Providers {
     private static Provider createApiKeyProvider(FactoryConfiguration configuration, String apiKey)
             throws StartupException {
         try {
-            Path settingsFile = ApiKeyFiles.write(configuration.workDirectory(), apiKey);
+            Path settingsFile = ApiKeyFiles.write(configuration.workDirectory(), apiKey.strip());
             return new ApiKeyProvider(settingsFile, configuration.limits().dailyBudgetUsd().orElseThrow());
         } catch (IOException exception) {
             throw new StartupException("The factory cannot write the API key files in "

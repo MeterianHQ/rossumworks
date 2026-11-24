@@ -9,7 +9,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.UserPrincipal;
 import java.util.List;
 
 /** Writes the apiKeyHelper script and its settings file in a folder that only the owner can read. */
@@ -27,9 +31,15 @@ public final class ApiKeyFiles {
     private ApiKeyFiles() {
     }
 
-    /** Returns the path of the settings file that names the helper. */
+    /**
+     * Writes the files in the work folder. The work folder must be private, because a link or a rename in it
+     * could redirect the key. Returns the absolute path of the settings file that names the helper.
+     */
     public static Path write(Path workDirectory, String apiKey) throws IOException {
-        Path folder = preparePrivateFolder(workDirectory.resolve(FOLDER_NAME));
+        Path absoluteWorkDirectory = workDirectory.toAbsolutePath();
+        createWorkFolderIfMissing(absoluteWorkDirectory);
+        verifyWorkFolderIsPrivate(absoluteWorkDirectory);
+        Path folder = preparePrivateFolder(absoluteWorkDirectory.resolve(FOLDER_NAME));
         Path helper = folder.resolve(HELPER_FILE_NAME);
         AtomicFileWriter.write(helper, createHelper(apiKey), PRIVATE_EXECUTABLE_PERMISSIONS);
         Path settings = folder.resolve(SETTINGS_FILE_NAME);
@@ -37,17 +47,57 @@ public final class ApiKeyFiles {
         return settings;
     }
 
-    private static Path preparePrivateFolder(Path folder) throws IOException {
-        if (Files.isSymbolicLink(folder)) {
-            throw new IOException("The folder " + folder + " is a symbolic link. Use a real folder.");
+    private static void createWorkFolderIfMissing(Path workDirectory) throws IOException {
+        Files.createDirectories(workDirectory, PosixFilePermissions.asFileAttribute(
+                PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS)));
+    }
+
+    private static void verifyWorkFolderIsPrivate(Path workDirectory) throws IOException {
+        if (isWritableByGroupOrOthers(workDirectory)) {
+            throw new IOException("The work folder " + workDirectory + " is writable by other users."
+                    + " Remove the write permission of the group and the other users.");
         }
+    }
+
+    private static boolean isWritableByGroupOrOthers(Path folder) throws IOException {
+        return Files.getPosixFilePermissions(folder, LinkOption.NOFOLLOW_LINKS).stream()
+                .anyMatch(permission -> permission == PosixFilePermission.GROUP_WRITE
+                        || permission == PosixFilePermission.OTHERS_WRITE);
+    }
+
+    private static Path preparePrivateFolder(Path folder) throws IOException {
         if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) {
-            Files.createDirectories(folder.getParent());
             Files.createDirectory(folder, PosixFilePermissions.asFileAttribute(
                     PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS)));
         }
-        Files.setPosixFilePermissions(folder, PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS));
+        verifyFolderIsOwnedByTheUser(folder);
+        Files.getFileAttributeView(folder, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS)
+                .setPermissions(PosixFilePermissions.fromString(PRIVATE_DIRECTORY_PERMISSIONS));
         return folder;
+    }
+
+    private static void verifyFolderIsOwnedByTheUser(Path folder) throws IOException {
+        PosixFileAttributes attributes = Files.readAttributes(folder, PosixFileAttributes.class,
+                LinkOption.NOFOLLOW_LINKS);
+        if (attributes.isSymbolicLink()) {
+            throw new IOException("The folder " + folder + " is a symbolic link. Use a real folder.");
+        }
+        if (!attributes.isDirectory()) {
+            throw new IOException("The path " + folder + " is not a folder. Remove it.");
+        }
+        if (!attributes.owner().equals(findOwnerOfTheUser())) {
+            throw new IOException("The folder " + folder + " does not belong to the current user.");
+        }
+    }
+
+    /** The owner of a file that the process creates is the user of the process. */
+    private static UserPrincipal findOwnerOfTheUser() throws IOException {
+        Path probe = Files.createTempFile("factory-owner-probe", ".tmp");
+        try {
+            return Files.getOwner(probe);
+        } finally {
+            Files.deleteIfExists(probe);
+        }
     }
 
     private static byte[] createHelper(String apiKey) {

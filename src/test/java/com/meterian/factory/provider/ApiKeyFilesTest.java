@@ -3,6 +3,7 @@ package com.meterian.factory.provider;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -67,6 +68,37 @@ class ApiKeyFilesTest {
         assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("is a symbolic link");
+    }
+
+    @Test
+    void writesAbsolutePathsForARelativeWorkFolder() throws Exception {
+        Path relativeWorkDirectory = Path.of("").toAbsolutePath().relativize(workDirectory);
+
+        Path settings = ApiKeyFiles.write(relativeWorkDirectory, KEY);
+
+        assertThat(settings).isAbsolute();
+        Path helper = Path.of(new ObjectMapper().readTree(settings.toFile()).get("apiKeyHelper").asText());
+        assertThat(helper).isAbsolute();
+        assertThat(helper.normalize()).isEqualTo(workDirectory.resolve("credentials/api-key-helper.sh"));
+    }
+
+    @Test
+    void refusesAWorkFolderThatTheGroupCanWrite() throws Exception {
+        Files.setPosixFilePermissions(workDirectory, PosixFilePermissions.fromString("rwxrwx---"));
+
+        assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is writable by other users")
+                .hasMessageNotContaining(KEY);
+    }
+
+    @Test
+    void refusesAWorkFolderThatOtherUsersCanWrite() throws Exception {
+        Files.setPosixFilePermissions(workDirectory, PosixFilePermissions.fromString("rwx---rwx"));
+
+        assertThatThrownBy(() -> ApiKeyFiles.write(workDirectory, KEY))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is writable by other users");
     }
 
     private static String permissionsOf(Path path) throws IOException {
