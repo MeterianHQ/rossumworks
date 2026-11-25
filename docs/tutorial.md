@@ -63,7 +63,8 @@ in a pull request (PR).
 1. Download `rossumworks-<version>.jar` from the
    [releases](https://github.com/MeterianHQ/rossumworks/releases).
 2. Run `java -jar <path of the jar> create` in the clone.
-3. Push Enter at each question to take the default answer, but not at the confirmation. For an API key, type `anthropic-api-key` at the question
+3. Push Enter at each question to take the default answer, but not at the confirmation. For an API key, type
+   `anthropic-api-key` at the question about the provider, and then type a daily budget.
    about the provider, and then type a daily budget.
 4. Read the summary. Type `y` to confirm: Enter is not an answer.
 5. Open the PR `factory/setup` on GitHub, and merge it.
@@ -126,6 +127,153 @@ A person did this tutorial on 2026-11-25, with RossumWorks 0.5.0 and the Claude 
 
 The board shows whole percents, so the use of one issue can be too small to see. Each run is different. The plugins of
 your Claude Code also apply to the agents, and can change the time and the use.
+
+## Optional lessons
+
+Each lesson needs only the core. You can do the lessons in any order, and you can stop after any lesson. Keep the
+worker in operation. Run the commands in the second terminal, in the folder of the clone.
+
+**Warning: each lesson uses your subscription, or costs money with an API key.**
+
+| Lesson | What you learn |
+|---|---|
+| [`block`](#lesson-block) | Stop the work on an issue, and continue it |
+| [`approval`](#lesson-approval) | Make each merge wait for you |
+| [`factory-change`](#lesson-factory-change) | Change the factory with an issue |
+| [`parallel`](#lesson-parallel) | Give two issues to the factory together |
+
+### Lesson `block`
+
+**Purpose.** You stop the work on an issue. Then you continue the work, or you start again.
+
+**Steps.** "Terminal" is near "Block". Read the name of the button before you push it. Create the issue:
+
+```
+tutorial/create-issues.sh block
+```
+
+1. Add the label `factory` to the issue.
+2. Wait until the card is in "In progress".
+3. Push "Block" on the card at once, and confirm.
+4. Wait until the card is in "Blocked".
+5. Push "Continue". The agent continues its work.
+6. Push "Block" again when the card is in "In progress", and confirm.
+7. Wait until the card is in "Blocked".
+8. Push "Start again", and confirm. The factory discards the work and starts a new agent.
+9. When the card goes to "Waits for you", read the PR, and then push "Approve".
+
+**Expected board.** The card goes to "Blocked" in a few seconds. "Continue" moves it to "In progress". "Start again"
+also moves it to "In progress". Last, the card goes to "Done".
+
+**Other results.**
+
+- The card goes to "In review" before your click: push "Block" there.
+- The card goes to "Done" before your click: the issue is complete, and you cannot block it.
+- You pushed "Terminal": type `/factory:continue` in the new window. Then push "Block" on the card.
+
+### Lesson `approval`
+
+**Purpose.** You make each merge wait for your approval.
+
+The value `mode` in `.factory/factory.yaml` controls the merge. The value `risk` is the default. The value
+`always-ask` always asks for your approval. A new issue uses the newest `.factory`, so you change the mode first.
+
+**Steps.** Change the mode, and create the issue:
+
+```
+git pull
+sed -i 's/mode: risk/mode: always-ask/' .factory/factory.yaml
+git diff
+git commit -am "Ask for an approval of each merge"
+git push
+tutorial/create-issues.sh approval
+```
+
+1. Make sure that the output of `git diff` shows only the line of the mode.
+2. Wait two minutes. Make sure that the top of the board shows no warning.
+3. Add the label `factory` to the issue.
+4. Wait until the card is in "Waits for you".
+5. Open the PR on GitHub, and read it.
+6. Push "Approve" on the card.
+7. Wait until the card is in "Done".
+
+Then restore the mode:
+
+```
+git pull
+sed -i 's/mode: always-ask/mode: risk/' .factory/factory.yaml
+git commit -am "Let the risk decide the merge"
+git push
+```
+
+**Expected board.** The card waits in "Waits for you" after the reviews and the risk check. It goes to "Done" in a few
+seconds after your approval.
+
+**Other results.**
+
+- GitHub refuses the push: your repository has a rule for its default branch. Make a PR with the change, and merge it.
+- A review rejects the change: the card goes back to "In progress", and waits later.
+
+### Lesson `factory-change`
+
+**Purpose.** You change the factory with an issue. A PR that changes `.factory` always waits for your approval,
+because it changes the rules of the factory.
+
+**Steps.** Create the issue:
+
+```
+tutorial/create-issues.sh factory-change
+```
+
+1. Add the label `factory` to the issue.
+2. Wait until the card is in "Waits for you".
+3. Open the PR on GitHub, and read it. Make sure that it changes only the prompt of the review.
+4. Push "Approve" on the card.
+5. Wait until the card is in "Done".
+
+**Expected board.** The card tells that the pull request changes the folder `.factory`. The risk does not decide this
+merge. The next issue uses the new prompt.
+
+**Other results.** A review rejects the change: the card goes back to "In progress", and waits later.
+
+### Lesson `parallel`
+
+**Purpose.** The factory works on two issues at the same time. The two issues change the same method, so a conflict
+is possible. A conflict occurs when two changes do not agree.
+
+**Steps.** Create the issues:
+
+```
+tutorial/create-issues.sh parallel
+```
+
+1. Add the label `factory` to the two issues. Do it without a pause.
+2. Wait until no card is in "In progress" or "In review".
+3. If a card is in "Waits for you", read its PR, and push "Approve".
+4. Wait until a card is in "Done".
+5. Do steps 2 to 4 again until the two cards are in "Done".
+
+Then check the result:
+
+```
+git pull
+./mvnw verify
+m=com.meterian.checkout.CheckoutCommand
+java -cp target/classes $m laptop:100.00:1
+java -cp target/classes $m pen:2.00:10
+java -cp target/classes $m book:20.00:10
+```
+
+The totals are 95.00, 19.00, and 194.00.
+
+**Expected board.** The two cards are in "In progress" at the same time, because the factory has two free slots. A slot
+is a place for one issue in work.
+
+**Other results.**
+
+- A conflict occurs: the second card goes back to "In progress", and the agent solves the conflict. The card can then
+  wait for a second approval.
+- No slot is free: one card stays in "Queued". A card in "Waits for you" also holds a slot.
 
 ## Problems
 
