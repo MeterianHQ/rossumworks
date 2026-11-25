@@ -79,7 +79,7 @@ public record CreateOptions(
         try {
             return RepositoryName.parse(value);
         } catch (ConfigurationException exception) {
-            throw new SetupException("The repository must have the form owner/name, for example MeterianHQ/heidi-fix.");
+            throw new SetupException("The repository must have the form owner/name, for example octocat/hello-world.");
         }
     }
 

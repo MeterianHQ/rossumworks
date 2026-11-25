@@ -57,7 +57,7 @@ public final class SetupQuestions {
             try {
                 return RepositoryName.parse(answer);
             } catch (ConfigurationException exception) {
-                console.show("The repository must have the form owner/name, for example MeterianHQ/heidi-fix.");
+                console.show("The repository must have the form owner/name, for example octocat/hello-world.");
             }
         }
     }

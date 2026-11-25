@@ -198,12 +198,12 @@ class HttpGitHubClientTest {
     void addAssigneeOnAPullRequestSendsTheLogin() {
         responder = request -> new Answer(201, "{}");
 
-        client.addAssignee(12, "bbossola");
+        client.addAssignee(12, "octocat");
 
         RecordedRequest request = requests.get(0);
         assertThat(request.method()).isEqualTo("POST");
         assertThat(request.target()).isEqualTo("/repos/o/r/issues/12/assignees");
-        assertThat(request.body()).isEqualTo("{\"assignees\":[\"bbossola\"]}");
+        assertThat(request.body()).isEqualTo("{\"assignees\":[\"octocat\"]}");
     }
 
     @Test

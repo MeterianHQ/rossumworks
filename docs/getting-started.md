@@ -129,8 +129,8 @@ When the copy fails, `create` shows the problem and ends with success.
 ### The configuration file
 
 The command `run` of the jar starts the worker. Without `--config`, it finds the configuration from the clone. It reads the owner and the name of the GitHub
-repository of the clone, for example `MeterianHQ/heidi-fix`. Then it reads
-`~/.rossumworks/MeterianHQ-heidi-fix/worker.yaml`.
+repository of the clone, for example `octocat/hello-world`. Then it reads
+`~/.rossumworks/octocat-hello-world/worker.yaml`.
 
 When this file does not exist, the worker does not start, and the message tells you to run `create`. For a work
 folder that is not the default, give the file: `run --config <work folder>/worker.yaml`. For

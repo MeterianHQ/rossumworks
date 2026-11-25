@@ -22,14 +22,14 @@ class WorkerEventsTest {
 
     @Test
     void writesTheStartAndTheStopOfTheWorker() {
-        events.writeWorkerStart("0.4.0", "MeterianHQ/oss-detect");
-        events.writeWorkerStop("0.4.0", "MeterianHQ/oss-detect");
+        events.writeWorkerStart("0.4.0", "octocat/hello-world");
+        events.writeWorkerStop("0.4.0", "octocat/hello-world");
 
         assertThat(collected.lines()).containsExactly(
                 "{\"time\":\"2026-11-22T17:20:05Z\",\"type\":\"worker\",\"event\":\"start\",\"version\":\"0.4.0\","
-                        + "\"repository\":\"MeterianHQ/oss-detect\"}",
+                        + "\"repository\":\"octocat/hello-world\"}",
                 "{\"time\":\"2026-11-22T17:20:05Z\",\"type\":\"worker\",\"event\":\"stop\",\"version\":\"0.4.0\","
-                        + "\"repository\":\"MeterianHQ/oss-detect\"}");
+                        + "\"repository\":\"octocat/hello-world\"}");
     }
 
     @Test
@@ -63,19 +63,19 @@ class WorkerEventsTest {
 
     @Test
     void writesTheOpenAndTheMergeOfAPullRequest() {
-        events.writePullRequestOpen(39, "https://github.com/MeterianHQ/oss-detect/pull/43");
-        events.writePullRequestMerge(39, "https://github.com/MeterianHQ/oss-detect/pull/43", Optional.of("abc123"));
+        events.writePullRequestOpen(39, "https://github.com/octocat/hello-world/pull/43");
+        events.writePullRequestMerge(39, "https://github.com/octocat/hello-world/pull/43", Optional.of("abc123"));
 
         assertThat(collected.lines()).containsExactly(
                 "{\"time\":\"2026-11-22T17:20:05Z\",\"type\":\"pr\",\"issue\":39,\"event\":\"opened\","
-                        + "\"url\":\"https://github.com/MeterianHQ/oss-detect/pull/43\"}",
+                        + "\"url\":\"https://github.com/octocat/hello-world/pull/43\"}",
                 "{\"time\":\"2026-11-22T17:20:05Z\",\"type\":\"pr\",\"issue\":39,\"event\":\"merged\","
-                        + "\"url\":\"https://github.com/MeterianHQ/oss-detect/pull/43\",\"commit\":\"abc123\"}");
+                        + "\"url\":\"https://github.com/octocat/hello-world/pull/43\",\"commit\":\"abc123\"}");
     }
 
     @Test
     void writesAMergeWithoutAKnownCommitWithoutTheFieldCommit() {
-        events.writePullRequestMerge(39, "https://github.com/MeterianHQ/oss-detect/pull/43", Optional.empty());
+        events.writePullRequestMerge(39, "https://github.com/octocat/hello-world/pull/43", Optional.empty());
 
         assertThat(collected.ofType("pr").getFirst().has("commit")).isFalse();
     }

@@ -20,7 +20,7 @@ public final class GitHubRemoteUrl {
      * Reads the repository name from a GitHub remote URL.
      * The URL can use the SSH form or the HTTPS form, with or without the ".git" suffix.
      *
-     * @param url the remote URL, for example git@github.com:MeterianHQ/heidi-fix.git
+     * @param url the remote URL, for example git@github.com:octocat/hello-world.git
      * @return the repository name, or empty when the URL is not a GitHub repository URL
      */
     public static Optional<RepositoryName> parse(String url) {

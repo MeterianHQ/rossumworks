@@ -63,7 +63,7 @@ class CreateCommandTest {
         programs = createPrograms(PROGRAMS);
         environment.put("PATH", programs.toString());
         gitHub.readPullRequestHeadsFrom(github);
-        gitHub.setAuthenticatedLogin("bbossola");
+        gitHub.setAuthenticatedLogin("octocat");
     }
 
     @Test
@@ -86,7 +86,7 @@ class CreateCommandTest {
         assertThat(definition.build().command()).isEqualTo("npm test");
         assertThat(gitHub.pullRequests()).hasSize(1);
         PullRequest pullRequest = gitHub.pullRequests().get(0);
-        assertThat(gitHub.assigneesOf(pullRequest.number())).containsExactly("bbossola");
+        assertThat(gitHub.assigneesOf(pullRequest.number())).containsExactly("octocat");
         assertThat(outputText()).contains(workerFile().toString(), ".factory/factory.yaml", pullRequest.url(),
                 DEFAULT_START_LINE);
     }
@@ -289,7 +289,7 @@ class CreateCommandTest {
         PullRequest pullRequest = gitHub.pullRequests().get(0);
         assertThat(gitHub.assigneesOf(pullRequest.number())).isEmpty();
         assertThat(outputText()).contains("The pull request: " + pullRequest.url(),
-                "Cannot assign the PR to bbossola: GitHub answered 422 for POST /issues/"
+                "Cannot assign the PR to octocat: GitHub answered 422 for POST /issues/"
                         + pullRequest.number() + "/assignees. Assign it by hand.",
                 DEFAULT_START_LINE);
     }
