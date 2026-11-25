@@ -1,5 +1,7 @@
 # RossumWorks
 
+![The board of RossumWorks, with issues in each column](docs/images/board.png)
+
 RossumWorks is an AI factory that runs on GitHub. The factory takes an issue, writes the change, builds it, reviews it, opens a pull request, and merges it if safe. It asks for your help when needed.
 
 The factory does its work with `claude` sessions. The **provider** gives these sessions their access to Claude,
