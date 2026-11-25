@@ -79,6 +79,10 @@ reviews start. The sample uses `./mvnw verify`, which is the default answer.
 
 An empty password gives a page without a login. Each program on your machine can then use the page.
 
+The board is empty at the start:
+
+![The board without a card](images/tutorial/empty-board.png)
+
 ## Give an issue to the factory
 
 1. Open a second terminal, and go to the folder of the clone.
@@ -93,6 +97,8 @@ worker sees it in about 2 seconds.
 The worker reads `.factory` of the newest commit at each poll. A change of `.factory` needs no restart, and it applies
 to new issues. A change of `worker.yaml` needs a restart.
 
+![The card in the column In progress](images/tutorial/in-progress.png)
+
 ## Watch the board
 
 | Column | What the factory does |
@@ -104,6 +110,8 @@ to new issues. A change of `worker.yaml` needs a restart.
 | Blocked | The factory cannot continue. |
 | Done | The change is in the default branch. |
 
+![The card in the column In review, with one review that approved the change](images/tutorial/in-review.png)
+
 A card can go back from "In review" to "In progress". Then a review found a problem, and the agent corrects it.
 
 The risk decides the merge:
@@ -111,6 +119,8 @@ The risk decides the merge:
 - The risk is low and the change is small: the factory merges the PR.
 - Else, the card goes to "Waits for you". Read the PR, and then push "Approve" on the card. Do not merge the PR on
   GitHub.
+
+![The card in the column Done](images/tutorial/done.png)
 
 When the card is in "Done", do these steps:
 
@@ -175,6 +185,8 @@ tutorial/create-issues.sh block
 moves it to "Queued", and then to "In progress". Last, the card goes to "Done". When the risk is low and the change is
 small, the factory merges the PR without your approval.
 
+![The card in the column Blocked, with the buttons Start again and Continue](images/tutorial/blocked.png)
+
 **Other results.**
 
 - The card goes to "In review" before your click: push "Block" there.
@@ -219,6 +231,8 @@ git push
 **Expected board.** The card waits in "Waits for you" after the reviews and the risk check. It goes to "Done" in a few
 seconds after your approval.
 
+![The card in the column Waits for you, with the button Approve](images/tutorial/waits-for-approval.png)
+
 **Other results.**
 
 - GitHub refuses the push: your repository has a rule for its default branch. Make a PR with the change, and merge it.
@@ -243,6 +257,8 @@ tutorial/create-issues.sh factory-change
 
 **Expected board.** The card tells that the pull request changes the folder `.factory`. The risk does not decide this
 merge. The next issue uses the new prompt.
+
+![The card that tells that the pull request changes the folder .factory](images/tutorial/factory-change.png)
 
 **Other results.** A review rejects the change: the card goes back to "In progress", and waits later.
 
@@ -278,6 +294,8 @@ The totals are 95.00, 19.00, and 194.00.
 
 **Expected board.** The two cards are in "In progress" at the same time, because the factory has two free slots. A slot
 is a place for one issue in work.
+
+![Two cards in the column In progress](images/tutorial/parallel.png)
 
 **Other results.**
 
