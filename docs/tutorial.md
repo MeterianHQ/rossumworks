@@ -30,18 +30,30 @@ For the subscription, do not set `ANTHROPIC_API_KEY`. For an API key, set `ANTHR
 
 1. Open the [template repository](https://github.com/MeterianHQ/rossumworks-tutorial).
 2. Select "Use this template", and then "Create a new repository".
-3. Select your account, type a name, and select "Private".
+3. Select the owner, type a name, and select "Private". GitHub can select an organization as the owner. Your account
+   must be able to write to the repository and to delete it.
 4. Select "Create repository".
-5. Clone your repository with `gh repo clone <owner>/<name>`.
-6. Go to the folder of the clone.
-7. Run `./mvnw verify`. The build must pass.
-8. Run this command to see the bug:
+5. Clone your repository, and go to the folder of the clone. Replace `<owner>` and `<name>`:
 
-   ```
-   java -cp target/classes com.meterian.checkout.CheckoutCommand book:19.95:1 --discount=10
-   ```
+```
+gh repo clone <owner>/<name>
+cd <name>
+```
 
-The program shows `Total: 17.96`. The correct total is 17.95.
+6. Run the build. It must pass:
+
+```
+./mvnw verify
+```
+
+7. Run the program:
+
+```
+m=com.meterian.checkout.CheckoutCommand
+java -cp target/classes $m book:19.95:1 --discount=10
+```
+
+The program shows `Total: 17.96`. The correct total is 17.95. This is the bug.
 
 ## Set up the factory
 
@@ -51,9 +63,9 @@ in a pull request (PR).
 1. Download `rossumworks-<version>.jar` from the
    [releases](https://github.com/MeterianHQ/rossumworks/releases).
 2. Run `java -jar <path of the jar> create` in the clone.
-3. Push Enter at each question to take the default answer. For an API key, type `anthropic-api-key` at the question
+3. Push Enter at each question to take the default answer, but not at the confirmation. For an API key, type `anthropic-api-key` at the question
    about the provider, and then type a daily budget.
-4. Read the summary, and answer `y`.
+4. Read the summary. Type `y` to confirm: Enter is not an answer.
 5. Open the PR `factory/setup` on GitHub, and merge it.
 6. Run `git pull` in the clone.
 7. Run `.factory/run.sh`. The worker is the program that does the work of the factory. Do not close this terminal.
@@ -69,7 +81,11 @@ An empty password gives a page without a login. Each program on your machine can
 4. Open the issue on GitHub, and read it.
 5. Add the label `factory` to the issue.
 
-The worker checks GitHub each 60 seconds. Then the card comes on the board.
+The worker polls GitHub each 60 seconds, so the card comes after about one minute. A button on the board is faster: the
+worker sees it in about 2 seconds.
+
+The worker reads `.factory` of the newest commit at each poll. A change of `.factory` needs no restart, and it applies
+to new issues. A change of `worker.yaml` needs a restart.
 
 ## Watch the board
 
@@ -87,14 +103,29 @@ A card can go back from "In review" to "In progress". Then a review found a prob
 The risk decides the merge:
 
 - The risk is low and the change is small: the factory merges the PR.
-- Else, the card goes to "Waits for you". Read the PR, and then push "Approve" on the card.
+- Else, the card goes to "Waits for you". Read the PR, and then push "Approve" on the card. Do not merge the PR on
+  GitHub.
 
 When the card is in "Done", do these steps:
 
 1. Run `git pull` in the clone.
 2. Run `./mvnw verify`.
-3. Run the `java -cp` command again. The program shows `Total: 17.95`.
+3. Run the program again. It shows `Total: 17.95`.
 4. Open the PR on GitHub. Read the description and the reviews.
+
+## Time and use
+
+A person did this tutorial on 2026-11-25, with RossumWorks 0.5.0 and the Claude plan Ultra:
+
+| Value | Result |
+|---|---|
+| From the label to "Done" | 3 minutes 51 seconds |
+| The wait for the poll, a part of this time | 67 seconds |
+| The weekly usage on the board before the issue | 26% |
+| The weekly usage on the board after the issue | 26% |
+
+The board shows whole percents, so the use of one issue can be too small to see. Each run is different. The plugins of
+your Claude Code also apply to the agents, and can change the time and the use.
 
 ## Problems
 
@@ -103,6 +134,8 @@ When the card is in "Done", do these steps:
 | The message tells you to remove `ANTHROPIC_API_KEY`. | To use the subscription, run `unset ANTHROPIC_API_KEY`. Then run the command again. |
 | The message tells you to set `ANTHROPIC_API_KEY`. | Set the variable to your key. Then run the command again. |
 | The message tells you that the factory needs commands on the `PATH`. | Install the commands that the message names. |
+| "Done" is empty after a restart of the worker. | This is normal. The board removes these cards at a restart. The issues and the PRs stay on GitHub. |
+| A terminal opens. | You pushed "Terminal", or the agent asks a question. Type `/factory:continue` to end the conversation. Do not close the window first. |
 | No card comes on the board. | Make sure that you merged the PR `factory/setup`. Make sure that the issue has no assignee. Read the top of the board and the worker log. |
 | The worker log has a warning about the assignee. | Use an account that can write to the repository. |
 | The work waits for the usage window or for the daily budget. | Do not stop the worker. It continues when the limit permits it. See [Providers](providers.md). |
