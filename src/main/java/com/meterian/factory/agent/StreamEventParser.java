@@ -3,6 +3,7 @@ package com.meterian.factory.agent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -104,7 +105,14 @@ public final class StreamEventParser {
                 resultEvent.path("result").asText(""),
                 apiKeySource,
                 findContextUsage(resultEvent),
-                List.copyOf(usageWindows));
+                List.copyOf(usageWindows),
+                false,
+                findCost(resultEvent));
+    }
+
+    private static Optional<BigDecimal> findCost(JsonNode resultEvent) {
+        JsonNode cost = resultEvent.path("total_cost_usd");
+        return cost.isNumber() ? Optional.of(cost.decimalValue()) : Optional.empty();
     }
 
     private SessionReport buildMissingResultReport() {

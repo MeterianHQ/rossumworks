@@ -70,6 +70,11 @@ public enum PageAction {
         return this == ENTER_TERMINAL || this == OPEN_TERMINAL;
     }
 
+    /** True for the buttons of the live mode: the two Enter buttons and Open Terminal. */
+    public boolean needsLiveMode() {
+        return this == ENTER_TERMINAL || this == ENTER_BROWSER || this == OPEN_TERMINAL;
+    }
+
     /** The help text of the button. It is empty for Approve, Block, Start again, and Continue. */
     public String tooltip() {
         return tooltip;
@@ -106,10 +111,14 @@ public enum PageAction {
      * @param continueRequested true when the marker of Continue exists
      * @param rememberedLabels the labels that the page asked for on this issue, see {@link #findRememberedLabels}
      * @param viewerOnThisMachine true when the browser runs on the machine of the worker, see {@link ViewerLocation}
+     * @param liveModeAvailable false in API key mode: the live buttons are then never possible
      * @param inBlockTarget true when the state of the card is the block target of its definition
      */
     public boolean isPossible(IssueCard card, boolean continueRequested, Set<String> rememberedLabels,
-            boolean viewerOnThisMachine, boolean inBlockTarget) {
+            boolean viewerOnThisMachine, boolean liveModeAvailable, boolean inBlockTarget) {
+        if (needsLiveMode() && !liveModeAvailable) {
+            return false;
+        }
         if (needsThisMachine() && !viewerOnThisMachine) {
             return false;
         }

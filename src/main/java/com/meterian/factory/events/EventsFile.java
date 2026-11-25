@@ -26,6 +26,10 @@ public final class EventsFile implements EventLines {
         return new EventsFile(workDirectory.resolve(FILE_NAME));
     }
 
+    public Path file() {
+        return file;
+    }
+
     /**
      * One write call gives the line and its newline, so a reader never sees half a line. Files.write is not
      * enough: it writes a long line in parts of 8 KB.

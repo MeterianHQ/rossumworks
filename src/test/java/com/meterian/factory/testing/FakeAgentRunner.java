@@ -2,7 +2,7 @@ package com.meterian.factory.testing;
 
 import com.meterian.factory.agent.AgentException;
 import com.meterian.factory.agent.AgentRunner;
-import com.meterian.factory.agent.ApiKeyDetectedException;
+import com.meterian.factory.agent.CredentialMismatchException;
 import com.meterian.factory.agent.ContextUsage;
 import com.meterian.factory.agent.PhaseRefusedException;
 import com.meterian.factory.agent.PhaseRequest;
@@ -30,7 +30,7 @@ public final class FakeAgentRunner implements AgentRunner {
     /** One scripted phase. It works in the worktree of the request. */
     @FunctionalInterface
     public interface Action {
-        void perform(PhaseRequest request) throws IOException, ApiKeyDetectedException;
+        void perform(PhaseRequest request) throws IOException, CredentialMismatchException;
     }
 
     private static final Pattern RESULT_FILE = Pattern.compile("\\.factory-work/((review-\\w+|risk)\\.json)");
@@ -129,6 +129,16 @@ public final class FakeAgentRunner implements AgentRunner {
         return this;
     }
 
+    /** Approves the review, then runs the side effect, for example a change of the guard. */
+    public synchronized FakeAgentRunner thenApproveReviewAnd(Action sideEffect) {
+        then(request -> {
+            writeResult(request,
+                    "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request) + "\", \"findings\": []}");
+            sideEffect.perform(request);
+        });
+        return this;
+    }
+
     public synchronized FakeAgentRunner thenApproveReviewWithNote(String noteTitle, String noteDetail) {
         then(request -> writeResult(request, "{\"verdict\": \"approve\", \"tree\": \"" + currentTree(request)
                 + "\", \"findings\": [], \"notes\": [{\"title\": \"" + noteTitle + "\", \"detail\": \""
@@ -184,7 +194,7 @@ public final class FakeAgentRunner implements AgentRunner {
 
     public synchronized FakeAgentRunner thenDetectAnApiKey() {
         then(request -> {
-            throw new ApiKeyDetectedException("The session uses the API key source ANTHROPIC_API_KEY.");
+            throw new CredentialMismatchException("The session uses the API key source ANTHROPIC_API_KEY.");
         });
         return this;
     }
@@ -209,7 +219,7 @@ public final class FakeAgentRunner implements AgentRunner {
     }
 
     @Override
-    public synchronized SessionReport runPhase(PhaseRequest request) throws AgentException, ApiKeyDetectedException {
+    public synchronized SessionReport runPhase(PhaseRequest request) throws AgentException, CredentialMismatchException {
         if (refusesNewPhases) {
             throw new PhaseRefusedException("The factory is stopping.");
         }

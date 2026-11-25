@@ -14,6 +14,8 @@ import com.meterian.factory.state.LiveSession;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.RecordStates;
+import com.meterian.factory.usage.BudgetStatus;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -75,8 +77,8 @@ class BoardPageTest {
     }
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
-            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts) {
-        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, Map.of());
+            List<UsageWindow> usageWindows, Optional<Instant> phasesResumeAt, Map<Integer, ContextUsage> contexts) {
+        return model(cards, lastCheckAt, usageWindows, phasesResumeAt, contexts, Map.of());
     }
 
     private static PageModel modelWithRememberedLabels(List<IssueCard> cards,
@@ -86,9 +88,9 @@ class BoardPageTest {
     }
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
-            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            List<UsageWindow> usageWindows, Optional<Instant> phasesResumeAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels) {
-        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, Set.of());
+        return model(cards, lastCheckAt, usageWindows, phasesResumeAt, contexts, rememberedLabels, Set.of());
     }
 
     private static PageModel modelWithContinueRequested(List<IssueCard> cards, Set<Integer> continueRequested) {
@@ -97,9 +99,9 @@ class BoardPageTest {
     }
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
-            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            List<UsageWindow> usageWindows, Optional<Instant> phasesResumeAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested) {
-        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+        return model(cards, lastCheckAt, usageWindows, phasesResumeAt, contexts, rememberedLabels, continueRequested,
                 Map.of(), true);
     }
 
@@ -119,15 +121,15 @@ class BoardPageTest {
     }
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
-            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            List<UsageWindow> usageWindows, Optional<Instant> phasesResumeAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
             Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine) {
-        return model(cards, lastCheckAt, usageWindows, usageResumesAt, contexts, rememberedLabels, continueRequested,
+        return model(cards, lastCheckAt, usageWindows, phasesResumeAt, contexts, rememberedLabels, continueRequested,
                 enterPlaces, viewerOnThisMachine, Optional.empty());
     }
 
     private static PageModel model(List<IssueCard> cards, Optional<Instant> lastCheckAt,
-            List<UsageWindow> usageWindows, Optional<Instant> usageResumesAt, Map<Integer, ContextUsage> contexts,
+            List<UsageWindow> usageWindows, Optional<Instant> phasesResumeAt, Map<Integer, ContextUsage> contexts,
             Map<Integer, Set<String>> rememberedLabels, Set<Integer> continueRequested,
             Map<Integer, LivePlace> enterPlaces, boolean viewerOnThisMachine, Optional<String> definitionWarning) {
         BoardSnapshot snapshot = new BoardSnapshot(NOW.minus(Duration.ofHours(2)), lastCheckAt, cards, 7);
@@ -138,15 +140,34 @@ class BoardPageTest {
         Set<Integer> inBlockTarget = cards.stream().filter(card -> card.record().state().equals("blocked"))
                 .map(IssueCard::issueNumber).collect(Collectors.toSet());
         return new PageModel(snapshot, NOW, 2, 2, limits, reviewNames, inBlockTarget, IsolationMode.SAME_USER, POLL_INTERVAL,
-                usageWindows, usageResumesAt, contexts, continueRequested, rememberedLabels, enterPlaces,
-                "MeterianHQ/target", viewerOnThisMachine, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
+                usageWindows, phasesResumeAt, Optional.empty(), contexts, continueRequested, rememberedLabels, enterPlaces,
+                "MeterianHQ/target", viewerOnThisMachine, true, definitionWarning, FactoryState.RUNNING, DEFAULT_COLUMNS);
+    }
+
+    private static PageModel withBudget(PageModel model, BudgetStatus budget) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
+                model.usageWindows(), model.phasesResumeAt(), Optional.of(budget), model.contexts(),
+                model.continueRequested(), model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
+                model.viewerOnThisMachine(), model.liveModeAvailable(), model.definitionWarning(), model.factoryState(), model.columns());
+    }
+
+    @Test
+    void showsTheCostOfTodayInApiKeyMode() {
+        PageModel model = withBudget(model(List.of(), Optional.of(NOW), List.of(), Optional.empty(), Map.of()),
+                new BudgetStatus(new BigDecimal("4.123"), new BigDecimal("20")));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).contains("<div class=\"tile\"><span class=\"tile-label\">Cost today</span>"
+                + "<span class=\"tile-value\">$4.12 of $20.00</span></div>");
     }
 
     private static PageModel withColumns(PageModel model, List<String> columns) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
-                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.phasesResumeAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), model.liveModeAvailable(),
                 model.definitionWarning(), model.factoryState(), columns);
     }
 
@@ -155,16 +176,16 @@ class BoardPageTest {
                 .collect(Collectors.toMap(IssueCard::issueNumber, card -> reviewNames));
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), namesByIssue, model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
-                model.usageWindows(), model.usageResumesAt(), model.contexts(), model.continueRequested(),
+                model.usageWindows(), model.phasesResumeAt(), model.budget(), model.contexts(), model.continueRequested(),
                 model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
-                model.viewerOnThisMachine(), model.definitionWarning(), model.factoryState(), model.columns());
+                model.viewerOnThisMachine(), model.liveModeAvailable(), model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     private static PageModel withFactoryState(PageModel model, FactoryState factoryState) {
         return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
                 model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(), model.usageWindows(),
-                model.usageResumesAt(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
-                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(),
+                model.phasesResumeAt(), model.budget(), model.contexts(), model.continueRequested(), model.rememberedLabels(),
+                model.enterPlaces(), model.repositoryFullName(), model.viewerOnThisMachine(), model.liveModeAvailable(),
                 model.definitionWarning(), factoryState, model.columns());
     }
 
@@ -266,6 +287,34 @@ class BoardPageTest {
                 "/approve", "/block");
         assertThat(html).doesNotContain("/enter-phone").doesNotContain("Phone");
         assertThat(html).doesNotContain("\u2197").doesNotContain("class=\"icon\"");
+    }
+
+    @Test
+    void withoutTheLiveModeTheCardHasNoEnterButton() {
+        PageModel model = withoutTheLiveMode(model(List.of(card(waitsForApproval(12)))));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).contains("/issues/12/approve", "/issues/12/block");
+        assertThat(html).doesNotContain("/enter-terminal").doesNotContain("/enter-browser")
+                .doesNotContain("enter-group").doesNotContain(">Terminal<").doesNotContain(">Browser<");
+    }
+
+    @Test
+    void withoutTheLiveModeTheCardHasNoOpenTerminalButton() {
+        PageModel model = withoutTheLiveMode(model(List.of(card(liveRecord(12, LINK)))));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).doesNotContain("/open-terminal").doesNotContain(">Terminal<");
+    }
+
+    private static PageModel withoutTheLiveMode(PageModel model) {
+        return new PageModel(model.board(), model.renderedAt(), model.issuesInWork(), model.parallelLimit(),
+                model.limits(), model.reviewNames(), model.inBlockTarget(), model.isolationMode(), model.pollInterval(),
+                model.usageWindows(), model.phasesResumeAt(), model.budget(), model.contexts(),
+                model.continueRequested(), model.rememberedLabels(), model.enterPlaces(), model.repositoryFullName(),
+                model.viewerOnThisMachine(), false, model.definitionWarning(), model.factoryState(), model.columns());
     }
 
     @Test

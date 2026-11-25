@@ -47,9 +47,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -225,19 +227,55 @@ class GitHubRequestBudgetTest {
 
     @Test
     void anIssueInWorkWithAnEnterLabelStaysInTheBudget() throws InterruptedException {
+        CountDownLatch openMayContinue = new CountDownLatch(1);
+        liveSessions.whenOpening(() -> waitFor(openMayContinue));
+        try {
+            requestTheEnterOfAnIssueInWork();
+            waitUntil(() -> liveSessions.openCalls().size() == 1);
+
+            List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
+
+            assertThat(worker.issuesInWork()).containsExactly(ISSUE);
+            assertThat(fakeGitHub.labelsOf(ISSUE)).contains(EnterRequests.ENTER_LABEL);
+            assertStaysInTheEnterBudget(countsByPoll);
+        } finally {
+            openMayContinue.countDown();
+        }
+    }
+
+    @Test
+    void anIssueInAConversationAfterAnEnterStaysInTheBudget() throws InterruptedException {
+        requestTheEnterOfAnIssueInWork();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("live");
+
+        List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
+
+        assertStaysInTheEnterBudget(countsByPoll);
+    }
+
+    private void requestTheEnterOfAnIssueInWork() throws InterruptedException {
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile().thenWaitForStop().thatFails();
         worker = createWorker(agent);
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
         fakeGitHub.addLabel(ISSUE, EnterRequests.ENTER_LABEL);
         worker.pollOnce();
+    }
 
-        List<Map<String, Integer>> countsByPoll = measurePolls(MEASURED_POLLS);
-
+    private static void assertStaysInTheEnterBudget(List<Map<String, Integer>> countsByPoll) {
         assertThat(countsByPoll).allSatisfy(counts -> {
             assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL);
             assertThat(counts).doesNotContainKey(EVENTS_REQUEST);
         });
+    }
+
+    private static void waitFor(CountDownLatch latch) {
+        try {
+            latch.await(TIME_BOUND.toSeconds(), TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** The factory works on the issue until the agent fails, and the issue then waits with a block. */

@@ -39,10 +39,11 @@ public final class ProcessGroup {
 
     private static boolean signal(String signal, long groupId) {
         try {
-            Process signaller = new ProcessBuilder("kill", signal, "--", "-" + groupId)
+            ProcessBuilder builder = new ProcessBuilder("kill", signal, "--", "-" + groupId)
                     .redirectErrorStream(true)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .start();
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD);
+            ChildEnvironment.removeAnthropicCredentials(builder.environment());
+            Process signaller = builder.start();
             return signaller.waitFor() == 0;
         } catch (IOException exception) {
             LOGGER.log(System.Logger.Level.WARNING, "The signal to the process group failed.", exception);

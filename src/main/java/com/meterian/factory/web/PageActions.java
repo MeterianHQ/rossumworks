@@ -37,6 +37,7 @@ public final class PageActions {
     private final LabelWriter labels;
     private final PageRequests pageRequests;
     private final LiveSessions liveSessions;
+    private final boolean liveModeAvailable;
     private final BoardState board;
     private final FactorySwitch factorySwitch;
     private final Runnable earlyPollRequest;
@@ -44,14 +45,17 @@ public final class PageActions {
     private final ReentrantLock actionLock = new ReentrantLock();
 
     /**
+     * @param liveModeAvailable false when the provider has no live mode: the server then refuses the live actions
      * @param earlyPollRequest asks the worker for an early poll, 2 s later, see {@code Worker.requestEarlyPoll}
      * @param definitions      the definition version of each record, for the block target of Start again
      */
-    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions, BoardState board,
-            FactorySwitch factorySwitch, Runnable earlyPollRequest, DefinitionLookup definitions) {
+    public PageActions(LabelWriter labels, PageRequests pageRequests, LiveSessions liveSessions,
+            boolean liveModeAvailable, BoardState board, FactorySwitch factorySwitch, Runnable earlyPollRequest,
+            DefinitionLookup definitions) {
         this.labels = labels;
         this.pageRequests = pageRequests;
         this.liveSessions = liveSessions;
+        this.liveModeAvailable = liveModeAvailable;
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.earlyPollRequest = earlyPollRequest;
@@ -107,7 +111,7 @@ public final class PageActions {
         int issueNumber = card.issueNumber();
         return action.isPossible(card, liveSessions.isContinueRequested(issueNumber),
                 PageAction.findRememberedLabels(issueNumber, pageRequests), viewerOnThisMachine,
-                facts.isInBlockTarget(card.record()));
+                liveModeAvailable, facts.isInBlockTarget(card.record()));
     }
 
     private ActionResult runAction(IssueCard card, PageAction action) {

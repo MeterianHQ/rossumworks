@@ -6,6 +6,7 @@ import com.meterian.factory.agent.LiveContextReader;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.agent.LiveSessions;
 import com.meterian.factory.agent.TmuxLiveSessions;
+import com.meterian.factory.agent.UnavailableLiveSessions;
 import com.meterian.factory.board.BoardState;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.build.BuildRunner;
@@ -28,11 +29,16 @@ import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.ownership.GitHubOwnershipGuard;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
+import com.meterian.factory.provider.Provider;
+import com.meterian.factory.provider.Providers;
+import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
 import com.meterian.factory.setup.RunningJar;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
+import com.meterian.factory.usage.CostEvents;
+import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageProbe;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.web.BoardPage;
@@ -79,7 +85,7 @@ public final class Main {
 
     public static final int EXIT_SUCCESS = 0;
     public static final int EXIT_FAILURE = 1;
-    static final int EXIT_API_KEY = 2;
+    static final int EXIT_CREDENTIAL_MISMATCH = 2;
 
     private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
             + "       java -jar rossumworks.jar hash-password\n"
@@ -108,14 +114,31 @@ public final class Main {
 
     /** The objects in memory that the worker, the workflow, and the page share. Main makes each one once. */
     record SharedState(BoardState board, ContextTracker contexts, PageRequests pageRequests, UsageTracker usage,
-                       FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
+                       PhaseGuard guard, FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
 
-        static SharedState create(FactoryConfiguration configuration) {
+        static SharedState create(FactoryConfiguration configuration) throws StartupException {
+            return create(configuration, new SubscriptionProvider());
+        }
+
+        /** The budget of API key mode uses the time zone of this machine for its midnight. */
+        static SharedState create(FactoryConfiguration configuration, Provider provider) throws StartupException {
+            UsageTracker usage = new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC());
+            EventsFile eventsFile = EventsFile.inWorkFolder(configuration.workDirectory());
+            WorkerEvents events = new WorkerEvents(eventsFile, Clock.systemUTC());
+            PhaseGuard guard = createGuard(provider, usage, new CostEvents(eventsFile.file(), events));
             return new SharedState(new BoardState(Clock.systemUTC()), new ContextTracker(),
-                    new PageRequests(Clock.systemUTC()),
-                    new UsageTracker(configuration.limits().usageThreshold(), Clock.systemUTC()),
-                    new FactorySwitch(configuration.workDirectory()), new LostIssues(),
-                    new WorkerEvents(EventsFile.inWorkFolder(configuration.workDirectory()), Clock.systemUTC()));
+                    new PageRequests(Clock.systemUTC()), usage, guard,
+                    new FactorySwitch(configuration.workDirectory()), new LostIssues(), events);
+        }
+
+        private static PhaseGuard createGuard(Provider provider, UsageTracker usage, CostEvents costEvents)
+                throws StartupException {
+            try {
+                return provider.createPhaseGuard(usage, costEvents, Clock.systemDefaultZone());
+            } catch (IOException exception) {
+                throw new StartupException("The worker cannot read the cost of today from " + EventsFile.FILE_NAME
+                        + ": " + exception.getMessage() + ". Make the file readable, and start the worker again.");
+            }
         }
     }
 
@@ -185,7 +208,8 @@ public final class Main {
     /** Starts the worker after the checks. A test gives another starter, so that it never reaches the network. */
     @FunctionalInterface
     interface WorkerStarter {
-        int start(FactoryConfiguration configuration, RetrySettings retries, String token, PrintStream errors)
+        int start(FactoryConfiguration configuration, Provider provider, RetrySettings retries, String token,
+                  PrintStream errors)
                 throws InterruptedException, StartupException;
     }
 
@@ -207,14 +231,16 @@ public final class Main {
                    WorkerStarter workerStarter, Git git, WorkerFileFinder finder) {
         try {
             Path configurationFile = readConfigurationPath(arguments, finder);
-            StartChecks.verifyNoApiKey(environment);
             RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
+            StartChecks.verifyCredential(environment, configuration.claude().provider());
             verifyCommands(configuration, environment.getOrDefault("PATH", ""));
             Gatekeeper.ensure(configuration.gatekeeperDirectory().toAbsolutePath(), configuration.repository().sshUrl());
             String token = StartChecks.readToken(environment, ghToken);
             cloneRepositoryIfMissing(configuration, git);
-            return workerStarter.start(configuration, retries, token, errors);
+            Provider provider = Providers.create(configuration, environment);
+            errors.println(provider.describe());
+            return workerStarter.start(configuration, provider, retries, token, errors);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -272,21 +298,20 @@ public final class Main {
                 .build();
     }
 
-    private static int runWorker(FactoryConfiguration configuration, RetrySettings retries, String token,
-                                 PrintStream errors)
+    private static int runWorker(FactoryConfiguration configuration, Provider provider, RetrySettings retries,
+                                 String token, PrintStream errors)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
         String workerLogin = gitHub.authenticatedLogin();
-        SharedState shared = SharedState.create(configuration);
+        SharedState shared = SharedState.create(configuration, provider);
         Path claudeHome = findClaudeHome(System.getenv(), Path.of(System.getProperty("user.home")));
-        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome);
+        ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
+                provider);
         Git git = new ProcessGit();
         DefinitionVersions definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
-        TmuxLiveSessions liveSessions = new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
-                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT,
-                configuration.terminalCommand());
+        LiveSessions liveSessions = createLiveSessions(configuration, provider, liveFiles);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
                 workerLogin, liveSessions, shared, definitions, retries);
         ExecutorService executor = Executors.newFixedThreadPool(configuration.limits().parallelIssues());
@@ -295,7 +320,8 @@ public final class Main {
         Worker worker = new Worker(configuration, gitHub, workflow, definitions, phaseStopper, shared.pageRequests(),
                 workerLogin, executor, liveSessions, Clock.systemUTC(), shared.board(), shared.factorySwitch(),
                 shared.lostIssues(), shared.events());
-        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, createLabelWriter(gitHub),
+        Optional<WebServer> webServer = createWebServer(configuration, shared, liveSessions, provider.hasLiveMode(),
+                createLabelWriter(gitHub),
                 definitions, definitions::warning,
                 worker::countUsedSlots, worker::countRunningWork, worker::requestEarlyPoll, claudeHome);
         startWebServerIfPresent(webServer, configuration, errors, worker);
@@ -304,8 +330,10 @@ public final class Main {
             worker.requestEarlyPoll();
         });
         startContinueMarkerWatcher(continueMarkerWatcher, errors);
-        new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
-                UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
+        if (provider.readsUsageWindows()) {
+            new UsageProbe(configuration.claude().command(), System.getenv(), Clock.systemUTC(),
+                    UsageProbe.DEFAULT_TIMEOUT).startRecording(shared.usage());
+        }
         Runtime.getRuntime().addShutdownHook(createShutdownHook(worker, webServer));
         try {
             worker.runUntilStopped();
@@ -314,12 +342,23 @@ public final class Main {
             continueMarkerWatcher.close();
             webServer.ifPresent(WebServer::stop);
         }
-        if (!worker.foundAnApiKey()) {
+        if (!worker.foundACredentialMismatch()) {
             errors.println("The factory stopped.");
             return EXIT_SUCCESS;
         }
-        errors.println("The factory stopped: a claude session used an API key.");
-        return EXIT_API_KEY;
+        errors.println("The factory stopped: a claude session did not use the credential of the provider "
+                + provider.name().configurationValue() + ".");
+        return EXIT_CREDENTIAL_MISMATCH;
+    }
+
+    /** API key mode has no live mode: an interactive claude gets no answer with the key. */
+    private static LiveSessions createLiveSessions(FactoryConfiguration configuration, Provider provider,
+                                                   LiveFiles liveFiles) {
+        if (!provider.hasLiveMode()) {
+            return new UnavailableLiveSessions();
+        }
+        return new TmuxLiveSessions(configuration.claude(), liveFiles, System.getenv(),
+                TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT, configuration.terminalCommand());
     }
 
     /**
@@ -346,25 +385,27 @@ public final class Main {
      * Without a web section, the worker serves no page. The page gets only a label writer, never the GitHub
      * client.
      *
+     * @param liveModeAvailable false when the provider has no live mode: the page then hides the live buttons
      * @param definitions       the definition version of each record, for the limits and the block target of its card
      * @param definitionWarning the reason why the definition of the default branch does not load
      */
     static Optional<WebServer> createWebServer(FactoryConfiguration configuration, SharedState shared,
-                                               LiveSessions liveSessions, LabelWriter labels,
-                                               DefinitionLookup definitions,
+                                               LiveSessions liveSessions, boolean liveModeAvailable,
+                                               LabelWriter labels, DefinitionLookup definitions,
                                                Supplier<Optional<String>> definitionWarning,
                                                IntSupplier usedSlots, IntSupplier runningWork,
                                                Runnable earlyPollRequest,
                                                Path claudeHome) {
         return configuration.web().map(settings -> new WebServer(settings,
                 createLogin(settings),
-                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.contexts(),
-                        new LiveContextReader(claudeHome), liveSessions, shared.pageRequests(),
+                new PageModelSource(shared.board(), shared.factorySwitch(), shared.usage(), shared.guard(),
+                        shared.contexts(), new LiveContextReader(claudeHome), liveSessions, liveModeAvailable,
+                        shared.pageRequests(),
                         new WorkspaceLayout(configuration.workDirectory()), configuration, definitions,
                         definitionWarning, usedSlots, runningWork, Clock.systemUTC()),
                 new BoardPage(ZoneId.systemDefault()), shared.board(),
-                new PageActions(labels, shared.pageRequests(), liveSessions, shared.board(), shared.factorySwitch(),
-                        earlyPollRequest, definitions)));
+                new PageActions(labels, shared.pageRequests(), liveSessions, liveModeAvailable, shared.board(),
+                        shared.factorySwitch(), earlyPollRequest, definitions)));
     }
 
     /** Without a password hash, the page has no login. */
@@ -479,7 +520,7 @@ public final class Main {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
-                buildRunner, MERGE_RETRY_DELAY, shared.usage(), layout, workerLogin, liveSessions,
+                buildRunner, MERGE_RETRY_DELAY, shared.guard(), layout, workerLogin, liveSessions,
                 shared.board(), shared.contexts(), shared.pageRequests(), retries, ownershipGuard,
                 shared.lostIssues(), shared.events());
     }

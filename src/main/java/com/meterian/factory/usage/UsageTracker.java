@@ -1,5 +1,6 @@
 package com.meterian.factory.usage;
 
+import com.meterian.factory.agent.SessionReport;
 import com.meterian.factory.agent.UsageWindow;
 import java.time.Clock;
 import java.time.Duration;
@@ -11,8 +12,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /** Keeps the newest usage window values and tells when a new phase may start. */
-public final class UsageTracker {
+public final class UsageTracker implements PhaseGuard {
 
+    private static final String WAIT_REASON = "usage limit";
     private static final String ALLOWED_STATUS = "allowed";
     private static final Duration UNREADABLE_BLOCK = Duration.ofMinutes(15);
     private static final Duration MAXIMUM_PAST_RESET = Duration.ofDays(1);
@@ -30,10 +32,26 @@ public final class UsageTracker {
         windows.forEach(window -> windowsByName.put(window.name(), withReportTime(window)));
     }
 
+    @Override
+    public void recordSession(int issueNumber, SessionReport report) {
+        record(report.usageWindows());
+    }
+
+    @Override
+    public String waitReason() {
+        return WAIT_REASON;
+    }
+
+    @Override
+    public Optional<BudgetStatus> findBudgetStatus() {
+        return Optional.empty();
+    }
+
     public synchronized boolean mayStartPhase() {
         return resumesAt().isEmpty();
     }
 
+    @Override
     public synchronized Optional<Instant> resumesAt() {
         Instant now = clock.instant();
         return windowsByName.values().stream()

@@ -1,0 +1,51 @@
+name: Security
+
+on:
+  workflow_dispatch:
+  # The scan runs after the merge, not on each pull request, to save Actions minutes.
+  push:
+    branches: [main]
+  schedule:
+    # A new advisory can come in a quiet week. Scan each Monday.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan the dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The repository is private, so the scan uses the token, not "oss: true".
+      # A score below a threshold fails the run.
+      - name: Scan the dependencies
+        uses: MeterianHQ/meterian-github-action@4ca1db711dfb80dab40a700fc448d7695ba22127 # v1.0.19
+        env:
+          METERIAN_API_TOKEN: ${{ secrets.METERIAN_API_TOKEN }}
+        with:
+          cli_args: >-
+            --min-security=90
+            --min-stability=80
+            --min-licensing=95
+            --report-console=nocolor
+            --report-sarif=report.sarif
+
+      # GitHub code scanning is not available for a private repository on the
+      # free plan, so the run keeps the SARIF report as an artifact.
+      - name: Keep the scan report
+        if: success() || failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meterian-report
+          path: report.sarif
+          if-no-files-found: warn
+          retention-days: 30

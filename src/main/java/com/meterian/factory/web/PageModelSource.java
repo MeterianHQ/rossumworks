@@ -13,6 +13,7 @@ import com.meterian.factory.definition.ColumnNames;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.usage.ContextTracker;
+import com.meterian.factory.usage.PhaseGuard;
 import com.meterian.factory.usage.UsageTracker;
 import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.PageRequests;
@@ -34,9 +35,11 @@ public final class PageModelSource {
     private final BoardState board;
     private final FactorySwitch factorySwitch;
     private final UsageTracker usage;
+    private final PhaseGuard guard;
     private final ContextTracker contexts;
     private final LiveContextReader liveContexts;
     private final LiveSessions liveSessions;
+    private final boolean liveModeAvailable;
     private final PageRequests pageRequests;
     private final WorkspaceLayout layout;
     private final FactoryConfiguration configuration;
@@ -47,17 +50,21 @@ public final class PageModelSource {
     private final IntSupplier runningWork;
     private final Clock clock;
 
-    public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, ContextTracker contexts,
-            LiveContextReader liveContexts, LiveSessions liveSessions, PageRequests pageRequests,
+    public PageModelSource(BoardState board, FactorySwitch factorySwitch, UsageTracker usage, PhaseGuard guard,
+            ContextTracker contexts,
+            LiveContextReader liveContexts, LiveSessions liveSessions, boolean liveModeAvailable,
+            PageRequests pageRequests,
             WorkspaceLayout layout, FactoryConfiguration configuration, DefinitionLookup definitions,
             Supplier<Optional<String>> definitionWarning, IntSupplier usedSlots, IntSupplier runningWork,
             Clock clock) {
         this.board = board;
         this.factorySwitch = factorySwitch;
         this.usage = usage;
+        this.guard = guard;
         this.contexts = contexts;
         this.liveContexts = liveContexts;
         this.liveSessions = liveSessions;
+        this.liveModeAvailable = liveModeAvailable;
         this.pageRequests = pageRequests;
         this.layout = layout;
         this.configuration = configuration;
@@ -80,10 +87,10 @@ public final class PageModelSource {
                 configuration.limits().parallelIssues(), readLimits(snapshot), readReviewNames(snapshot),
                 readIssuesInBlockTarget(snapshot),
                 configuration.isolationMode(), configuration.limits().pollInterval(), usage.windows(),
-                usage.resumesAt(), readContexts(snapshot), readContinueRequests(snapshot), readRememberedLabels(snapshot),
-                readEnterPlaces(snapshot), configuration.repository().fullName(), viewerOnThisMachine,
-                definitionWarning.get(), FactoryState.find(factorySwitch.isStopRequested(), runningWork.getAsInt()),
-                readColumns());
+                guard.resumesAt(), guard.findBudgetStatus(), readContexts(snapshot), readContinueRequests(snapshot),
+                readRememberedLabels(snapshot), readEnterPlaces(snapshot), configuration.repository().fullName(),
+                viewerOnThisMachine, liveModeAvailable, definitionWarning.get(),
+                FactoryState.find(factorySwitch.isStopRequested(), runningWork.getAsInt()), readColumns());
     }
 
     private List<String> readColumns() {

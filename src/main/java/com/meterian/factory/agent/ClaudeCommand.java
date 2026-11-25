@@ -1,6 +1,7 @@
 package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
+import com.meterian.factory.process.ChildEnvironment;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,7 +10,6 @@ import java.util.Set;
 
 public final class ClaudeCommand {
 
-    private static final List<String> REMOVED_PREFIXES = List.of("ANTHROPIC_", "CLAUDE_CODE_USE_");
     private static final Set<String> REMOVED_NAMES = Set.of("GH_TOKEN", "GITHUB_TOKEN", "FACTORY_GITHUB_TOKEN");
 
     /** The rule for each text that an agent writes to a human: a question, a description, or a conversation. */
@@ -21,6 +21,12 @@ public final class ClaudeCommand {
 
     /** The prompt is not an argument: the runner writes it to the standard input, after the tool lists. */
     public static List<String> arguments(ClaudeSettings settings, PhaseRequest request) {
+        return arguments(settings, request, List.of());
+    }
+
+    /** @param providerArguments the arguments of the provider; they come before the tool lists */
+    public static List<String> arguments(ClaudeSettings settings, PhaseRequest request,
+                                         List<String> providerArguments) {
         List<String> arguments = new ArrayList<>();
         arguments.add(settings.command());
         arguments.add("-p");
@@ -29,6 +35,7 @@ public final class ClaudeCommand {
         arguments.addAll(List.of("--output-format", "stream-json", "--verbose"));
         arguments.addAll(List.of("--permission-mode", "acceptEdits"));
         arguments.addAll(humanLanguageArguments());
+        arguments.addAll(providerArguments);
         arguments.add("--allowedTools");
         arguments.addAll(request.allowedTools());
         arguments.add("--disallowedTools");
@@ -48,6 +55,6 @@ public final class ClaudeCommand {
     }
 
     private static boolean isRemoved(String name) {
-        return REMOVED_NAMES.contains(name) || REMOVED_PREFIXES.stream().anyMatch(name::startsWith);
+        return REMOVED_NAMES.contains(name) || ChildEnvironment.hasCredentialPrefix(name);
     }
 }

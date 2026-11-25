@@ -1,14 +1,13 @@
 # The factory definition
 
-This document is the reference of the folder `.factory` of a repository. The folder tells the factory how to
-work on the issues of this repository: the workflow, the prompts of the agent, the build, the tools of the
-agent, and the merge target.
+This page is the reference of the **definition**: the folder `.factory` of a repository. The definition tells the
+worker how to work on the issues of the repository. It holds the workflow, the prompts, the build, the tools of
+the agent, and the target branch.
 
-This document is a reference. It is not a full guide for the user.
+Read this page when you change the definition. The [glossary](glossary.md) explains the terms.
 
-The worker reads `.factory` from the default branch of the repository. Each issue keeps the version of
-`.factory` that was current when the work on the issue started. A change of `.factory` has no effect on the
-issues in work. A pull request that changes `.factory` always waits for your approval before the merge.
+A change of `.factory` has no effect on the issues in work (see section 13). A pull request that changes `.factory`
+always needs your approval before the merge.
 
 ## 1. The folder
 
@@ -28,7 +27,7 @@ loader refuses a path that starts with `/` or that has the segment `..`.
 
 The jar of the factory contains a complete example:
 [`src/main/resources/factory/`](../src/main/resources/factory/). Section 15 shows its `factory.yaml`. To start,
-run the command `create` of the jar (see "Setup" in the README). It writes this folder as `.factory` with the
+run the command `create` of the jar (see [Getting started](getting-started.md)). It writes this folder as `.factory` with the
 build command of your repository, adds `run.sh`, and opens the PR `factory/setup`. The loader does not read
 `run.sh`. Then change the files as you need.
 
@@ -42,7 +41,7 @@ build command of your repository, adds `run.sh`, and opens the PR `factory/setup
 | `workflow` | yes | The state machine of the issues. See section 3. |
 | `build` | yes | The build command. See section 12. |
 | `claude` | yes | The tools that the agent can use. See section 12. |
-| `merge` | yes | The merge target. See section 12. |
+| `merge` | yes | The target branch. See section 12. |
 | `repositories` | no | A list of text. Version 1 reads it, but does not use it. |
 
 ## 3. The workflow
@@ -50,7 +49,7 @@ build command of your repository, adds `run.sh`, and opens the PR `factory/setup
 The workflow is a state machine:
 
 - An issue is always in one **state**.
-- When the issue enters a state, the factory starts the **action** of that state automatically. A state can
+- When the issue enters a state, the worker starts the **action** of that state automatically. A state can
   also have no action. Then the issue waits.
 - The action ends with an **event**, for example `passed`.
 - The `on` of the state names the next state for each event.
@@ -73,7 +72,7 @@ workflow:
 | `on-any-state` | yes | The target states of the three moves from any state. See section 5. |
 | `states` | yes | The states, by name. You choose the names and the number of states. |
 
-The name `previous` is reserved. A state cannot have this name.
+The word `previous` has a special meaning (section 4.2). A state cannot have this name.
 
 ## 4. A state
 
@@ -119,7 +118,7 @@ The action does not run in these cases:
 
 - A `limit` refuses the entry.
 - The issue text changed.
-- You block the issue or you click Enter before the action starts.
+- You block the issue, or you enter (see section 5), before the action starts.
 
 Example: the reviews reject at the limit of `implement`, so the issue goes to `blocked`. Then
 `continue: previous` goes to `implement`, and the agent fixes the findings. The reviews do not run again.
@@ -131,9 +130,11 @@ Three things can move an issue from any state. The YAML names their target state
 | Key | What moves the issue | Required |
 |-----|----------------------|----------|
 | `block` | The label `factory:block`, an unexpected failure (section 10.3), or a refused merge (section 6.6). | yes |
-| `enter` | Enter: the label `factory:enter`, or an Enter button of the page. | yes |
+| `enter` | An Enter: the label `factory:enter`, or the button Terminal or Browser of the board. | yes |
 | `issue-text-changed` | The issue text changed after the label `factory` (section 10.5). | yes |
 
+- The target of `block` is the **block state**. The target of `enter` is the **enter state**. The target of
+  `issue-text-changed` is the **text-change state**.
 - Each target must be a state of the workflow.
 - The target of `issue-text-changed` must have the action `approval`.
 - The target of `enter` must have the action `conversation`.
@@ -154,7 +155,7 @@ Three things can move an issue from any state. The YAML names their target state
 | `approval` | Waits for the label `factory:approve`. | `approved` | none |
 | `conversation` | Opens a live conversation with the agent, and waits for `/factory:continue`. | `continue`, `changed` | none |
 | `finish` | Sets the column of its state, removes the worktree, and removes the label `factory`. | none | none |
-| no action | The issue waits for a continue request. | `continue` | none |
+| no action | The issue waits for the button Continue, or for `/factory:continue`. | `continue` | none |
 
 An action reads its prompts from `action.prompts`, a map from the prompt name to the file:
 
@@ -168,40 +169,42 @@ Only `merge-gate` has the key `action.mode`. The other action types have only `t
 
 ### 6.1 `prepare`
 
-The action creates the branch and the worktree of the issue. It sends `done`. The `start` state must have
+The action creates the branch and the worktree of the issue. It sends `done`. The start state must have
 this action.
 
-A new owner of the issue can continue the branch that an earlier owner pushed (see section 10.8). Then the
-action makes the worktree from `origin/factory/issue-<n>`, and the issue goes to the first state with the action
-`build`, in the order of the moves from the `start` state. A workflow without a `build` state sends `done`.
+When the issue has a new assignee, the factory of the new assignee can continue the pushed branch. See section 10.8.
+Then the action makes the worktree from `origin/factory/issue-<n>`. The issue goes to the first state with the
+action `build`, in the order of the moves from the start state. In a workflow without a `build` state, the action
+sends `done`.
 
 ### 6.2 `coding`
 
 The action runs a `claude` session in the worktree. Its events:
 
-- `changed`: the agent made a change. The factory commits it.
+- `changed`: the agent made a change. The worker commits it.
 - `no-change`: the agent made no change.
-- `question`: the agent asks you a question. The factory writes the question on the issue.
-- `conflict-left`: conflict markers stay in the files after a merge with the target.
+- `question`: the agent asks you a question. The worker writes the question on the issue.
+- `conflict-left`: conflict markers stay in the files after a merge with the target branch.
 - `failed`: the session failed.
 
-The factory chooses the prompt from the event that moves the issue into the `coding` state:
+The worker chooses the prompt from the event that moves the issue into the `coding` state:
 
 | The issue enters the `coding` state | Prompt | Placeholders |
 |-------------------------------------|--------|--------------|
 | for the first time | `implement` | `{{issue}}` |
 | with an event that has findings: `build` `failed`, `reviews` `rejected`, `merge-gate` `conflict`, `coding` `conflict-left` | `fix` | `{{findings}}` |
-| from the `enter` target or the `block` target, with `continue` | see below | |
+| from the enter state or the block state, with `continue` | see below | |
 | with each other event | `resume` | `{{findings}}` |
 
-The factory keeps the pending prompt of each entry, with its findings. After a return with `continue`:
+When an issue enters the `coding` state, the worker selects a prompt. It keeps this **pending prompt** and its
+findings in the status comment until the prompt ran. After a return with `continue`:
 
-1. From the `block` target: the pending prompt runs again (`implement`, `fix`, or `resume`, with the same
+1. From the block state: the pending prompt runs again (`implement`, `fix`, or `resume`, with the same
    findings).
-2. From the `enter` target: the prompt `continue` runs, and then the pending prompt when it is `fix` or
+2. From the enter state: the prompt `continue` runs, and then the pending prompt when it is `fix` or
    `resume`.
-3. When the agent session did not start yet: the prompt is always `implement`.
-4. When the findings of a pending `fix` or `resume` are missing: the issue goes to the `block` target, and the
+3. When the session of the agent did not start yet: the prompt is always `implement`.
+4. When the findings of a pending `fix` or `resume` are missing: the issue goes to the block state, and the
    pending prompt becomes `implement`. So the next `continue` runs `implement`.
 
 The prompt `resume` tells the agent to continue the work of the issue. Its `{{findings}}` is the result of
@@ -236,7 +239,8 @@ pull request. A workflow with `merge-gate` needs a `build` state.
 ### 6.5 `risk`
 
 The action gives the risk (`low`, `medium`, or `high`), the size (`small` or not small), and the reasons. It
-sends `assessed`. The status comment of the issue and the card of the page show all three, for example:
+sends `assessed`. The status comment shows all three. The card on the board shows the risk in one line. For example, the status
+comment shows:
 
 ```
 risk: high, not small
@@ -258,9 +262,9 @@ Each new risk result replaces the reasons.
 
 | Mode | Checks | Then |
 |------|--------|------|
-| `risk` | The four checks below. | An automatic merge when the risk is `low` and the change is small. Else `needs-approval`. Without a `risk` state, always `needs-approval`. |
-| `always-ask` | The four checks below. | `needs-approval`, until you approve. |
-| `auto-merge` | Only the check of an open question. | The merge. |
+| `risk` | The four checks below. | An automatic merge when the risk is `low` and the change is small. Else, the event is `needs-approval`. Without a `risk` state, the event is always `needs-approval`. |
+| `always-ask` | The four checks below. | The event is `needs-approval`, until you approve. |
+| `auto-merge` | Only the check of an open question. | An automatic merge. |
 
 The four checks:
 
@@ -270,17 +274,17 @@ The four checks:
 4. The build is for the current files.
 
 The checks 2 and 3 apply only when the workflow has a `reviews` state. A workflow with `merge-gate` always has
-a `build` state, because only the action `build` pushes the branch and opens the pull request (rule 2).
+a `build` state (section 14, rule 2). Only the action `build` pushes the branch and opens the pull request.
 
-A failed check refuses the merge. The issue goes to the `block` target, with the reason in a note, for
+A failed check refuses the merge. The issue goes to the block state, with the reason in a note, for
 example "the files changed after the reviews".
 
 The events:
 
-- `merged`: the merge is done.
+- `merged`: the worker merged the pull request.
 - `needs-approval`: the merge needs approval.
-- `needs-new-reviews`: the target changed, and the reviews must run again on the merged files.
-- `conflict`: the merge with the target has a conflict. The agent must solve it.
+- `needs-new-reviews`: the target branch changed, and the reviews must run again on the merged files.
+- `conflict`: the merge with the target branch has a conflict. The agent must solve it.
 - `factory-changed`: the pull request changes `.factory`. This event comes in each mode, also with
   `auto-merge`.
 
@@ -289,13 +293,14 @@ The events:
 The action waits for the label `factory:approve`. It sends `approved`. The label does one of two things. The
 state decides which one:
 
-1. **The approval of a merge.** This is an approval state whose `approved` goes to the merge gate. When you
-   add the label, the factory writes the approved files in the record. The merge gate then accepts both
+1. **The approval of a merge.** This is an approval state whose `approved` goes to the `merge-gate` state. When you
+   add the label, the worker writes the approved files in the status comment. The merge gate then accepts both
    `needs-approval` and `factory-changed` for these files, so it does not ask again. A change of the code
-   before the merge removes the approval: a fix, a merge with the target, or a change in a live conversation.
-   The merge gate then asks again for the new files.
-2. **The approval of a new issue text.** This is the `issue-text-changed` target. The approval only accepts
-   the new text. The factory then removes the label at once. It does not approve the merge.
+   before the merge removes the approval: a fix, a merge with the target branch, or a change in a live
+   conversation. The merge gate then asks again for the new files. The label also works when you add it before
+   the issue waits. See the warning in [Issues and labels](issues-and-labels.md).
+2. **The approval of a new issue text.** This is the text-change state. The approval only accepts
+   the new text. The worker then removes the label at once. It does not approve the merge.
 
 The loader does not check the paths to the merge gate. So a workflow can go from `coding` directly to the
 merge gate.
@@ -304,13 +309,13 @@ merge gate.
 
 When the issue enters the state, the action opens the live conversation: a hidden tmux session with
 `claude --resume` and Remote Control, and a comment with the link on the issue. Each event that moves the issue
-there opens the conversation: Enter, `question`, or another event.
+there opens the conversation: an Enter, `question`, or another event.
 
-The action ends when you type `/factory:continue` in the conversation, or click Continue on the page. It sends
+The action ends when you type `/factory:continue` in the conversation, or click Continue on the board. It sends
 `continue` when the conversation did not change the code. When the conversation changed the code, the action
 commits the change, and then it sends `changed`.
 
-The `enter` target of `on-any-state` must have this action. The action `conversation` is in one state at
+The enter state of `on-any-state` must have this action. The action `conversation` is in one state at
 most.
 
 ### 6.9 `finish`
@@ -320,23 +325,23 @@ event and no `on`. The workflow must have one state with this action.
 
 ### 6.10 A state without an action
 
-The issue waits in the state. The event `continue` comes from a continue request:
+The issue waits in the state. The event `continue` comes from one of these:
 
-- The button Continue of the page. The page shows it on each card in a state without an action.
-- `/factory:continue` in a live conversation, when the issue goes through the `enter` target.
+- The button Continue of the board. The board shows it on each card in a state without an action.
+- `/factory:continue` in a live conversation, when the issue goes through the enter state.
 
 ## 7. The prompts
 
 The placeholders of each prompt:
 
-| Prompt | When the factory uses it | Placeholders |
+| Prompt | When the worker uses it | Placeholders |
 |--------|--------------------------|--------------|
-| `implement` | The first agent session of the issue. | `{{issue}}` |
+| `implement` | The first session of the agent. | `{{issue}}` |
 | `fix` | An entry with findings (section 6.2). | `{{findings}}` |
 | `resume` | An entry without findings (section 6.2). | `{{findings}}` |
-| `continue` | An agent session after a live conversation with you. | none |
+| `continue` | The session of the agent, after a live conversation with you. | none |
 | each review | The reviews. | `{{issue}}`, `{{tree}}`, `{{base}}` |
-| `risk` | The risk assessment. | `{{issue}}`, `{{base}}` |
+| `risk` | The risk check. | `{{issue}}`, `{{base}}` |
 
 The values of the placeholders:
 
@@ -344,12 +349,12 @@ The values of the placeholders:
 - `{{findings}}`: the findings of the build, of the reviews, or of the merge conflict, or the result of the
   action that sends the issue back.
 - `{{tree}}`: the git tree hash of the files under review.
-- `{{base}}`: `origin/` and the merge target, for example `origin/main`.
+- `{{base}}`: `origin/` and the target branch, for example `origin/main`.
 
 A prompt can use only the placeholders of its row. The loader refuses another placeholder, for example the
 typo `{{isue}}`.
 
-A prompt must keep the contract of its action. The factory reads these files in the folder `.factory-work` of
+A prompt must keep the contract of its action. The worker reads these files in the folder `.factory-work` of
 the worktree:
 
 | Prompt | The file that the agent must write |
@@ -376,10 +381,10 @@ The prompts of the example folder show the full contract. Start from them.
 - An entry counts only when the action of the state starts. So a return after a text change or a block does
   not count two times.
 - At entry `entries + 1`, the issue does not enter the state. It goes to the `then` state.
-- Each limit has its own count. The card of the page shows the count of each limit as "Entries".
-- When the issue leaves the `block` target with the event `continue`, the counts of all the limits go back
+- Each limit has its own count. The card of the board shows the count of each limit as "Entries".
+- When the issue leaves the block state with the event `continue`, the counts of all the limits go back
   to 0.
-- When an Enter (the label `factory:enter` or an Enter button of the page) moves the issue from the `block`
+- When an Enter (see section 5) moves the issue from the `block`
   target, the counts of all the limits also go back to 0.
 
 ## 9. The columns and the labels
@@ -387,18 +392,17 @@ The prompts of the example folder show the full contract. Start from them.
 - Each state must have `column`. A column name has only small letters, digits, and hyphens.
 - A column name has 39 characters or less. A GitHub label has 50 characters or less, and the label of a column
   is `factory:is:` and the column name.
-- The names of the columns are free. The page shows them in the order of their first use in the YAML. The
-  page writes them with a capital letter and with spaces. For example, `waits-for-you` becomes
+- You choose the names of the columns. The board shows them in the order of their first use in the YAML. The
+  board writes them with a capital letter and with spaces. For example, `waits-for-you` becomes
   "Waits for you".
 - The column "Queued" is always first. It holds the new issues. The name `queued` is reserved: no state can
   use it.
 - The GitHub label of the column is `factory:is:<column>`, for example `factory:is:in-review`. The worker
-  creates the label on its first use. The label is for display only. The record in the status comment keeps
-  the state.
+  creates the label on its first use. The label is for display only. The status comment keeps the state.
 - The labels of the columns of the default workflow have fixed colors. The label of each other column has the
   color `c5def5`.
 - The worker removes the labels `factory:status:<name>` of earlier versions of the factory.
-- Issues can run on different versions of `.factory`. The page shows the columns of the newest version that
+- Issues can run on different versions of `.factory`. The board shows the columns of the newest version that
   loads. A card whose column is not in that version goes to an extra column at the end, with the name of its
   column.
 
@@ -406,32 +410,32 @@ The prompts of the example folder show the full contract. Start from them.
 
 ### 10.1 Enter while an action runs
 
-1. You click Enter. The worker sees the accepted label `factory:enter`.
-2. The worker stops the running agent session or build at once, and drops the result of the action. A
-   stopped session is not a failed session: the issue does not go to the `block` target, and a review round
+1. You enter (see section 5). The worker sees the label `factory:enter`.
+2. The worker stops the running `claude` session or the running build at once, and drops the result of the action. A
+   stopped session is not a failed session: the issue does not go to the block state, and a review round
    does not count as failed.
-3. The issue moves to the `enter` target. Its action `conversation` opens the live conversation.
+3. The issue moves to the enter state. Its action `conversation` opens the live conversation.
 4. `previous` is the state of the stopped action. So `continue: previous` runs that action again from the
    start.
 
-When no action runs, the issue moves to the `enter` target at once.
+When no action runs, the issue moves to the enter state at once.
 
 ### 10.2 `factory:block` while an action runs
 
 1. The worker stops the action at once and drops its result.
-2. The issue moves to the `block` target.
+2. The issue moves to the block state.
 3. `previous` is the state of the stopped action. So `continue: previous` runs that action again from the
    start.
 
-Exception: when the merge is already done, the worker does not block. The issue continues to the `finish`
+Exception: when the worker already merged the pull request, the worker does not block. The issue continues to the `finish`
 state.
 
 ### 10.3 An unexpected failure
 
 An unexpected failure has no event, because the action did not end. Examples: git fails in the worktree, the
-disk is full, or a defect in the factory code.
+disk is full, or a defect in the code of the factory.
 
-1. The issue moves to the `block` target.
+1. The issue moves to the block state.
 2. The note on the issue gives the failure, for example
    "An unexpected failure stopped the issue: ... git worktree add failed".
 3. `previous` is the state of the failed action.
@@ -440,105 +444,91 @@ The YAML does not write this move.
 
 ### 10.4 The retries inside an action
 
-Two retries of a technical failure stay inside the action. The YAML does not show them. You set them with a
-system property of Java.
+The worker tries again after two types of technical failure. The YAML does not show these retries.
+[Configuration](configuration.md) tells how you set them.
 
-| Retry | System property | Default number of tries |
-|-------|-----------------|-------------------------|
-| A review session fails, for example `claude` stops. The reviews run again. | `factory.retries.review-session` | `2` |
-| After a push, GitHub does not show the commit yet. The next poll checks again. | `factory.retries.forward-check` | `3` |
-
-- The value is the number of tries, and the first try counts. So the value `2` gives one try and one retry.
 - After the last try, the action has an unexpected failure (section 10.3).
 - The count of the tries belongs to one run of the action. Each new run of the action starts at 0. So after
   `continue: previous`, the action has all its tries again.
-- A value that is not a whole number of 1 or more stops the worker at the start. The message names the
-  property.
-
-Example:
-
-```
-java -Dfactory.retries.review-session=4 -jar target/rossumworks-$VERSION.jar run
-```
 
 ### 10.5 A change of the issue text
 
-1. The factory keeps a hash of the issue text when it takes the issue.
-2. Before each action that uses `{{issue}}` (`coding`, `reviews`, and `risk`), the factory compares the hash.
-3. When the text changed, the issue moves to the `issue-text-changed` target. The action `approval` of this
+1. The worker keeps a hash of the issue text when it takes the issue.
+2. Before each action that uses `{{issue}}` (`coding`, `reviews`, and `risk`), the worker compares the hash.
+3. When the text changed, the issue moves to the text-change state. The action `approval` of this
    state starts. First it removes an older `factory:approve`, because only an approval after the change
    counts.
-4. You add `factory:approve`. The factory accepts the new text. The event `approved` goes to `previous`, so
+4. You add `factory:approve`. The worker accepts the new text. The event `approved` goes to `previous`, so
    the action runs with the new text.
 
 ### 10.6 Start again
 
-The button "Start again" of the page and the label `factory:start-again` start the issue again from the
+The button "Start again" of the board and the label `factory:start-again` start the issue again from the
 beginning.
 
-1. The button and the label work only when the issue is in the `block` target and has no live conversation.
+1. The button and the label work only when the issue is in the block state and has no live conversation.
    In the other states, the worker removes the label, writes a note, and does nothing.
-2. The worker discards the earlier work of the issue. It writes a new record in the `start` state, with a new
-   agent session. The issue takes the current version of `.factory`, so a correction of `.factory` reaches
+2. The worker discards the earlier work of the issue. It resets the status comment to the start state, with a new
+   agent. The issue takes the current version of `.factory`, so a correction of `.factory` reaches
    it. All the limit counts are 0. When no version of `.factory` loads, Start again has no effect.
 3. The action `prepare` makes the worktree and the branch again.
 4. Exception: when GitHub already merged the pull request of the issue, the issue goes to the `finish` state.
-   So the factory never makes the change two times.
+   So the worker never makes the change two times.
 
 The YAML does not name this move.
 
-### 10.7 What the factory does on a move
+### 10.7 What the worker does on a move
 
-An event only moves the issue. But the factory applies these rules on a move. The YAML does not write them.
+An event only moves the issue. But the worker applies these rules on a move. The YAML does not write them.
 
-1. **The label and the record.** Each move changes the label `factory:is:<column>`, and writes the record in
-   the status comment.
+1. **The label and the status comment.** Each move changes the label `factory:is:<column>`, and changes the status
+   comment.
 2. **`previous`.** Each move toward a state with an action that does not wait for you sets `previous`.
 3. **The limit.** At the limit, the issue goes to the `then` state, and not into the state.
-4. **The reset of the limits.** When the issue leaves the `block` target with `continue` or with an Enter,
-   the counts of all the limits go back to 0.
+4. **The reset of the limits.** See section 8.
 5. **The moves of `on-any-state`.** `factory:block`, Enter, and a change of the issue text move the issue from
    any state.
-6. **`factory:block` stops the action.** The running action stops, and its result goes away. When the merge
-   is already done, the issue does not move.
-7. **Enter stops the action.** The running action stops, and its result goes away. The issue goes to the
-   `enter` target.
+6. **`factory:block` stops the action.** See section 10.2.
+7. **An Enter stops the action.** See section 10.1.
 8. **The moves without an `on` entry.** A refused merge and an unexpected failure move the issue to the
-   `block` target, with the reason in a note.
-9. **A change of the code makes the results old.** After a fix, a merge with the target, or a change in a
-   live conversation, the factory removes the results of the build, the reviews, and the risk, and the
-   approval of the merge.
+   block state. The note gives the reason.
+9. **A change of the code makes the results old.** A fix, a merge with the target branch, and a change in a live
+   conversation change the code. The worker then removes the results of the build, the reviews, and the risk
+   check. It also removes the approval of the merge.
 
-### 10.8 A new owner of the issue
+### 10.8 A new assignee of the issue
 
-The GitHub assignee of the issue tells which factory owns it (see the README, "More than one factory on one
-repository"). A factory that takes over an issue from an earlier owner writes a new record in the `start` state
-of the current version of `.factory`.
+The GitHub assignee of the issue decides which factory works on it. See
+[More than one factory](multiple-factories.md). When the assignee changes, the factory of the new assignee writes a
+new status comment. The issue is then in the start state of the current version of `.factory`.
 
-1. When the branch `factory/issue-<n>` is on GitHub, the record continues that branch, and it keeps the pull
+1. When the branch `factory/issue-<n>` is on GitHub, the new factory continues that branch, and it keeps the pull
    request. The action `prepare` then goes to the first `build` state (see section 6.1).
-2. An earlier record in a state without an action goes to the `block` target.
-3. An earlier record that waits for the approval of a new issue text goes to the `issue-text-changed` target.
-4. An earlier record that waits for a merge approval goes to the state where the same event of the
-   `merge-gate` state goes, for example `waits-for-approval`. This needs the pushed branch. After the approval,
-   the issue goes to the `start` state, so the factory makes the worktree from the branch and builds again.
-5. An earlier record in another `approval` state, which no `merge-gate` state enters, does not pass on. The new
-   owner continues its work from the `start` state.
-6. A state with the action `conversation` does not pass on, because the session stays on the earlier machine.
+2. An earlier status comment in a state without an action goes to the block state.
+3. An earlier status comment that waits for the approval of a new issue text goes to the text-change state.
+4. An earlier status comment that waits for a merge approval keeps its wait. The `merge-gate` event that caused the
+   wait selects the state in the new workflow, for example `waits-for-approval`. This needs the pushed branch. After the approval,
+   the issue goes to the start state, so the worker makes the worktree from the branch and builds again.
+5. The new factory does not keep a wait in another `approval` state, which no `merge-gate` state enters. It
+   continues from the start state.
+6. The new factory does not keep a wait in a state with the action `conversation`, because the session stays on
+   the earlier machine.
 
 The YAML does not name these moves.
 
-## 11. The record
+## 11. The status comment
 
-The status comment of the worker on each issue keeps the record of the issue. The record keeps the name of
-the current state, the value of `previous`, the count of each state with a `limit`, and the results that the
-merge gate checks.
+The status comment of the worker on each issue keeps the **record**: the data of the issue. The
+record holds the name of the current state, the value of `previous`, and the count of each state with a `limit`. It
+also holds the results that the merge gate checks.
 
-A record of an earlier factory version has no commit of `.factory`. It runs with the default workflow of the
-jar. The worker reads its phase and its wait reason as a state of the default workflow. For example, the wait
+### 11.1 Issues of an earlier version
+
+A record of an earlier version of the factory has no commit of `.factory`. It runs with the default workflow of the
+jar. The worker converts its old fields, the phase and the wait reason, to a state of the default workflow. For example, the wait
 reason `MERGE_NEEDS_APPROVAL` becomes the state `waits-for-approval`.
 
-## 12. The build, the tools, and the merge target
+## 12. The build, the tools, and the target branch
 
 ### 12.1 `build`
 
@@ -553,7 +543,7 @@ build:
 | `command` | yes | The command that the action `build` runs in the worktree. |
 | `environment` | no | Variables for the build. |
 
-The worker configuration of each machine can also give `build.environment`, for example `JAVA_HOME`. A value
+The file `worker.yaml` of each machine can also give `build.environment`, for example `JAVA_HOME`. A value
 of the machine replaces a value of `.factory` with the same name.
 
 ### 12.2 `claude`
@@ -564,10 +554,10 @@ claude:
 ```
 
 `allowed-tools` (required, not empty) is the list of tools that the agent can use without a question. The
-factory gives the list to `claude` with `--allowedTools`. The format of each item is the format of `claude`,
+worker gives the list to `claude` with `--allowedTools`. The format of each item is the format of `claude`,
 for example `Bash(./mvnw *)`.
 
-The worker configuration of each machine gives `claude.disallowed-tools`. These tools stay refused, also
+The file `worker.yaml` of each machine gives `claude.disallowed-tools`. These tools stay refused, also
 when `allowed-tools` names them.
 
 ### 12.3 `merge`
@@ -577,22 +567,31 @@ merge:
   target-branch: main
 ```
 
-`target-branch` (required) is the branch that the pull requests of the factory go to. The factory never
+`target-branch` (required) is the branch that the pull requests of the factory go to. The worker never
 pushes to the default branch or to a tag directly. It merges a pull request into the target branch.
 
-## 13. When `.factory` does not load
+## 13. How the worker reads `.factory`
+
+- At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
+  newest commit with git, never from the worktree of an issue.
+- A new issue gets the newest version that loads. Its status comment keeps the commit of that version.
+- Each issue runs with the workflow, the prompts, the build, the tools, and the target branch of its own
+  version.
+
+### 13.1 When `.factory` does not load
 
 The worker checks `.factory` at each poll. When the newest version does not load:
 
 - The worker keeps the last version that loads. The issues in work continue with their own version.
-- The web page shows the reason at the top.
-- After a restart, the worker looks back through the history of `.factory` for the newest version that loads.
+- The board shows the reason at the top.
+- After a restart, the worker reads up to 20 earlier commits of `.factory`, the newest first. It takes the first
+  one that loads.
 - When no version loads, the worker takes no new issue.
 
 ## 14. The rules of the loader
 
 The loader refuses a definition that breaks one of these rules. Each message starts with `factory.yaml: `.
-It names the state and the key.
+When the error is in a state or a key, the message names it.
 
 | Rule | Example message |
 |------|-----------------|
@@ -623,7 +622,7 @@ The loader also refuses these values:
 ## 15. The default workflow
 
 The default workflow is the `factory.yaml` of the jar, in
-[`src/main/resources/factory/`](../src/main/resources/factory/). It has four reviews and a risk assessment. It
+[`src/main/resources/factory/`](../src/main/resources/factory/). It has four reviews and a risk check. It
 merges a small change with a low risk automatically.
 
 ```yaml

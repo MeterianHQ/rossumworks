@@ -6,6 +6,7 @@ import com.meterian.factory.board.BoardSnapshot;
 import com.meterian.factory.board.FactoryState;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.state.LivePlace;
+import com.meterian.factory.usage.BudgetStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,8 +21,11 @@ import java.util.stream.Collectors;
  * @param limits            the limits of the states of each card, by issue number, from the definition of its record
  * @param reviewNames       the names of the reviews of each card, by issue number, from the definition of its record
  * @param inBlockTarget     the issues whose state is the block target of the definition of their record
+ * @param phasesResumeAt    the end of the wait of the guard, for the usage windows or for the daily budget
+ * @param liveModeAvailable false in API key mode: the page then shows no live mode button
  * @param definitionWarning the reason why the definition of the default branch does not load, if it does not
  * @param factoryState      the state of the whole factory: running, stopping, or stopped
+ * @param budget            the cost of today and the daily budget, only in API key mode
  * @param columns           the columns of the page: queued, then the columns of the newest good definition
  */
 public record PageModel(
@@ -35,13 +39,15 @@ public record PageModel(
         IsolationMode isolationMode,
         Duration pollInterval,
         List<UsageWindow> usageWindows,
-        Optional<Instant> usageResumesAt,
+        Optional<Instant> phasesResumeAt,
+        Optional<BudgetStatus> budget,
         Map<Integer, ContextUsage> contexts,
         Set<Integer> continueRequested,
         Map<Integer, Set<String>> rememberedLabels,
         Map<Integer, LivePlace> enterPlaces,
         String repositoryFullName,
         boolean viewerOnThisMachine,
+        boolean liveModeAvailable,
         Optional<String> definitionWarning,
         FactoryState factoryState,
         List<String> columns) {
