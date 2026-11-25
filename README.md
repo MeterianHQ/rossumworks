@@ -67,6 +67,11 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
   [Providers](docs/providers.md).
 - A `gh` login, or a GitHub token in `FACTORY_GITHUB_TOKEN`.
 
+## Tutorial
+
+The [tutorial](docs/tutorial.md) lets you try the factory on a small sample project. You give one issue to the
+factory, and you watch it from the label to the merge.
+
 ## Quick start
 
 This procedure installs the factory on one of your GitHub repositories, and starts the worker. Do the
@@ -105,6 +110,7 @@ the same time, and the others wait in Queued. See [Configuration](docs/configura
 
 | Page | Read it when you want to |
 |---|---|
+| [Tutorial](docs/tutorial.md) | try the factory on a sample project |
 | [Getting started](docs/getting-started.md) | install the factory on a repository, and start the worker |
 | [Configuration](docs/configuration.md) | change `worker.yaml`: the limits, the build environment, and the retries |
 | [Providers](docs/providers.md) | select the subscription or an API key, and set the daily budget |
