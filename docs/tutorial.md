@@ -151,24 +151,29 @@ worker in operation. Run the commands in the second terminal, in the folder of t
 
 **Purpose.** You stop the work on an issue. Then you continue the work, or you start again.
 
-**Steps.** "Terminal" is near "Block". Read the name of the button before you push it. Create the issue:
+**Warning: the buttons move.** A new card shows only "Block". A few seconds later, "Terminal" comes to the place of
+"Block". Wait for "Terminal" before you push "Block".
+
+**Steps.** Create the issue:
 
 ```
 tutorial/create-issues.sh block
 ```
 
 1. Add the label `factory` to the issue.
-2. Wait until the card is in "In progress".
-3. Push "Block" on the card at once, and confirm.
+2. Wait until the card is in "In progress" and shows "Terminal" and "Browser".
+3. Push "Block" on the card, and confirm.
 4. Wait until the card is in "Blocked".
 5. Push "Continue". The agent continues its work.
-6. Push "Block" again when the card is in "In progress", and confirm.
+6. Wait until the card is in "In progress" and shows "Terminal". Push "Block" again, and confirm.
 7. Wait until the card is in "Blocked".
 8. Push "Start again", and confirm. The factory discards the work and starts a new agent.
-9. When the card goes to "Waits for you", read the PR, and then push "Approve".
+9. If the card goes to "Waits for you", read the PR, and then push "Approve".
+10. Wait until the card is in "Done".
 
 **Expected board.** The card goes to "Blocked" in a few seconds. "Continue" moves it to "In progress". "Start again"
-also moves it to "In progress". Last, the card goes to "Done".
+moves it to "Queued", and then to "In progress". Last, the card goes to "Done". When the risk is low and the change is
+small, the factory merges the PR without your approval.
 
 **Other results.**
 
