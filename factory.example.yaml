@@ -1,7 +1,7 @@
 # create writes this file for you: java -jar rossumworks.jar create
-repository: MeterianHQ/heidi-fix
-work-directory: /home/bbossola/.rossumworks/work
-gatekeeper-directory: /home/bbossola/.rossumworks/gatekeeper.git
+repository: octocat/hello-world
+work-directory: /home/user/.rossumworks/work
+gatekeeper-directory: /home/user/.rossumworks/gatekeeper.git
 # live-directory: /path/to/live         # optional, default: <work-directory>/live
 limits:                 # all keys optional
   parallel-issues: 2
@@ -10,7 +10,7 @@ limits:                 # all keys optional
   # daily-budget-usd: 20.00     # necessary when claude.provider is anthropic-api-key
 build:                  # optional: the variables of this machine; a value here replaces the value of .factory
   environment:
-    JAVA_HOME: /home/bbossola/.sdkman/candidates/java/21.0.2-open
+    JAVA_HOME: /home/user/.sdkman/candidates/java/21.0.2-open
 isolation:              # optional
   mode: same-user
 claude:                 # optional

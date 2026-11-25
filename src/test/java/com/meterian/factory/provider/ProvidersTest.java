@@ -50,7 +50,7 @@ class ProvidersTest {
     private FactoryConfiguration load(Path workDirectory, String provider) throws Exception {
         Path file = temporaryDirectory.resolve("factory.yaml");
         Files.writeString(file, """
-                repository: MeterianHQ/heidi-fix
+                repository: octocat/hello-world
                 work-directory: %s
                 gatekeeper-directory: /work/gatekeeper.git
                 claude:

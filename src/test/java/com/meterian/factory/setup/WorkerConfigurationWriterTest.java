@@ -30,14 +30,14 @@ class WorkerConfigurationWriterTest {
         String hash = PasswordHash.create("a long password".toCharArray()).format();
         List<String> terminal = List.of("my term #1", "-e: \"x\"", "back\\slash");
         WorkerSettings settings = new WorkerSettings(
-                new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
+                new RepositoryName("octocat", "hello-world"), workDirectory,
                 Optional.of(new WebPage("0.0.0.0", 9001, Optional.of(hash))),
                 Optional.of(terminal), Optional.of("/opt/jdk #21: home"));
 
         WorkerConfigurationWriter.write(settings);
         FactoryConfiguration configuration = ConfigurationLoader.load(settings.configurationFile());
 
-        assertThat(configuration.repository().fullName()).isEqualTo("MeterianHQ/heidi-fix");
+        assertThat(configuration.repository().fullName()).isEqualTo("octocat/hello-world");
         assertThat(configuration.workDirectory()).isEqualTo(workDirectory);
         assertThat(configuration.gatekeeperDirectory()).isEqualTo(workDirectory.resolve("gatekeeper.git"));
         assertThat(configuration.web()).isPresent();
@@ -51,7 +51,7 @@ class WorkerConfigurationWriterTest {
     @Test
     void theMinimalFileLoads() throws IOException, ConfigurationException {
         WorkerSettings settings = new WorkerSettings(
-                new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
+                new RepositoryName("octocat", "hello-world"), workDirectory,
                 Optional.empty(), Optional.empty(), Optional.empty());
 
         WorkerConfigurationWriter.write(settings);
@@ -65,7 +65,7 @@ class WorkerConfigurationWriterTest {
     @Test
     void aPageWithoutAPasswordLoadsWithoutAPasswordHash() throws IOException, ConfigurationException {
         WorkerSettings settings = new WorkerSettings(
-                new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
+                new RepositoryName("octocat", "hello-world"), workDirectory,
                 Optional.of(new WebPage("127.0.0.1", 8090, Optional.empty())), Optional.empty(), Optional.empty());
 
         WorkerConfigurationWriter.write(settings);
@@ -78,7 +78,7 @@ class WorkerConfigurationWriterTest {
     @Test
     void neverOverwritesAFile() throws IOException {
         WorkerSettings first = new WorkerSettings(
-                new RepositoryName("MeterianHQ", "heidi-fix"), workDirectory,
+                new RepositoryName("octocat", "hello-world"), workDirectory,
                 Optional.empty(), Optional.empty(), Optional.empty());
         WorkerSettings second = new WorkerSettings(
                 new RepositoryName("Other", "project"), workDirectory,

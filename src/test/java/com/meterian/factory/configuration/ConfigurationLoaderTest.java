@@ -16,7 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 class ConfigurationLoaderTest {
 
     private static final String REQUIRED_KEYS = """
-            repository: MeterianHQ/heidi-fix
+            repository: octocat/hello-world
             work-directory: /work/factory
             gatekeeper-directory: /work/gatekeeper.git
             """;
@@ -28,8 +28,8 @@ class ConfigurationLoaderTest {
     void loadsTheExampleConfiguration() throws Exception {
         FactoryConfiguration configuration = ConfigurationLoader.load(Path.of("factory.example.yaml"));
 
-        assertThat(configuration.repository().fullName()).isEqualTo("MeterianHQ/heidi-fix");
-        assertThat(configuration.repository().sshUrl()).isEqualTo("git@github.com:MeterianHQ/heidi-fix.git");
+        assertThat(configuration.repository().fullName()).isEqualTo("octocat/hello-world");
+        assertThat(configuration.repository().sshUrl()).isEqualTo("git@github.com:octocat/hello-world.git");
         assertThat(configuration.buildEnvironment()).containsKey("JAVA_HOME");
         assertThat(configuration.limits().pollInterval()).isEqualTo(Duration.ofSeconds(60));
     }
@@ -39,7 +39,7 @@ class ConfigurationLoaderTest {
         String hash = createStrongHash();
 
         FactoryConfiguration configuration = load("""
-                repository: MeterianHQ/heidi-fix
+                repository: octocat/hello-world
                 work-directory: /work/factory
                 gatekeeper-directory: /work/gatekeeper.git
                 live-directory: /work/live-files
@@ -64,7 +64,7 @@ class ConfigurationLoaderTest {
                   password-hash: "%s"
                 """.formatted(hash));
 
-        assertThat(configuration.repository()).isEqualTo(new RepositoryName("MeterianHQ", "heidi-fix"));
+        assertThat(configuration.repository()).isEqualTo(new RepositoryName("octocat", "hello-world"));
         assertThat(configuration.workDirectory()).isEqualTo(Path.of("/work/factory"));
         assertThat(configuration.cloneDirectory()).isEqualTo(Path.of("/work/factory/repository"));
         assertThat(configuration.gatekeeperDirectory()).isEqualTo(Path.of("/work/gatekeeper.git"));
@@ -93,7 +93,7 @@ class ConfigurationLoaderTest {
         Map<String, String> oldForms = Map.of(
                 "target", "target:\n  owner: MeterianHQ\n",
                 "merge", "merge:\n  target-branch: main\n",
-                "accounts", "accounts:\n  allowed: [bbossola]\n",
+                "accounts", "accounts:\n  allowed: [octocat]\n",
                 "prompts-directory", "prompts-directory: /prompts\n",
                 "limits.fix-loops", "limits:\n  fix-loops: 2\n",
                 "claude.allowed-tools", "claude:\n  allowed-tools: [Read]\n");
@@ -113,7 +113,7 @@ class ConfigurationLoaderTest {
 
     @Test
     void refusesARepositoryWithoutAnOwner() {
-        assertThatThrownBy(() -> load(REQUIRED_KEYS.replace("MeterianHQ/heidi-fix", "heidi-fix")))
+        assertThatThrownBy(() -> load(REQUIRED_KEYS.replace("octocat/hello-world", "hello-world")))
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("repository")
                 .hasMessageContaining("owner/name");

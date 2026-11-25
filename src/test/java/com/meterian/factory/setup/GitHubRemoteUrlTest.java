@@ -8,17 +8,17 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class GitHubRemoteUrlTest {
 
-    private static final RepositoryName HEIDI_FIX = new RepositoryName("MeterianHQ", "heidi-fix");
+    private static final RepositoryName HELLO_WORLD = new RepositoryName("octocat", "hello-world");
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "git@github.com:MeterianHQ/heidi-fix.git",
-            "ssh://git@github.com/MeterianHQ/heidi-fix.git",
-            "https://github.com/MeterianHQ/heidi-fix",
-            "https://github.com/MeterianHQ/heidi-fix.git"
+            "git@github.com:octocat/hello-world.git",
+            "ssh://git@github.com/octocat/hello-world.git",
+            "https://github.com/octocat/hello-world",
+            "https://github.com/octocat/hello-world.git"
     })
     void readsTheForms(String url) {
-        assertThat(GitHubRemoteUrl.parse(url)).contains(HEIDI_FIX);
+        assertThat(GitHubRemoteUrl.parse(url)).contains(HELLO_WORLD);
     }
 
     @ParameterizedTest

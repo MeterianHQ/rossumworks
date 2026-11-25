@@ -63,7 +63,7 @@ More about some fields:
 ## Examples
 
 ```
-{"time":"2026-11-22T17:20:04Z","type":"pr","issue":39,"event":"opened","url":"https://github.com/MeterianHQ/oss-detect/pull/43"}
+{"time":"2026-11-22T17:20:04Z","type":"pr","issue":39,"event":"opened","url":"https://github.com/octocat/hello-world/pull/43"}
 {"time":"2026-11-22T17:20:05Z","type":"move","issue":39,"from":"build","event":"passed","to":"review","column":"in-review","entries":{"implement":"1/3","review":"0/10"}}
 {"time":"2026-11-22T17:31:40Z","type":"action-end","issue":39,"state":"review","action":"reviews","result":"rejected","duration_s":612,"reviews":{"correctness":{"verdict":"approve","findings":0},"security":{"verdict":"reject","findings":2}}}
 ```

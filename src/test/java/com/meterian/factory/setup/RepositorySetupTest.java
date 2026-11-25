@@ -96,7 +96,7 @@ class RepositorySetupTest {
         Map<String, String> files = Map.of(".factory/factory.yaml", "a: b\n", ".factory/prompts/p.md", "text\n");
 
         PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, files);
-        assertThat(setup.assignPullRequest(pullRequest, "bbossola")).isEmpty();
+        assertThat(setup.assignPullRequest(pullRequest, "octocat")).isEmpty();
 
         assertThat(run(github, "show", "factory/setup:.factory/factory.yaml")).isEqualTo("a: b");
         assertThat(run(github, "show", "factory/setup:.factory/prompts/p.md")).isEqualTo("text");
@@ -104,7 +104,7 @@ class RepositorySetupTest {
         assertThat(run(github, "for-each-ref", "--format=%(refname)", "refs/heads"))
                 .isEqualTo("refs/heads/factory/setup\nrefs/heads/main");
         assertThat(gitHub.openPullRequest("factory/setup")).contains(pullRequest);
-        assertThat(gitHub.assigneesOf(pullRequest.number())).containsExactly("bbossola");
+        assertThat(gitHub.assigneesOf(pullRequest.number())).containsExactly("octocat");
         assertThat(pullRequest.body()).contains("- .factory/factory.yaml", "- .factory/prompts/p.md",
                 "The worker takes issues after the merge of this PR.", "docs/factory-definition.md");
         assertThat(Files.exists(work.resolve("setup-worktree"))).isFalse();
@@ -175,7 +175,7 @@ class RepositorySetupTest {
         PullRequest pullRequest = setup.publish(clone, gatekeeper, facts, Map.of(".factory/factory.yaml", "a\n"));
         gitHub.failTheNextAssignment();
 
-        assertThat(setup.assignPullRequest(pullRequest, "bbossola")).contains("Cannot assign the PR to bbossola: "
+        assertThat(setup.assignPullRequest(pullRequest, "octocat")).contains("Cannot assign the PR to octocat: "
                 + "GitHub answered 422 for POST /issues/" + pullRequest.number() + "/assignees. Assign it by hand.");
     }
 
