@@ -1,5 +1,7 @@
 # RossumWorks
 
+![The board of RossumWorks, with cards in each column](docs/images/board.png)
+
 RossumWorks is an AI factory that runs on GitHub. The factory takes an issue, writes the change, builds it, reviews it, opens a pull request, and merges it if safe. It asks for your help when needed.
 
 The factory does its work with `claude` sessions. The **provider** gives these sessions their access to Claude,
@@ -45,8 +47,10 @@ transitions, the prompts of the sessions, the build command, and the target bran
 2. At its next poll, the worker assigns the issue to the GitHub account of its token. It writes the status
    comment on the issue.
 3. The worker makes a separate worktree for the issue. The agent writes the change in this worktree.
-4. The worker builds the change. When the build passes, the worker pushes the branch and opens a pull
-   request.
+4. The worker builds the change with the build command of your repository, for example `./mvnw verify`. This
+   command must compile the program and run its tests, because it is the first check of each change. When the
+   build fails, the agent gets the errors and fixes the change. When the build passes, the worker pushes the
+   branch and opens a pull request.
 5. The reviews check the change. When a review rejects the change, the agent fixes it. Then the worker
    builds the change again.
 6. When all the reviews approve the change, the risk check gives the risk of the change.
@@ -66,6 +70,11 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
 - A provider: a `claude` login with your Claude subscription, or an Anthropic API key. See
   [Providers](docs/providers.md).
 - A `gh` login, or a GitHub token in `FACTORY_GITHUB_TOKEN`.
+
+## Tutorial
+
+The [tutorial](docs/tutorial.md) lets you try the factory on a small sample project. You give one issue to the
+factory, and you watch it from the label to the merge. Optional lessons show more functions.
 
 ## Quick start
 
@@ -105,6 +114,7 @@ the same time, and the others wait in Queued. See [Configuration](docs/configura
 
 | Page | Read it when you want to |
 |---|---|
+| [Tutorial](docs/tutorial.md) | try the factory on a sample project |
 | [Getting started](docs/getting-started.md) | install the factory on a repository, and start the worker |
 | [Configuration](docs/configuration.md) | change `worker.yaml`: the limits, the build environment, and the retries |
 | [Providers](docs/providers.md) | select the subscription or an API key, and set the daily budget |

@@ -50,7 +50,8 @@ reason.
 4. It clones your repository into `<work folder>/repository`. When this clone exists, it fetches the default
    branch.
 5. When your default branch has no `.factory/factory.yaml`, it asks for the build command. The default answer
-   is the command that it finds in your repository, if it finds one.
+   is the command that it finds in your repository, if it finds one. The build command is the first check of
+   each change, so it must run your tests. See [Factory definition](factory-definition.md), section 12.1.
 6. It shows a summary and asks for a confirmation. Only `y` or `n` is an answer. Enter or another answer asks
    again.
 7. After `y`, it writes the configuration of the worker to `<work folder>/worker.yaml`. See
