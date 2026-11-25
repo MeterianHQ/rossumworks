@@ -50,8 +50,8 @@ tests. It has no server, no database, and no real payment.
 
 ## 5. The issue script
 
-The command is `tutorial/create-issues.sh <lesson>`. The lessons are `first-fix`, `live-mode`, `approval`,
-`factory-change`, and `parallel`.
+The command is `tutorial/create-issues.sh <lesson>`. The lessons are `first-fix`, `block`, `approval`,
+`factory-change`, `parallel`, and `live-mode`.
 
 Each file `tutorial/issues/<lesson>/<name>.md` is one issue. The first line is the title. An empty line
 follows. The rest is the body.
@@ -95,7 +95,8 @@ expected board, and the other possible results.
 
 | Lesson | Issue | Steps of the user | Result |
 |---|---|---|---|
-| `live-mode` | A discount rule that is not clear | Answer the question of the agent. When the agent asks no question, push Enter while the action `coding` runs. End with `/factory:continue`. | The conversation opens after the question, or after the user pushes Enter. |
+| `block` | A new output line in `CheckoutCommand` | Push "Block", "Continue", "Block", and "Start again" on the card. | "Continue" keeps the work. "Start again" discards it. |
+| `live-mode` | A discount rule that is not clear | Answer the question of the agent. When the agent asks no question, push Terminal while the action `coding` runs. End with `/factory:continue`. | The conversation opens after the question, or after the user pushes Terminal. |
 | `approval` | A change of the payment rule | Before the issue, set `mode: always-ask` in `.factory/factory.yaml`, and push the commit to the default branch. Add `factory:approve` when the card waits. | The merge always waits for the approval, after the reviews pass. |
 | `factory-change` | A change of the prompt `review-quality.md` in `.factory` | Read the PR. Add `factory:approve` when the card waits. | The merge always waits for the approval, after the reviews pass. |
 | `parallel` | Two discounts that change the same method of `PriceCalculator` | Add the label `factory` to the two issues together. | The factory works on the two cards when two slots are free. A conflict is possible, but not certain. |
@@ -150,8 +151,9 @@ English.
    repository as `origin`, an unknown lesson, and a failure in the middle.
 3. A test that the fix of `first-fix` needs fails on the sample. This test is not in the sample.
 4. A person follows the full tutorial in a new repository from the template. Each lesson runs at least once.
-5. The run of the core gives its time and its subscription use. The tutorial shows these measured values.
-6. A reviewer reads each text of section 6.5 against its rules, and corrects each sentence that breaks a rule.
+5. The run also records screenshots of the board. The tutorial shows them where they help.
+6. The run of the core gives its time and its subscription use. The tutorial shows these measured values.
+7. A reviewer reads each text of section 6.5 against its rules, and corrects each sentence that breaks a rule.
 
 ## 8. Dependencies
 
