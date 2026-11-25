@@ -140,6 +140,8 @@ A person did this tutorial on 2026-11-25, with RossumWorks 0.5.0 and the Claude 
 | The weekly usage on the board before the issue | 26% |
 | The weekly usage on the board after the issue | 26% |
 
+A second run on the same day took 2 minutes 55 seconds, with a wait of 40 seconds for the poll.
+
 The board shows whole percents, so the use of one issue can be too small to see. Each run is different. The plugins of
 your Claude Code also apply to the agents, and can change the time and the use.
 
