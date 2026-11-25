@@ -5,7 +5,7 @@
 A new user tries RossumWorks on a sample project. The audience is the public. The tutorial has a short core
 and independent optional lessons. The user can stop after any lesson.
 
-The factory code does not change. The publication needs a public `MeterianHQ/rossumworks` with public releases.
+The factory code does not change. `MeterianHQ/rossumworks` and its releases are public.
 
 ## 2. Decisions
 
@@ -23,7 +23,10 @@ The factory code does not change. The publication needs a public `MeterianHQ/ros
 |---|---|
 | Template repository `MeterianHQ/rossumworks-tutorial` | The checkout program, `CLAUDE.md`, `README.md`, the license, and the folder `tutorial`. |
 | `docs/tutorial.md` in `rossumworks` | The full text of the tutorial. |
-| `README.md` in `rossumworks` | A short section "Tutorial" after "Build", with a link to `docs/tutorial.md`. |
+| `README.md` in `rossumworks` | A short section "Tutorial" between "Requirements" and "Quick start", and a row in the table "Documents". Both link to `docs/tutorial.md`. |
+
+`docs/tutorial.md` has the steps that the sample needs. For the details it links to `getting-started.md`,
+`providers.md`, `legal-considerations.md`, and `glossary.md`.
 
 The README of the sample has a short introduction and a link to `docs/tutorial.md`. It does not repeat the steps.
 
@@ -71,8 +74,9 @@ the label at its first poll.
 
 ### 6.1 Core: `first-fix`
 
-1. Check the requirements: Linux, a JDK 21 or later, `claude` with a subscription, `gh` with a login, `git`,
-   `setsid`, `kill`, `tmux`, `jq`, and `curl`. `ANTHROPIC_API_KEY` is not set.
+1. Check the requirements: Linux, a JDK 21 or later, `claude`, a provider, `gh` with a login, `git`,
+   `setsid`, `kill`, `tmux`, `jq`, and `curl`. Read the legal considerations. The default provider is the
+   subscription. An API key also works for the core, but not for `live-mode`.
 2. Select "Use this template" to make a repository. A private repository is the safe default. Clone it.
 3. Download the jar from the releases. Run `java -jar <path of the jar> create` in the clone.
 4. Merge the PR `factory/setup`, and pull the default branch into the clone.
@@ -101,7 +105,7 @@ adds the label. The last step of `approval` sets `mode: risk` again.
 
 ### 6.3 Problems and clean-up
 
-"Problems" gives a solution for each of these: `ANTHROPIC_API_KEY` is set, a tool is missing, the assignment
+"Problems" gives a solution for each of these: `ANTHROPIC_API_KEY` does not agree with the provider, a tool is missing, the assignment
 fails, the usage limit stops the work, and a card goes to `blocked`.
 
 "Clean up" has this order: stop the worker with Ctrl-C, delete the repository on GitHub, delete the clone, and
@@ -111,7 +115,7 @@ delete.
 ### 6.4 Safety
 
 The start of the tutorial tells the user that the agents run commands on their machine. It also tells that each
-issue uses the subscription: a coding session, four reviews, and a risk session, and more after a reject.
+issue uses the provider: a coding session, four reviews, and a risk session, and more after a reject.
 
 ### 6.5 Language
 
@@ -128,8 +132,8 @@ The rules for the lessons are:
 - Each step is a numbered sentence with one instruction and 20 words or less.
 - A description has sentences of 25 words or less, and paragraphs of six sentences or less.
 - The sentences use the active voice and the simple tenses.
-- One thing has one name in all the lessons. The names are the names of the board and of
-  `docs/factory-definition.md`, for example "card", "state", and "label".
+- One thing has one name in all the lessons. The names are the names of the board, of
+  `docs/glossary.md`, and of `docs/factory-definition.md`, for example "card", "state", and "label".
 - A lesson explains a new technical name at its first use.
 - A warning comes before the step that it is about.
 
@@ -151,7 +155,7 @@ English.
 
 ## 8. Dependencies
 
-- `rossumworks` and its releases are public before the publication.
+- `rossumworks` and its releases are public. This condition is true from 2026-11-24.
 - Issue #48 (an ended live session keeps its slot) is fixed before the publication of `live-mode`.
 - The run of `factory-change` also gives the live test of issue #22.
 - The tutorial names Linux as a requirement until issue #55 (macOS) is done.

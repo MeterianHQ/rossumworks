@@ -1,23 +1,30 @@
 # Tutorial
 
 In this tutorial, you give a small project to RossumWorks. The factory fixes a bug, reviews the fix, and merges it.
+[Getting started](getting-started.md) tells how you use the factory on your own project. The
+[Glossary](glossary.md) gives the meaning of the terms.
 
 ## Before you start
 
 **Warning: the agents run commands on your machine, with the rights of your user.**
 
-**Warning: each issue uses your Claude subscription.** An issue needs a coding session, four reviews, and a risk
-session. A review that rejects the change causes more sessions.
+**Warning: each issue uses your subscription, or costs money with an API key.** An issue needs the session of the
+agent, four reviews, and a risk check. A review that rejects the change causes more sessions.
+
+**Warning: the Anthropic documents do not agree about the use of a subscription from a script.** Read
+[Legal considerations](legal-considerations.md) before you select a provider.
 
 You need:
 
 - Linux.
 - A JDK 21 or later.
-- The `claude` CLI, with a login of your Claude subscription.
+- The `claude` CLI.
+- A provider. The provider gives the `claude` sessions their access to Claude, and pays for them. See
+  [Providers](providers.md). The default is your Claude subscription, with a `claude` login.
 - The `gh` CLI. Run `gh auth login` to log in.
 - `git`, `setsid`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`.
 
-Do not set `ANTHROPIC_API_KEY`. The factory does not start when it is set.
+For the subscription, do not set `ANTHROPIC_API_KEY`. For an API key, set `ANTHROPIC_API_KEY` to the key.
 
 ## Make your repository
 
@@ -44,7 +51,8 @@ in a pull request (PR).
 1. Download `rossumworks-<version>.jar` from the
    [releases](https://github.com/MeterianHQ/rossumworks/releases).
 2. Run `java -jar <path of the jar> create` in the clone.
-3. Push Enter at each question to take the default answer.
+3. Push Enter at each question to take the default answer. For an API key, type `anthropic-api-key` at the question
+   about the provider, and then type a daily budget.
 4. Read the summary, and answer `y`.
 5. Open the PR `factory/setup` on GitHub, and merge it.
 6. Run `git pull` in the clone.
@@ -68,8 +76,8 @@ The worker checks GitHub each 60 seconds. Then the card comes on the board.
 | Column | What the factory does |
 |---|---|
 | Queued | The issue waits for a free slot. |
-| In progress | An agent changes the code. Then the factory runs the build. |
-| In review | Four agents review the change. Then an agent assesses the risk. |
+| In progress | The agent changes the code. Then the worker runs the build. |
+| In review | Four reviews check the change. Then the risk check gives the risk of the change. |
 | Waits for you | The factory needs your decision. |
 | Blocked | The factory cannot continue. |
 | Done | The change is in the default branch. |
@@ -92,11 +100,12 @@ When the card is in "Done", do these steps:
 
 | Problem | Solution |
 |---|---|
-| The worker tells you to remove `ANTHROPIC_API_KEY`. | Run `unset ANTHROPIC_API_KEY`, and start the worker again. |
-| The worker tells you that it needs commands on the `PATH`. | Install the commands that the message names. |
+| The message tells you to remove `ANTHROPIC_API_KEY`. | To use the subscription, run `unset ANTHROPIC_API_KEY`. Then run the command again. |
+| The message tells you to set `ANTHROPIC_API_KEY`. | Set the variable to your key. Then run the command again. |
+| The message tells you that the factory needs commands on the `PATH`. | Install the commands that the message names. |
 | No card comes on the board. | Make sure that you merged the PR `factory/setup`. Make sure that the issue has no assignee. Read the top of the board and the worker log. |
 | The worker log has a warning about the assignee. | Use an account that can write to the repository. |
-| The work waits for the usage limit. | Do not stop the worker. It continues when the limit permits it. |
+| The work waits for the usage window or for the daily budget. | Do not stop the worker. It continues when the limit permits it. See [Providers](providers.md). |
 | The card is in "Blocked". | Read the note on the card. Push "Continue" to keep the work, or "Start again" to discard it. |
 
 ## Clean up
