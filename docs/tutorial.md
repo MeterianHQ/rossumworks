@@ -1,8 +1,9 @@
 # Tutorial
-
 In this tutorial, you give a small project to RossumWorks. The factory fixes a bug, reviews the fix, and merges it.
 [Getting started](getting-started.md) tells how you use the factory on your own project. The
 [Glossary](glossary.md) gives the meaning of the terms.
+
+<img width="1600" height="700" alt="image" src="https://github.com/user-attachments/assets/d2ace119-429e-46e5-9e45-75271845b12c" />
 
 ## Before you start
 
