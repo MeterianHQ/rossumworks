@@ -12,6 +12,7 @@ When a new document needs a new term, add the term to this page first.
 | agent | The `claude` session that writes the change of an issue. The worker uses the same agent again for each fix of the issue. |
 | block state | The state where a blocked issue goes. In the default workflow, it is `blocked`. The error messages call it the block target. |
 | board | The web page of the worker. It shows each issue as a card. See [Web page](web-page.md). |
+| build command | The command that compiles and tests each change, in `build.command` of the definition. The exit code 0 means that the build passed. See [Factory definition](factory-definition.md). |
 | card | One issue on the board. |
 | daily budget | With an API key, the maximum cost of one day, in `limits.daily-budget-usd`. See [Providers](providers.md). |
 | definition | The folder `.factory` of your repository. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |

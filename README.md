@@ -45,8 +45,10 @@ transitions, the prompts of the sessions, the build command, and the target bran
 2. At its next poll, the worker assigns the issue to the GitHub account of its token. It writes the status
    comment on the issue.
 3. The worker makes a separate worktree for the issue. The agent writes the change in this worktree.
-4. The worker builds the change. When the build passes, the worker pushes the branch and opens a pull
-   request.
+4. The worker builds the change with the build command of your repository, for example `./mvnw verify`. This
+   command must compile the program and run its tests, because it is the first check of each change. When the
+   build fails, the agent gets the errors and fixes the change. When the build passes, the worker pushes the
+   branch and opens a pull request.
 5. The reviews check the change. When a review rejects the change, the agent fixes it. Then the worker
    builds the change again.
 6. When all the reviews approve the change, the risk check gives the risk of the change.

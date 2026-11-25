@@ -40,7 +40,8 @@ gh repo clone <owner>/<name>
 cd <name>
 ```
 
-6. Run the build. It must pass:
+6. Run the build. It compiles the program and runs its tests. It must pass, because the factory uses the same command
+   to check each change:
 
 ```
 ./mvnw verify
@@ -59,6 +60,10 @@ The program shows `Total: 17.96`. The correct total is 17.95. This is the bug.
 
 The factory reads its workflow from the folder `.factory` of your repository. The command `create` makes this folder
 in a pull request (PR).
+
+The command `create` asks for the build command. The worker runs the build command after each change of the agent. When
+the build fails, the agent gets the errors and fixes the change. When the build passes, the worker opens a PR, and the
+reviews start. The sample uses `./mvnw verify`, which is the default answer.
 
 1. Download `rossumworks-<version>.jar` from the
    [releases](https://github.com/MeterianHQ/rossumworks/releases).

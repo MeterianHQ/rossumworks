@@ -546,6 +546,15 @@ build:
 The file `worker.yaml` of each machine can also give `build.environment`, for example `JAVA_HOME`. A value
 of the machine replaces a value of `.factory` with the same name.
 
+The build command is the first check of each change. It runs before the reviews. Select a command that obeys these
+rules:
+
+- It compiles the program and runs the tests. A command without tests can pass a change that breaks the program.
+- It ends with the exit code 0 only when the change is correct. Each other exit code is the event `failed`.
+- It ends without the help of a person. The worker gives it no input, and it has no time limit.
+- It does not change the files of the repository, except the files that git ignores. Else, the worker blocks the
+  issue.
+
 ### 12.2 `claude`
 
 ```yaml
