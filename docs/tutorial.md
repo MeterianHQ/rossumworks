@@ -19,13 +19,15 @@ risk check. A review that rejects the change causes more sessions.
 
 You need:
 
-- Linux.
+- Linux or macOS. On macOS, the script `tutorial/create-issues.sh` needs bash 4 or later. macOS includes bash 3.2, so
+  install a newer bash, for example with `brew install bash`.
 - A JDK 21 or later.
 - The `claude` CLI.
 - A provider. The provider gives the `claude` sessions their access to Claude, and pays for them. See
   [Providers](providers.md). The default is your Claude subscription, with a `claude` login.
 - The `gh` CLI. Run `gh auth login` to log in.
-- `git`, `setsid`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`.
+- `git`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`. Linux also needs `setsid`. macOS also needs `perl`, and
+  macOS includes it.
 
 For the subscription, do not set `ANTHROPIC_API_KEY`. For an API key, set `ANTHROPIC_API_KEY` to the key.
 
@@ -218,7 +220,8 @@ The value `mode` in `.factory/factory.yaml` controls the merge. The value `risk`
 
 ```
 git pull
-sed -i 's/mode: risk/mode: always-ask/' .factory/factory.yaml
+sed -i.bak 's/mode: risk/mode: always-ask/' .factory/factory.yaml
+rm .factory/factory.yaml.bak
 git --no-pager diff
 ```
 
@@ -246,7 +249,8 @@ tutorial/create-issues.sh approval
 
 ```
 git pull
-sed -i 's/mode: always-ask/mode: risk/' .factory/factory.yaml
+sed -i.bak 's/mode: always-ask/mode: risk/' .factory/factory.yaml
+rm .factory/factory.yaml.bak
 git commit -am "Let the risk decide the merge"
 git push
 ```

@@ -64,7 +64,8 @@ from the source. See [Contributing](../CONTRIBUTING.md).
 
 `create` does these steps in this order:
 
-1. It checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`.
+1. It checks that `claude`, `git`, `kill`, `tmux`, and `jq` are on the `PATH`. It also checks `setsid` on Linux,
+   and `perl` on macOS.
 2. It asks for the name of your GitHub repository and for the work folder. The **work folder** is the folder of the worker. The
    default is `~/.rossumworks/<owner>-<name>`.
 3. It asks for the address of the board, the terminal command of the live mode, and the provider. Then it
