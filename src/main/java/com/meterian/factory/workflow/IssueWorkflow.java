@@ -9,7 +9,7 @@ import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionVersionText;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.Target;
 import com.meterian.factory.events.WorkerEvents;
@@ -238,7 +238,7 @@ public final class IssueWorkflow {
 
     /** A merged change is final: the record keeps its state and gets the note. Any other issue blocks. */
     private IssueRecord stopOnAnUnloadableDefinition(IssueRecord record, IllegalStateException exception) {
-        String commit = DefinitionVersions.shorten(record.definitionVersion().orElse(BUILT_IN_VERSION));
+        String commit = DefinitionVersionText.shorten(record.definitionVersion().orElse(BUILT_IN_VERSION));
         String note = "The definition " + commit + " of the issue does not load: " + exception.getMessage() + ".";
         if (isInTheFinishState(record)) {
             return MergedIssue.noteFailureInTheFinishState(record, exception).withNote(note);

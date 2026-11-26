@@ -26,11 +26,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class DefinitionVersionsTest {
+class GitDefinitionVersionsTest {
 
     private static final String BROKEN_MAIN_FILE = "version: 1\nworkflow: [\n";
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
-    private static final Logger VERSIONS_LOGGER = Logger.getLogger(DefinitionVersions.class.getName());
+    private static final Logger VERSIONS_LOGGER = Logger.getLogger(GitDefinitionVersions.class.getName());
 
     @TempDir
     Path temporaryDirectory;
@@ -54,8 +54,8 @@ class DefinitionVersionsTest {
         run(temporaryDirectory, "clone", "-q", origin.toString(), clone.toString());
     }
 
-    private DefinitionVersions createVersions() {
-        return new DefinitionVersions(git, clone, "main", builtIn);
+    private GitDefinitionVersions createVersions() {
+        return new GitDefinitionVersions(git, clone, "main", builtIn);
     }
 
     private static String mainFileWithImplementLimit(int entries) {
@@ -74,7 +74,7 @@ class DefinitionVersionsTest {
     @Test
     void loadsTheDefinitionOfTheDefaultBranch() {
         String commit = commitDefinition(author, builtInMainFile());
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
 
         versions.refresh();
 
@@ -88,7 +88,7 @@ class DefinitionVersionsTest {
     @Test
     void keepsTheLastGoodVersionWhenANewCommitDoesNotLoad() {
         String good = commitDefinition(author, builtInMainFile());
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
         versions.refresh();
 
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
@@ -111,7 +111,7 @@ class DefinitionVersionsTest {
     @Test
     void clearsTheWarningWithAGoodVersion() {
         commitDefinition(author, builtInMainFile());
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
         versions.refresh();
         commitDefinition(author, BROKEN_MAIN_FILE);
         versions.refresh();
@@ -127,7 +127,7 @@ class DefinitionVersionsTest {
     @Test
     void takesNoVersionWithoutAGoodDefinition() {
         commitDefinition(author, BROKEN_MAIN_FILE);
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
 
         versions.refresh();
 
@@ -139,7 +139,7 @@ class DefinitionVersionsTest {
 
     @Test
     void aDefaultBranchWithoutFactoryAsksForTheSetup() {
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
 
         versions.refresh();
 
@@ -154,7 +154,7 @@ class DefinitionVersionsTest {
         String good = commitDefinition(author, mainFileWithImplementLimit(4));
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         assertThat(older).isNotEqualTo(good);
-        DefinitionVersions afterRestart = createVersions();
+        GitDefinitionVersions afterRestart = createVersions();
 
         afterRestart.refresh();
 
@@ -172,7 +172,7 @@ class DefinitionVersionsTest {
         for (int count = 0; count < 20; count++) {
             commitDefinition(author, BROKEN_MAIN_FILE + "# " + count + "\n");
         }
-        DefinitionVersions afterRestart = createVersions();
+        GitDefinitionVersions afterRestart = createVersions();
 
         afterRestart.refresh();
 
@@ -184,7 +184,7 @@ class DefinitionVersionsTest {
     @Test
     void keepsTheVersionOfAnIssueAfterANewCommit() {
         String first = commitDefinition(author, builtInMainFile());
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
         versions.refresh();
         IssueRecord record = RecordStates.queued(7).withDefinitionVersion(first);
 
@@ -202,7 +202,7 @@ class DefinitionVersionsTest {
         commitDefinition(author, mainFileWithImplementLimit(5));
         IssueRecord record = RecordStates.queued(7).withDefinitionVersion(first);
 
-        DefinitionVersions afterRestart = createVersions();
+        GitDefinitionVersions afterRestart = createVersions();
         afterRestart.refresh();
 
         assertThat(implementLimitOf(afterRestart.definitionOf(record))).isEqualTo(3);
@@ -211,7 +211,7 @@ class DefinitionVersionsTest {
     @Test
     void refusesARecordWhoseVersionDoesNotLoad() {
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
         versions.refresh();
         IssueRecord record = RecordStates.queued(7).withDefinitionVersion(broken);
 
@@ -225,7 +225,7 @@ class DefinitionVersionsTest {
         String side = commitDefinition(author, mainFileWithImplementLimit(5));
         run(author, "push", "-q", "origin", "side");
         run(clone, "fetch", "-q", "origin", "side");
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
         versions.refresh();
         IssueRecord record = RecordStates.queued(7).withDefinitionVersion(side);
 
@@ -236,7 +236,7 @@ class DefinitionVersionsTest {
 
     @Test
     void usesTheBuiltInVersionForARecordWithoutACommit() {
-        DefinitionVersions versions = createVersions();
+        GitDefinitionVersions versions = createVersions();
 
         assertThat(versions.definitionOf(RecordStates.queued(7))).isSameAs(builtIn);
     }
@@ -244,7 +244,7 @@ class DefinitionVersionsTest {
     @Test
     void readsTheCommitAgainAfterAFailureOfGit() {
         String commit = commitDefinition(author, builtInMainFile());
-        DefinitionVersions versions = new DefinitionVersions(failTheFirstShowFile(git), clone, "main", builtIn);
+        GitDefinitionVersions versions = new GitDefinitionVersions(failTheFirstShowFile(git), clone, "main", builtIn);
 
         versions.refresh();
         assertThat(versions.current()).isEmpty();
@@ -262,7 +262,7 @@ class DefinitionVersionsTest {
         String good = commitDefinition(author, mainFileWithImplementLimit(4));
         commitDefinition(author, BROKEN_MAIN_FILE);
         assertThat(older).isNotEqualTo(good);
-        DefinitionVersions afterRestart = new DefinitionVersions(failTheFirstShowFileOf(git, good), clone, "main",
+        GitDefinitionVersions afterRestart = new GitDefinitionVersions(failTheFirstShowFileOf(git, good), clone, "main",
                 builtIn);
 
         afterRestart.refresh();

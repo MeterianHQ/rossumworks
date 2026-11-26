@@ -24,7 +24,8 @@ import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionSource;
+import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -183,12 +184,12 @@ class WorkerTest {
         return createWorker(agent, configuration, board, createVersions(configuration));
     }
 
-    private DefinitionVersions createVersions(FactoryConfiguration configuration) {
-        return new DefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
+    private GitDefinitionVersions createVersions(FactoryConfiguration configuration) {
+        return new GitDefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
     }
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board,
-                                DefinitionVersions versions) {
+                                DefinitionSource versions) {
         BuildRunner buildRunner = new BuildRunner();
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, WORKER_LOGIN);
         LostIssues lostIssues = new LostIssues();

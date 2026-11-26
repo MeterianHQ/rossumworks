@@ -16,7 +16,8 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionSource;
+import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
@@ -309,7 +310,7 @@ public final class Main {
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
                 provider);
         Git git = new ProcessGit();
-        DefinitionVersions definitions = createDefinitionVersions(git, configuration);
+        DefinitionSource definitions = createDefinitionVersions(git, configuration);
         BuildRunner buildRunner = new BuildRunner();
         LiveSessions liveSessions = createLiveSessions(configuration, provider, liveFiles);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
@@ -365,11 +366,11 @@ public final class Main {
      * The default branch is read once, at the start. The first poll reads its definition: until a version loads,
      * the worker takes no new issue.
      */
-    private static DefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
+    private static GitDefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
             throws StartupException {
         Path clone = configuration.cloneDirectory();
         try {
-            return new DefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
+            return new GitDefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
         } catch (GitException exception) {
             throw new StartupException("The factory cannot read the default branch of the clone " + clone + ": "
                     + exception.getMessage());
@@ -516,7 +517,7 @@ public final class Main {
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared,
-                                                DefinitionVersions definitions, RetrySettings retries) {
+                                                DefinitionSource definitions, RetrySettings retries) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,
