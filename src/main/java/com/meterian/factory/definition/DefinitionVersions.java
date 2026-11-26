@@ -127,7 +127,7 @@ public final class DefinitionVersions implements DefinitionLookup {
      */
     @Override
     public FactoryDefinition definitionOf(IssueRecord record) {
-        return record.definitionCommit().map(this::definitionOfRecordCommit).orElse(builtIn);
+        return record.definitionVersion().map(this::definitionOfRecordCommit).orElse(builtIn);
     }
 
     /**
@@ -211,7 +211,7 @@ public final class DefinitionVersions implements DefinitionLookup {
         String reason = failure.getMessage();
         return current
                 .map(version -> "The .factory of " + shorten(commit) + " does not load: " + reason
-                        + ". The factory keeps the version " + shorten(version.commit()) + ".")
+                        + ". The factory keeps the version " + shorten(version.identifier()) + ".")
                 .orElseGet(() -> failure instanceof MissingFactoryException
                         ? "The default branch has no .factory. Merge the PR factory/setup, "
                                 + "or run java -jar <path of the jar> create. The factory takes no new issue."

@@ -232,13 +232,13 @@ public final class IssueWorkflow {
 
     /** The definition is the same for all records with the same commit, so each version builds its actions once. */
     private ActionSet actionSetOf(IssueRecord record) {
-        String version = record.definitionCommit().orElse(BUILT_IN_VERSION);
+        String version = record.definitionVersion().orElse(BUILT_IN_VERSION);
         return actionSets.computeIfAbsent(version, key -> ActionSet.create(definitions.definitionOf(record), services));
     }
 
     /** A merged change is final: the record keeps its state and gets the note. Any other issue blocks. */
     private IssueRecord stopOnAnUnloadableDefinition(IssueRecord record, IllegalStateException exception) {
-        String commit = DefinitionVersions.shorten(record.definitionCommit().orElse(BUILT_IN_VERSION));
+        String commit = DefinitionVersions.shorten(record.definitionVersion().orElse(BUILT_IN_VERSION));
         String note = "The definition " + commit + " of the issue does not load: " + exception.getMessage() + ".";
         if (isInTheFinishState(record)) {
             return MergedIssue.noteFailureInTheFinishState(record, exception).withNote(note);

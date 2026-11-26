@@ -632,7 +632,7 @@ public final class Worker {
     private Optional<IssueRecord> createQueuedRecord(int issueNumber) {
         Optional<DefinitionVersion> version = definitions.current();
         return version.map(current -> IssueRecord.queued(issueNumber, current.definition().workflow().start())
-                .withDefinitionCommit(current.commit()));
+                .withDefinitionVersion(current.identifier()));
     }
 
     /** There is no record before the first record, so the publisher always writes it. */

@@ -142,9 +142,9 @@ class PageModelSourceTest {
 
     @Test
     void showsTheLimitsOfTheDefinitionOfTheRecord() {
-        IssueRecord record = RecordStates.queued(12).withDefinitionCommit("1234567890");
+        IssueRecord record = RecordStates.queued(12).withDefinitionVersion("1234567890");
         FactoryDefinition oneEntry = DefinitionCommits.builtInWithImplementLimit(1);
-        definitions = other -> other.definitionCommit().isPresent() ? oneEntry : BuiltInDefinition.load();
+        definitions = other -> other.definitionVersion().isPresent() ? oneEntry : BuiltInDefinition.load();
         board.recordIssue(new Issue(12, "Title", "body", Set.of("factory")), record);
 
         PageModel model = source().read(true);

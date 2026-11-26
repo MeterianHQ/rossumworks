@@ -60,7 +60,7 @@ class MainRecordReaderTest {
         assertThat(record.failedReviewRounds()).isEqualTo(1);
         assertThat(record.issueTextHash()).contains("0a1b");
         assertThat(record.reviewedHeadCommit()).contains("cafe");
-        assertThat(record.definitionCommit()).isEmpty();
+        assertThat(record.definitionVersion()).isEmpty();
     }
 
     /** Main keeps the fix prompt in .factory/fix-prompt.md, not in the findings file, so the fix starts again. */

@@ -285,14 +285,14 @@ class WorkerTest {
 
         worker.pollOnce();
 
-        assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
+        assertThat(readRecord(ISSUE).orElseThrow().definitionVersion()).contains(commit);
     }
 
     @Test
     void blocksARecordWhoseDefinitionDoesNotLoadAndStartsTheNextIssue() throws InterruptedException {
         String broken = commitDefinition(clone, "version: 1\nworkflow: [\n");
         IssueRecord unloadable = RecordStates.move(RecordStates.queued(ISSUE).withAgentSessionStarted(), "implement")
-                .withDefinitionCommit(broken);
+                .withDefinitionVersion(broken);
         gitHub.addCommentBy(ISSUE, WORKER_LOGIN, StatusComment.render(unloadable, LIMITS, RecordStates.REVIEW_NAMES));
         addLabeledIssue(OTHER_ISSUE);
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
@@ -653,7 +653,7 @@ class WorkerTest {
         assertThat(record.column()).isEqualTo("queued");
         assertThat(record.state()).isEqualTo("prepare");
         assertThat(record.action()).contains(ActionType.PREPARE);
-        assertThat(record.definitionCommit()).isEqualTo(blocked.definitionCommit()).isPresent();
+        assertThat(record.definitionVersion()).isEqualTo(blocked.definitionVersion()).isPresent();
         assertThat(record.sessionId()).isNotEqualTo(blocked.sessionId());
         assertThat(record.agentSessionStarted()).isFalse();
         assertThat(record.entriesOf("implement")).isLessThanOrEqualTo(1);
@@ -687,14 +687,14 @@ class WorkerTest {
         worker.pollOnce();
         IssueRecord blocked = writeBlockedRecordWithEarlierWork();
         String correction = commitDefinition(clone, mainFileFor("echo corrected"));
-        assertThat(blocked.definitionCommit()).isPresent().isNotEqualTo(Optional.of(correction));
+        assertThat(blocked.definitionVersion()).isPresent().isNotEqualTo(Optional.of(correction));
         gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
 
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.state()).isEqualTo("prepare");
-        assertThat(record.definitionCommit()).contains(correction);
+        assertThat(record.definitionVersion()).contains(correction);
     }
 
     @Test

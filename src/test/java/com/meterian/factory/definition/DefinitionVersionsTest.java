@@ -79,7 +79,7 @@ class DefinitionVersionsTest {
         versions.refresh();
 
         assertThat(versions.current()).hasValueSatisfying(version -> {
-            assertThat(version.commit()).isEqualTo(commit);
+            assertThat(version.identifier()).isEqualTo(commit);
             assertThat(version.definition().workflow().start()).isEqualTo("prepare");
         });
         assertThat(versions.warning()).isEmpty();
@@ -94,7 +94,7 @@ class DefinitionVersionsTest {
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         versions.refresh();
 
-        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.commit()).isEqualTo(good));
+        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.identifier()).isEqualTo(good));
         assertThat(versions.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The .factory of " + shortCommit(broken) + " does not load: ")
                 .endsWith(". The factory keeps the version " + shortCommit(good) + "."));
@@ -102,7 +102,7 @@ class DefinitionVersionsTest {
         String withoutFolder = commitWithoutDefinition(author);
         versions.refresh();
 
-        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.commit()).isEqualTo(good));
+        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.identifier()).isEqualTo(good));
         assertThat(versions.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The .factory of " + shortCommit(withoutFolder) + " does not load: ")
                 .contains("does not exist"));
@@ -120,7 +120,7 @@ class DefinitionVersionsTest {
         versions.refresh();
 
         assertThat(versions.current()).hasValueSatisfying(
-                version -> assertThat(version.commit()).isEqualTo(repaired));
+                version -> assertThat(version.identifier()).isEqualTo(repaired));
         assertThat(versions.warning()).isEmpty();
     }
 
@@ -159,7 +159,7 @@ class DefinitionVersionsTest {
         afterRestart.refresh();
 
         assertThat(afterRestart.current()).hasValueSatisfying(
-                version -> assertThat(version.commit()).isEqualTo(good));
+                version -> assertThat(version.identifier()).isEqualTo(good));
         assertThat(implementLimitOf(afterRestart.current().orElseThrow().definition())).isEqualTo(4);
         assertThat(afterRestart.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The .factory of " + shortCommit(broken) + " does not load: ")
@@ -186,7 +186,7 @@ class DefinitionVersionsTest {
         String first = commitDefinition(author, builtInMainFile());
         DefinitionVersions versions = createVersions();
         versions.refresh();
-        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(first);
+        IssueRecord record = RecordStates.queued(7).withDefinitionVersion(first);
 
         commitDefinition(author, mainFileWithImplementLimit(5));
         versions.refresh();
@@ -200,7 +200,7 @@ class DefinitionVersionsTest {
         String first = commitDefinition(author, builtInMainFile());
         createVersions().refresh();
         commitDefinition(author, mainFileWithImplementLimit(5));
-        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(first);
+        IssueRecord record = RecordStates.queued(7).withDefinitionVersion(first);
 
         DefinitionVersions afterRestart = createVersions();
         afterRestart.refresh();
@@ -213,7 +213,7 @@ class DefinitionVersionsTest {
         String broken = commitDefinition(author, BROKEN_MAIN_FILE);
         DefinitionVersions versions = createVersions();
         versions.refresh();
-        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(broken);
+        IssueRecord record = RecordStates.queued(7).withDefinitionVersion(broken);
 
         assertThatThrownBy(() -> versions.definitionOf(record)).isInstanceOf(IllegalStateException.class);
     }
@@ -227,7 +227,7 @@ class DefinitionVersionsTest {
         run(clone, "fetch", "-q", "origin", "side");
         DefinitionVersions versions = createVersions();
         versions.refresh();
-        IssueRecord record = RecordStates.queued(7).withDefinitionCommit(side);
+        IssueRecord record = RecordStates.queued(7).withDefinitionVersion(side);
 
         assertThatThrownBy(() -> versions.definitionOf(record))
                 .isInstanceOf(IllegalStateException.class)
@@ -252,7 +252,7 @@ class DefinitionVersionsTest {
 
         versions.refresh();
 
-        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.commit()).isEqualTo(commit));
+        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.identifier()).isEqualTo(commit));
         assertThat(versions.warning()).isEmpty();
     }
 
@@ -271,7 +271,7 @@ class DefinitionVersionsTest {
         afterRestart.refresh();
 
         assertThat(afterRestart.current()).hasValueSatisfying(
-                version -> assertThat(version.commit()).isEqualTo(good));
+                version -> assertThat(version.identifier()).isEqualTo(good));
     }
 
     /** A git that fails the first read of a file of one commit. */

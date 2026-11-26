@@ -82,7 +82,7 @@ final class StartAgainRequests {
     private IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
         WorkflowDefinition workflow = current.definition().workflow();
         IssueRecord queued = IssueRecord.queued(issue.number(), workflow.start())
-                .withDefinitionCommit(current.commit())
+                .withDefinitionVersion(current.identifier())
                 .withIssueTextHash(IssueText.computeHash(issue))
                 .withNote(STARTED_AGAIN_NOTE);
         workerMove.writeMoveOfAnotherState(workflow, record, queued);
