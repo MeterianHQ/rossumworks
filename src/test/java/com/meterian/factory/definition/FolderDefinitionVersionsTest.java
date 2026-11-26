@@ -172,7 +172,7 @@ class FolderDefinitionVersionsTest {
     }
 
     @Test
-    void treatsAFileThatCannotBeDecodedAsAReadFailure() throws IOException {
+    void keepsTheCurrentVersionWhenAFileIsNotValidUtf8() throws IOException {
         writeDefinitionFolder(folder, builtInMainFile());
         FolderDefinitionVersions versions = createVersions();
         versions.refresh();
@@ -183,7 +183,9 @@ class FolderDefinitionVersionsTest {
 
         assertThat(currentVersion(versions)).isEqualTo(good);
         assertThat(versions.warning()).hasValueSatisfying(warning -> assertThat(warning)
-                .contains(" cannot be read or copied: ")
+                .startsWith("The definition folder " + folder + " does not load: ")
+                .contains("The file " + firstPromptPath() + " of the folder ")
+                .contains(" is not valid UTF-8")
                 .endsWith("The factory keeps the version " + DefinitionVersionText.shorten(good) + "."));
     }
 

@@ -1,6 +1,7 @@
 package com.meterian.factory.definition;
 
 import java.io.IOException;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -26,6 +27,9 @@ public final class FolderDefinitionFiles implements DefinitionFiles {
         try {
             verifyFileIsInsideFolder(relativePath, file);
             return Optional.of(Files.readString(file, StandardCharsets.UTF_8));
+        } catch (CharacterCodingException exception) {
+            throw new DefinitionException("The file " + relativePath + " of the folder " + folder
+                    + " is not valid UTF-8.", exception);
         } catch (IOException exception) {
             throw new UnreadableDefinitionFileException("Cannot read the file " + relativePath + " of the folder "
                     + folder + ": " + exception.getMessage(), exception);
