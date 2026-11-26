@@ -18,6 +18,7 @@ import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
@@ -146,6 +147,9 @@ public final class Main {
     }
 
     public static void main(String[] arguments) {
+        if (isVersionCommand(arguments)) {
+            System.exit(showVersion(System.out));
+        }
         if (isHashPasswordCommand(arguments)) {
             System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
         }
@@ -153,6 +157,15 @@ public final class Main {
             System.exit(create(Arrays.asList(arguments).subList(1, arguments.length), System.out, System.err));
         }
         System.exit(run(arguments, System.getenv(), System.err));
+    }
+
+    static boolean isVersionCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("--version");
+    }
+
+    static int showVersion(PrintStream output) {
+        output.println("RossumWorks " + FactoryVersion.current());
+        return EXIT_SUCCESS;
     }
 
     static boolean isHashPasswordCommand(String[] arguments) {
