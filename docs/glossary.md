@@ -15,7 +15,9 @@ When a new document needs a new term, add the term to this page first.
 | build command | The command that compiles and tests each change, in `build.command` of the definition. The exit code 0 means that the build passed. See [Factory definition](factory-definition.md). |
 | card | One issue on the board. |
 | daily budget | With an API key, the maximum cost of one day, in `limits.daily-budget-usd`. See [Providers](providers.md). |
-| definition | The folder `.factory` of your repository. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |
+| definition | The folder `.factory` of your repository, or the definition folder. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |
+| definition copy | A copy of one version of the definition folder, in `<work folder>/definitions/<hash>/`. The worker writes it, and an issue reads its definition from it. |
+| definition folder | A folder outside the repository that holds the definition. You give it with the option `--definition` of `run` and `create`. |
 | Enter | Your request to open a live conversation: the label `factory:enter`, or the button Terminal or Browser. |
 | enter state | The state where an issue goes when you open the live mode. In the default workflow, it is `live`. The error messages call it the enter target. |
 | event | The result of an action, for example `passed` or `failed`. The workflow uses the event to select the next state. |
