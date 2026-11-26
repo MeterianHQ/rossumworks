@@ -22,11 +22,14 @@ public record CreateOptions(
         Optional<BigDecimal> dailyBudgetUsd,
         Optional<Path> definitionFolder) {
 
-    public static final String USAGE = "Usage: java -jar rossumworks.jar create [--repository owner/name]\n"
+    /** The command line of create, without the word Usage. The command line of Main shows it too. */
+    public static final String COMMAND_LINE = "java -jar rossumworks.jar create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
             + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
             + "       [--definition <folder>] [--yes]";
+    public static final String USAGE = "Usage: " + COMMAND_LINE;
+    private static final String OPTION_PREFIX = "--";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
         Optional<RepositoryName> repository = Optional.empty();
@@ -52,7 +55,7 @@ public record CreateOptions(
                 case "--provider" -> provider = Optional.of(parseProvider(readValue(arguments, ++index, parameter)));
                 case "--daily-budget-usd" ->
                         dailyBudgetUsd = Optional.of(parseDailyBudget(readValue(arguments, ++index, parameter)));
-                case "--definition" -> definitionFolder = Optional.of(Path.of(readValue(arguments, ++index, parameter)));
+                case "--definition" -> definitionFolder = Optional.of(readFolder(arguments, ++index, parameter));
                 default -> throw new SetupException("Unknown parameter " + parameter + ".\n" + USAGE);
             }
         }
@@ -68,6 +71,15 @@ public record CreateOptions(
             throw new SetupException("The parameter " + parameter + " needs a value.\n" + USAGE);
         }
         return arguments.get(index);
+    }
+
+    /** A folder that is empty or that is the next option is not a path. */
+    private static Path readFolder(List<String> arguments, int index, String parameter) throws SetupException {
+        String folder = readValue(arguments, index, parameter);
+        if (folder.isEmpty() || folder.startsWith(OPTION_PREFIX)) {
+            throw new SetupException("The parameter " + parameter + " needs a value.\n" + USAGE);
+        }
+        return Path.of(folder);
     }
 
     private static String readBuildCommand(List<String> arguments, int index, String parameter)

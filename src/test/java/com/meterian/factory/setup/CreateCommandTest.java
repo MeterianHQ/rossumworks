@@ -431,6 +431,52 @@ class CreateCommandTest {
         assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
         assertThat(folder.resolve("factory.yaml")).hasContent("mine");
         assertThat(workerFile()).exists();
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(outputText()).contains("The command wrote the file " + workerFile() + ".")
+                .contains(" run --config " + workerFile() + " --definition " + folder.toAbsolutePath())
+                .doesNotContain("The repository already has a .factory.");
+    }
+
+    @Test
+    void stopsOnADefinitionPathThatIsAFileBeforeTheClone() throws IOException {
+        Path file = Files.writeString(temporaryDirectory.resolve("my-factory"), "text");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", file.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("The definition folder " + file + " is not a folder.");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(workDirectory().resolve("repository")).doesNotExist();
+    }
+
+    @Test
+    void aFailedWriteOfTheDefinitionFolderLeavesNoWorkerFile() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path folder = Files.createSymbolicLink(temporaryDirectory.resolve("my-factory"),
+                temporaryDirectory.resolve("missing-target"));
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("Cannot write the definition folder " + folder);
+        assertThat(workerFile()).doesNotExist();
+    }
+
+    @Test
+    void noRefusesTheDefinitionFolderAndWritesNoFile() {
+        pushToMain("package.json", "{}\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+        FakeSetupConsole console = answering("", "", "", "", "", "n");
+
+        int exitCode = runCreate(console, "--definition", folder.toString());
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(console.questions).contains("Write the files? [y/n]");
+        assertThat(outputText()).contains("The command wrote no file and pushed nothing.");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(folder).doesNotExist();
     }
 
     @Test

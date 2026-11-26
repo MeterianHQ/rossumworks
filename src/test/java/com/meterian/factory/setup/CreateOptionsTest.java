@@ -114,4 +114,12 @@ class CreateOptionsTest {
         assertThatThrownBy(() -> CreateOptions.parse(List.of("--definition")))
                 .hasMessageStartingWith("The parameter --definition needs a value.");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "--yes"})
+    void refusesADefinitionFolderThatIsEmptyOrAnOption(String value) {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--definition", value)))
+                .isInstanceOf(SetupException.class)
+                .hasMessage("The parameter --definition needs a value.\n" + CreateOptions.USAGE);
+    }
 }

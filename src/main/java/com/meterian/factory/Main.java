@@ -36,6 +36,7 @@ import com.meterian.factory.provider.Provider;
 import com.meterian.factory.provider.Providers;
 import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
+import com.meterian.factory.setup.CreateOptions;
 import com.meterian.factory.setup.RunningJar;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
@@ -92,9 +93,7 @@ public final class Main {
 
     private static final String USAGE = RunOptions.USAGE + "\n"
             + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
-            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--definition <folder>] [--yes]";
+            + "       " + CreateOptions.COMMAND_LINE;
     private static final URI GITHUB_API = URI.create("https://api.github.com");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);

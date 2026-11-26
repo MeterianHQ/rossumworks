@@ -1,6 +1,7 @@
 package com.meterian.factory.setup;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -51,16 +52,31 @@ public final class DefinitionFolderSetup {
         }
     }
 
-    /** Writes each file. A file that exists stops the write, so the command never overwrites a file. */
+    /**
+     * Writes each file, and factory.yaml last. A failed write then leaves no factory.yaml, so the next create stops.
+     * A file that exists stops the write, so the command never overwrites a file.
+     */
     public void write(Map<String, String> files) throws SetupException {
         try {
             for (Map.Entry<String, String> file : files.entrySet()) {
-                Path target = folder.resolve(file.getKey());
-                Files.createDirectories(target.getParent());
-                Files.writeString(target, file.getValue(), StandardOpenOption.CREATE_NEW);
+                if (!file.getKey().equals(MAIN_FILE)) {
+                    writeFile(file.getKey(), file.getValue());
+                }
             }
+            if (files.containsKey(MAIN_FILE)) {
+                writeFile(MAIN_FILE, files.get(MAIN_FILE));
+            }
+        } catch (FileAlreadyExistsException exception) {
+            throw new SetupException("Cannot write the definition folder " + folder + ": the path "
+                    + exception.getFile() + " exists.");
         } catch (IOException exception) {
             throw new SetupException("Cannot write the definition folder " + folder + ": " + exception.getMessage());
         }
+    }
+
+    private void writeFile(String relativePath, String text) throws IOException {
+        Path target = folder.resolve(relativePath);
+        Files.createDirectories(target.getParent());
+        Files.writeString(target, text, StandardOpenOption.CREATE_NEW);
     }
 }

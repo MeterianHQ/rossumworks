@@ -252,7 +252,8 @@ class GitDefinitionVersionsTest {
 
         versions.refresh();
 
-        assertThat(versions.current()).hasValueSatisfying(version -> assertThat(version.identifier()).isEqualTo(commit));
+        assertThat(versions.current())
+                .hasValueSatisfying(version -> assertThat(version.identifier()).isEqualTo(commit));
         assertThat(versions.warning()).isEmpty();
     }
 

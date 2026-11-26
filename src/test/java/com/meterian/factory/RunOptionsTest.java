@@ -70,6 +70,16 @@ class RunOptionsTest {
     }
 
     @Test
+    void refusesAValueThatIsEmptyOrAnOption() {
+        for (String[] arguments : List.of(new String[] {"run", "--config", ""},
+                new String[] {"run", "--definition", ""},
+                new String[] {"run", "--config", "--definition"},
+                new String[] {"run", "--definition", "--config"})) {
+            assertThatThrownBy(() -> RunOptions.parse(arguments)).hasMessage(RunOptions.USAGE);
+        }
+    }
+
+    @Test
     void givesTheAbsolutePathOfAFolderThatExists() throws Exception {
         Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
 

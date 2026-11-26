@@ -18,7 +18,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** The command create: it asks the questions, writes worker.yaml, and opens the PR factory/setup or writes the definition folder. */
+/**
+ * The command create: it asks the questions and writes worker.yaml.
+ * Then it opens the PR factory/setup, or it writes the definition folder.
+ */
 public final class CreateCommand {
 
     static final List<String> REQUIRED_PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
@@ -87,34 +90,54 @@ public final class CreateCommand {
         RepositoryName repository = questions.askRepository(options, OriginRemote.readRepository(currentFolder));
         Path workDirectory = questions.askWorkDirectory(options, repository).toAbsolutePath();
         verifyNoWorkerFile(WorkerSettings.configurationFileIn(workDirectory));
+        Optional<CheckedDefinitionFolder> definitionFolder = checkDefinitionFolder(options);
         Optional<WebPage> web = questions.askWeb(options);
         Optional<List<String>> terminalCommand = questions.askTerminalCommand(options);
         ProviderChoice provider = questions.askProvider(options);
         StartChecks.verifyCredential(environment, provider.name());
         GitHubClient gitHub = gitHubConnector.connect(repository, token);
         RepositorySetup setup = new RepositorySetup(git, gitHub, gitHubConnector.cloneUrl(repository));
-        Path clone = workDirectory.resolve(CLONE_FOLDER);
-        RepositoryFacts facts = setup.read(clone);
+        RepositoryFacts facts = setup.read(findClone(workDirectory));
         WorkerSettings settings = new WorkerSettings(repository, workDirectory, web, terminalCommand,
                 findJavaHome(facts), provider);
-        if (options.definitionFolder().isPresent()) {
-            DefinitionFolderSetup definitionFolder =
-                    new DefinitionFolderSetup(options.definitionFolder().get().toAbsolutePath());
-            return createWithDefinitionFolder(options, questions, settings, facts, definitionFolder);
+        if (definitionFolder.isPresent()) {
+            return createWithDefinitionFolder(options, questions, settings, facts, definitionFolder.get());
         }
+        return createWithPullRequest(options, questions, settings, facts, setup, gitHub);
+    }
+
+    /** The folder of --definition, checked before the clone: a wrong path then costs no clone. */
+    private record CheckedDefinitionFolder(DefinitionFolderSetup setup, boolean needsDefinition) {
+    }
+
+    private static Optional<CheckedDefinitionFolder> checkDefinitionFolder(CreateOptions options)
+            throws SetupException {
+        if (options.definitionFolder().isEmpty()) {
+            return Optional.empty();
+        }
+        DefinitionFolderSetup setup = new DefinitionFolderSetup(options.definitionFolder().get().toAbsolutePath());
+        return Optional.of(new CheckedDefinitionFolder(setup, setup.needsDefinition()));
+    }
+
+    private static Path findClone(Path workDirectory) {
+        return workDirectory.resolve(CLONE_FOLDER);
+    }
+
+    /** The definition comes from the repository: the PR factory/setup adds .factory, unless it exists already. */
+    private int createWithPullRequest(CreateOptions options, SetupQuestions questions, WorkerSettings settings,
+                                      RepositoryFacts facts, RepositorySetup setup, GitHubClient gitHub)
+            throws SetupException {
         facts.verifyFactoryFolderIsComplete();
         if (facts.hasFactory()) {
-            output.println("The repository already has a .factory. The command opens no pull request.");
-            return writeOnlyTheWorkerFile(options, questions, settings, Optional.empty());
+            return createWithRepositoryFactory(options, questions, settings);
         }
         Optional<PullRequest> openSetup = setup.findOpenSetup();
         if (openSetup.isPresent()) {
             showOpenPullRequest(openSetup.get());
             return Main.EXIT_SUCCESS;
         }
-        setup.verifyNoSetupBranch(repository);
-        RepositoryBuild build = questions.askBuild(options, BuildFinder.find(facts.hasFile()),
-                BuildFinder.isJavaRepository(facts.hasFile()));
+        setup.verifyNoSetupBranch(settings.repository());
+        RepositoryBuild build = askBuild(options, questions, facts);
         Map<String, String> files = DefaultFactoryFolder.files(build, facts.defaultBranch());
         GeneratedFactoryFolder.verifyLoads(files);
         if (!questions.confirm(options, SetupSummary.describe(settings, build, files, facts.defaultBranch()))) {
@@ -123,25 +146,19 @@ public final class CreateCommand {
         }
         String owner = gitHub.authenticatedLogin();
         writeWorkerFile(settings);
-        PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files);
+        PullRequest pullRequest = publishOrDeleteWorkerFile(setup, findClone(settings.workDirectory()), settings,
+                facts, files);
         Optional<String> assignmentProblem = setup.assignPullRequest(pullRequest, owner);
         copyRunningJarToCache();
         showResult(settings, files, Optional.of(pullRequest), assignmentProblem);
         return Main.EXIT_SUCCESS;
     }
 
-    private int writeOnlyTheWorkerFile(CreateOptions options, SetupQuestions questions, WorkerSettings settings,
-                                       Optional<Path> definitionFolder) throws SetupException {
-        if (!questions.confirmWorkerFile(options, SetupSummary.describe(settings))) {
-            showNothingWritten();
-            return Main.EXIT_SUCCESS;
-        }
-        writeWorkerFile(settings);
-        copyRunningJarToCache();
-        if (definitionFolder.isPresent()) {
-            output.println("The command wrote the file " + settings.configurationFile() + ".");
-            showStartCommandWithDefinitionFolder(settings, definitionFolder.get());
-        } else {
+    private int createWithRepositoryFactory(CreateOptions options, SetupQuestions questions,
+                                            WorkerSettings settings) throws SetupException {
+        output.println("The repository already has a .factory. The command opens no pull request.");
+        if (confirmAndWriteWorkerFile(options, questions, settings)) {
+            copyRunningJarToCache();
             showResult(settings, Map.of(), Optional.empty(), Optional.empty());
         }
         return Main.EXIT_SUCCESS;
@@ -150,32 +167,56 @@ public final class CreateCommand {
     /** The definition stays outside the repository: the command writes the folder and opens no pull request. */
     private int createWithDefinitionFolder(CreateOptions options, SetupQuestions questions,
                                            WorkerSettings settings, RepositoryFacts facts,
-                                           DefinitionFolderSetup definitionFolder) throws SetupException {
+                                           CheckedDefinitionFolder definitionFolder) throws SetupException {
+        Path folder = definitionFolder.setup().folder();
         if (!definitionFolder.needsDefinition()) {
-            output.println("The definition folder " + definitionFolder.folder() + " has a factory.yaml. "
-                    + "The command keeps the folder.");
-            return writeOnlyTheWorkerFile(options, questions, settings, Optional.of(definitionFolder.folder()));
+            return keepDefinitionFolder(options, questions, settings, folder);
         }
-        RepositoryBuild build = questions.askBuild(options, BuildFinder.find(facts.hasFile()),
-                BuildFinder.isJavaRepository(facts.hasFile()));
+        RepositoryBuild build = askBuild(options, questions, facts);
         Map<String, String> files = DefaultFactoryFolder.definitionFiles(build, facts.defaultBranch());
-        GeneratedFactoryFolder.verifyLoads(DefaultFactoryFolder.files(build, facts.defaultBranch()));
-        String summary = SetupSummary.describe(settings, build, definitionFolder.folder(), files);
-        if (!questions.confirmDefinitionFolder(options, summary)) {
+        GeneratedFactoryFolder.verifyDefinitionLoads(files);
+        if (!questions.confirmDefinitionFolder(options, SetupSummary.describe(settings, build, folder, files))) {
             showNothingWritten();
             return Main.EXIT_SUCCESS;
         }
         writeWorkerFile(settings);
-        definitionFolder.write(files);
+        writeDefinitionFolderOrDeleteWorkerFile(definitionFolder.setup(), settings, files);
         copyRunningJarToCache();
-        output.println("The command wrote the file " + settings.configurationFile() + ".");
-        output.println("The command wrote the definition folder " + definitionFolder.folder() + ".");
-        showStartCommandWithDefinitionFolder(settings, definitionFolder.folder());
+        output.println("The command wrote the definition folder " + folder + ".");
+        showResultWithDefinitionFolder(settings, folder);
         return Main.EXIT_SUCCESS;
     }
 
+    private int keepDefinitionFolder(CreateOptions options, SetupQuestions questions, WorkerSettings settings,
+                                     Path folder) throws SetupException {
+        output.println("The definition folder " + folder + " has a factory.yaml. The command keeps the folder.");
+        if (confirmAndWriteWorkerFile(options, questions, settings)) {
+            copyRunningJarToCache();
+            showResultWithDefinitionFolder(settings, folder);
+        }
+        return Main.EXIT_SUCCESS;
+    }
+
+    private static RepositoryBuild askBuild(CreateOptions options, SetupQuestions questions, RepositoryFacts facts)
+            throws SetupException {
+        return questions.askBuild(options, BuildFinder.find(facts.hasFile()),
+                BuildFinder.isJavaRepository(facts.hasFile()));
+    }
+
+    /** @return false when the owner refuses: the command then writes nothing */
+    private boolean confirmAndWriteWorkerFile(CreateOptions options, SetupQuestions questions,
+                                              WorkerSettings settings) throws SetupException {
+        if (!questions.confirmWorkerFile(options, SetupSummary.describe(settings))) {
+            showNothingWritten();
+            return false;
+        }
+        writeWorkerFile(settings);
+        return true;
+    }
+
     /** Outside a clone, run cannot find worker.yaml, so the command always has --config. */
-    private void showStartCommandWithDefinitionFolder(WorkerSettings settings, Path definitionFolder) {
+    private void showResultWithDefinitionFolder(WorkerSettings settings, Path definitionFolder) {
+        output.println("The command wrote the file " + settings.configurationFile() + ".");
         output.println("Start the worker with this command:");
         output.println("  java -jar " + findJarPath() + " run --config " + settings.configurationFile()
                 + " --definition " + definitionFolder);
@@ -239,10 +280,23 @@ public final class CreateCommand {
         try {
             return setup.publish(clone, settings.gatekeeperDirectory(), facts, files);
         } catch (SetupException | GitException | GitHubException failure) {
-            String deleteProblem = deleteWorkerFile(settings.configurationFile()).map(problem -> "\n" + problem)
-                    .orElse("");
-            throw new SetupException(failure.getMessage() + deleteProblem);
+            throw new SetupException(failure.getMessage() + describeDeleteProblem(settings.configurationFile()));
         }
+    }
+
+    /** A failed write deletes the worker.yaml of this run, so that the next create does not stop on it. */
+    private static void writeDefinitionFolderOrDeleteWorkerFile(DefinitionFolderSetup definitionFolder,
+                                                                WorkerSettings settings, Map<String, String> files)
+            throws SetupException {
+        try {
+            definitionFolder.write(files);
+        } catch (SetupException failure) {
+            throw new SetupException(failure.getMessage() + describeDeleteProblem(settings.configurationFile()));
+        }
+    }
+
+    private static String describeDeleteProblem(Path configurationFile) {
+        return deleteWorkerFile(configurationFile).map(problem -> "\n" + problem).orElse("");
     }
 
     private static Optional<String> deleteWorkerFile(Path configurationFile) {

@@ -7,6 +7,7 @@ import com.meterian.factory.definition.DefinitionLoader;
 import com.meterian.factory.definition.FolderDefinitionFiles;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,6 +82,29 @@ class DefinitionFolderSetupTest {
                 .isInstanceOf(SetupException.class)
                 .hasMessageStartingWith("Cannot write the definition folder " + folder);
         assertThat(folder.resolve("factory.yaml")).hasContent("mine");
+    }
+
+    @Test
+    void namesThePathThatExists() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Path mainFile = Files.writeString(folder.resolve("factory.yaml"), "mine");
+
+        assertThatThrownBy(() -> new DefinitionFolderSetup(folder).write(Map.of("factory.yaml", "version: 1\n")))
+                .isInstanceOf(SetupException.class)
+                .hasMessage("Cannot write the definition folder " + folder + ": the path " + mainFile + " exists.");
+    }
+
+    @Test
+    void writesTheMainFileLastSoThatAFailedWriteLeavesNoMainFile() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Files.writeString(folder.resolve("prompts"), "a file");
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("factory.yaml", "version: 1\n");
+        files.put("prompts/implement.md", "Implement.\n");
+
+        assertThatThrownBy(() -> new DefinitionFolderSetup(folder).write(files))
+                .isInstanceOf(SetupException.class);
+        assertThat(folder.resolve("factory.yaml")).doesNotExist();
     }
 
     @Test

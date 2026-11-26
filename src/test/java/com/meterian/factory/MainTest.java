@@ -59,9 +59,11 @@ class MainTest {
     private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>] "
             + "[--definition <folder>]\n"
             + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
-            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--definition <folder>] [--yes]";
+            + "       java -jar rossumworks.jar create [--repository owner/name]\n"
+            + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
+            + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
+            + "       [--definition <folder>] [--yes]";
 
     @TempDir
     Path temporaryDirectory;
@@ -296,7 +298,8 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream, definitionFolder) -> 0, createRecordingGit(new ArrayList<>()));
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> 0,
+                createRecordingGit(new ArrayList<>()));
 
         assertThat(exitCode).isZero();
         assertThat(errorText())
@@ -322,6 +325,27 @@ class MainTest {
 
         assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
         assertThat(startedWithFolder).containsExactly(Optional.of(folder.toAbsolutePath()));
+    }
+
+    @Test
+    void aMissingDefinitionFolderStopsTheCommandBeforeTheClone() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Path missing = temporaryDirectory.resolve("missing");
+        List<String> clones = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString(), "--definition",
+                        missing.toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
+                    throw new AssertionError("The test reached the worker");
+                }, createRecordingGit(clones));
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("The definition folder " + missing.toAbsolutePath() + " does not exist.");
+        assertThat(clones).isEmpty();
     }
 
     @Test

@@ -14,6 +14,7 @@ public record RunOptions(Optional<Path> configurationFile, Optional<Path> defini
     private static final String COMMAND = "run";
     private static final String CONFIG_OPTION = "--config";
     private static final String DEFINITION_OPTION = "--definition";
+    private static final String OPTION_PREFIX = "--";
 
     public static RunOptions parse(String[] arguments) throws StartupException {
         if (arguments.length == 0 || !arguments[0].equals(COMMAND)) {
@@ -32,8 +33,9 @@ public record RunOptions(Optional<Path> configurationFile, Optional<Path> defini
         return new RunOptions(configurationFile, definitionFolder);
     }
 
+    /** A value that is empty or that is the next option is not a path. */
     private static String readValue(String[] arguments, int index) throws StartupException {
-        if (index >= arguments.length) {
+        if (index >= arguments.length || arguments[index].isEmpty() || arguments[index].startsWith(OPTION_PREFIX)) {
             throw new StartupException(USAGE);
         }
         return arguments[index];
