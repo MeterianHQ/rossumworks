@@ -19,7 +19,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Runs .factory/run.sh with a fake curl, a fake uname, and a fake java. The fake GitHub is a folder of assets. */
+/**
+ * Runs .factory/run.sh with a fake curl, a fake uname, and a fake java. The fake GitHub is a folder of assets.
+ * On macOS, the bash of the system has the version 3.2, and the tools are the BSD tools.
+ */
 class RunScriptTest {
 
     private static final String VERSION = "0.6.0";
@@ -29,6 +32,8 @@ class RunScriptTest {
     private static final String NATIVE_TEXT = "#!/bin/sh\necho \"native $*\"\n";
     private static final String OLD_GLIBC_TEXT = "#!/bin/sh\necho \"GLIBC_2.34 not found\" >&2\nexit 1\n";
     private static final long TIMEOUT_SECONDS = 30;
+    /** macOS has sha256sum in /sbin. */
+    private static final String SYSTEM_PATH = "/usr/bin:/bin:/sbin";
 
     private static final String FAKE_CURL = """
             #!/usr/bin/env bash
@@ -51,6 +56,10 @@ class RunScriptTest {
     private static final String FAKE_JAVA = """
             #!/bin/sh
             echo "java $*"
+            """;
+    private static final String FAKE_GH_WITHOUT_LOGIN = """
+            #!/bin/sh
+            exit 1
             """;
 
     @TempDir
@@ -150,6 +159,17 @@ class RunScriptTest {
         ScriptResult result = runScript("x86_64", Map.of("FAKE_SYSTEM", "Darwin"));
 
         assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run");
+        assertThat(result.exitCode()).isEqualTo(0);
+    }
+
+    @Test
+    void aMachineWithoutATokenDownloadsTheJar() throws Exception {
+        writeExecutable(fakeCommands.resolve("gh"), FAKE_GH_WITHOUT_LOGIN);
+        publishAsset(JAR, "jar");
+
+        ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin", "FACTORY_GITHUB_TOKEN", ""));
+
+        assertThat(result.text()).contains("Download of " + JAR, "java -jar " + jarCache().resolve(JAR) + " run");
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
@@ -256,7 +276,7 @@ class RunScriptTest {
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
         Map<String, String> environment = builder.environment();
         environment.clear();
-        environment.put("PATH", fakeCommands + ":/usr/bin:/bin");
+        environment.put("PATH", fakeCommands + ":" + SYSTEM_PATH);
         environment.put("HOME", home.toString());
         environment.put("FAKE_GITHUB", fakeGitHub.toString());
         environment.put("FAKE_MACHINE", machine);

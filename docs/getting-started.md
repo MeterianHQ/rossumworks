@@ -152,7 +152,8 @@ The default `.factory` holds the script `run.sh`. `create` commits it with the e
 When the download fails, the script uses the newest native program of the machine in `~/.rossumworks/native`.
 When that folder has no program that starts, it uses the newest jar in `~/.rossumworks/jars`. A cached native
 program comes before a cached jar, also when the jar has a newer version. When both folders are
-empty, the script stops with the exit code 1. The script needs `bash`, `curl`, `jq`, and `sha256sum`.
+empty, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. On Linux, it also
+needs `sha256sum`.
 
 `create` copies its own program into the folder of `run.sh`: a native program into `~/.rossumworks/native`,
 and a jar into `~/.rossumworks/jars`. The copy has the same file name. Thus the first run of the script needs

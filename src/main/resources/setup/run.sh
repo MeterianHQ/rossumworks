@@ -23,11 +23,11 @@ call_github() {
     local accept="$1"
     local url="$2"
     shift 2
-    local authorization=()
+    local options=(--silent --show-error --fail --location --header "Accept: ${accept}")
     if [[ -n "${token}" ]]; then
-        authorization=(--header "Authorization: Bearer ${token}")
+        options+=(--header "Authorization: Bearer ${token}")
     fi
-    curl --silent --show-error --fail --location --header "Accept: ${accept}" "${authorization[@]}" "$@" "${url}"
+    curl "${options[@]}" "$@" "${url}"
 }
 
 # Prints the platform name of the native programs, for example linux-x64. A machine without a program gives nothing.
@@ -116,10 +116,11 @@ download_latest_native_program() {
     echo "${program}"
 }
 
+# The commands have only the options that the tools of Linux and of macOS share.
 find_newest_cached_file() {
     local directory="$1"
     local pattern="$2"
-    find "${directory}" -maxdepth 1 -regextype posix-extended -regex ".*/${pattern}" -printf '%f\n' \
+    find "${directory}" -maxdepth 1 | sed 's#^.*/##' | grep -E -x "${pattern}" \
         | sort --version-sort | tail -n 1 | sed "s#^#${directory}/#" | grep .
 }
 
