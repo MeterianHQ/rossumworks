@@ -35,4 +35,11 @@ class LocalVersionTest {
         assertThat(LocalVersion.isLocal("local:anything")).isTrue();
         assertThat(LocalVersion.isLocal(HASH)).isFalse();
     }
+
+    @Test
+    void knowsAValidHash() {
+        assertThat(LocalVersion.isValidHash(HASH)).isTrue();
+        assertThat(LocalVersion.isValidHash(HASH.toUpperCase())).isFalse();
+        assertThat(LocalVersion.isValidHash("../x")).isFalse();
+    }
 }

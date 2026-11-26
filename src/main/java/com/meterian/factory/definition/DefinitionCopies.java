@@ -1,54 +1,57 @@
 package com.meterian.factory.definition;
 
 import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileSystemException;
+import java.nio.file.LinkOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.Comparator;
 import java.util.List;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /** The definition copies in <work folder>/definitions: one folder for each version, with the hash as its name. */
 public final class DefinitionCopies {
 
-    private static final String FOLDER = "definitions";
+    private static final String COPIES_FOLDER_NAME = "definitions";
     private static final String TEMPORARY_PREFIX = ".partial-";
-    private static final Pattern HASH = Pattern.compile("[0-9a-f]{64}");
 
-    private final Path directory;
+    private final Path copiesFolder;
 
-    public DefinitionCopies(Path directory) {
-        this.directory = directory;
+    public DefinitionCopies(Path copiesFolder) {
+        this.copiesFolder = copiesFolder;
     }
 
-    public static DefinitionCopies inWorkFolder(Path workDirectory) {
-        return new DefinitionCopies(workDirectory.resolve(FOLDER));
+    public static DefinitionCopies inWorkFolder(Path workFolder) {
+        return new DefinitionCopies(workFolder.resolve(COPIES_FOLDER_NAME));
     }
 
-    public Path directory() {
-        return directory;
+    public Path copiesFolder() {
+        return copiesFolder;
     }
 
+    /** @throws IllegalArgumentException when the text is not a valid hash, because the hash is a folder name */
     public Path folderOf(String hash) {
-        return directory.resolve(hash);
+        if (!LocalVersion.isValidHash(hash)) {
+            throw new IllegalArgumentException("The text " + hash + " is not a valid hash of a definition copy.");
+        }
+        return copiesFolder.resolve(hash);
     }
 
     public boolean exists(String hash) {
         return Files.isDirectory(folderOf(hash));
     }
 
-    /** Copies the files of the source to a new temporary folder in the directory of the copies. */
+    /** Copies the files of the source to a new temporary folder in the copies folder. */
     public Path copyToTemporaryFolder(Path source) throws IOException {
-        Files.createDirectories(directory);
-        Path temporaryFolder = Files.createTempDirectory(directory, TEMPORARY_PREFIX);
+        Files.createDirectories(copiesFolder);
+        Path temporaryFolder = Files.createTempDirectory(copiesFolder, TEMPORARY_PREFIX);
         try {
-            for (Path file : FolderHash.listFiles(source)) {
-                Path target = temporaryFolder.resolve(source.relativize(file).toString());
+            for (DefinitionFolderEntry entry : DefinitionFolderEntries.list(source)) {
+                Path target = temporaryFolder.resolve(entry.relativePath());
                 Files.createDirectories(target.getParent());
-                Files.copy(file, target);
+                Files.copy(entry.file(), target, LinkOption.NOFOLLOW_LINKS);
             }
         } catch (IOException failure) {
             discard(temporaryFolder);
@@ -63,9 +66,17 @@ public final class DefinitionCopies {
             discard(temporaryFolder);
             return;
         }
+        moveToCopyFolder(temporaryFolder, hash);
+    }
+
+    /** Another worker can keep the same version after the check of keep: the move then fails, and the copy stays. */
+    void moveToCopyFolder(Path temporaryFolder, String hash) throws IOException {
         try {
             Files.move(temporaryFolder, folderOf(hash), StandardCopyOption.ATOMIC_MOVE);
-        } catch (FileAlreadyExistsException exception) {
+        } catch (FileSystemException exception) {
+            if (!exists(hash)) {
+                throw exception;
+            }
             discard(temporaryFolder);
         }
     }
@@ -83,15 +94,20 @@ public final class DefinitionCopies {
 
     /** The hashes of the copies, the newest modification time first. Temporary folders do not count. */
     public List<String> listNewestFirst() throws IOException {
-        if (!Files.isDirectory(directory)) {
+        if (!Files.isDirectory(copiesFolder)) {
             return List.of();
         }
-        try (Stream<Path> folders = Files.list(directory)) {
-            return folders.filter(folder -> HASH.matcher(folder.getFileName().toString()).matches())
+        try (Stream<Path> folders = Files.list(copiesFolder)) {
+            return folders.filter(DefinitionCopies::isCopyFolder)
                     .sorted(Comparator.comparing(DefinitionCopies::readModificationTime).reversed())
                     .map(folder -> folder.getFileName().toString())
                     .toList();
         }
+    }
+
+    private static boolean isCopyFolder(Path folder) {
+        return Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)
+                && LocalVersion.isValidHash(folder.getFileName().toString());
     }
 
     private static FileTime readModificationTime(Path folder) {

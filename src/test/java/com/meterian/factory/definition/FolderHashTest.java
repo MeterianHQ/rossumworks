@@ -74,4 +74,25 @@ class FolderHashTest {
                 .hasMessage("The definition folder " + folder + " has the entry link.md, "
                         + "which is not a file or a folder.");
     }
+
+    @Test
+    void givesTheHashOfTheRealFolderForALinkToTheFolder() throws IOException {
+        Path folder = writeFolder("real", "version: 1\n", "Implement.\n");
+        Path link = Files.createSymbolicLink(temporaryDirectory.resolve("link"), folder);
+
+        assertThat(FolderHash.calculate(link)).isEqualTo(FolderHash.calculate(folder));
+    }
+
+    @Test
+    void refusesALinkToAFolderInTheMiddleOfAPath() throws IOException {
+        Path folder = writeFolder("first", "version: 1\n", "Implement.\n");
+        Path outside = Files.createDirectories(temporaryDirectory.resolve("outside"));
+        Files.writeString(outside.resolve("secret.md"), "Secret.\n");
+        Files.createSymbolicLink(folder.resolve("linked"), outside);
+
+        assertThatThrownBy(() -> FolderHash.calculate(folder))
+                .isInstanceOf(IOException.class)
+                .hasMessage("The definition folder " + folder + " has the entry linked, "
+                        + "which is not a file or a folder.");
+    }
 }

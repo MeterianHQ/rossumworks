@@ -22,7 +22,7 @@ class ClasspathDefinitionFilesTest {
     @Test
     void refusesAPathThatLeavesTheFolder() {
         assertThatThrownBy(() -> files.read("../prompts/fix.md")).isInstanceOf(DefinitionException.class)
-                .hasMessage("The prompt path ../prompts/fix.md leaves the folder .factory.");
+                .hasMessage("The prompt path ../prompts/fix.md leaves the folder of the definition.");
         assertThatThrownBy(() -> files.read("prompts/../../x")).isInstanceOf(DefinitionException.class);
         assertThatThrownBy(() -> files.read("/etc/passwd")).isInstanceOf(DefinitionException.class);
     }

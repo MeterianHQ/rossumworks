@@ -24,10 +24,19 @@ public final class FolderDefinitionFiles implements DefinitionFiles {
             return Optional.empty();
         }
         try {
+            verifyFileIsInsideFolder(relativePath, file);
             return Optional.of(Files.readString(file, StandardCharsets.UTF_8));
         } catch (IOException exception) {
             throw new DefinitionException("Cannot read the file " + relativePath + " of the folder " + folder
                     + ": " + exception.getMessage(), exception);
+        }
+    }
+
+    /** The check of the last segment does not see a link in the middle of the path, so the real paths are compared. */
+    private void verifyFileIsInsideFolder(String relativePath, Path file) throws IOException, DefinitionException {
+        if (!file.toRealPath().startsWith(folder.toRealPath())) {
+            throw new DefinitionException("The path " + relativePath
+                    + " leaves the folder of the definition through a link.");
         }
     }
 }

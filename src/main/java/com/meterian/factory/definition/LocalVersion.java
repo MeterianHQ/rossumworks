@@ -26,6 +26,10 @@ public final class LocalVersion {
             return Optional.empty();
         }
         String hash = version.substring(PREFIX.length());
-        return HASH.matcher(hash).matches() ? Optional.of(hash) : Optional.empty();
+        return isValidHash(hash) ? Optional.of(hash) : Optional.empty();
+    }
+
+    public static boolean isValidHash(String text) {
+        return HASH.matcher(text).matches();
     }
 }

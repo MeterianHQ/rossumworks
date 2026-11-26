@@ -5,6 +5,8 @@ import static com.meterian.factory.testing.DefinitionFolders.writeDefinitionFold
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,5 +37,24 @@ class FolderDefinitionFilesTest {
         FolderDefinitionFiles files = new FolderDefinitionFiles(temporaryDirectory);
 
         assertThatThrownBy(() -> files.read("../secret.md")).isInstanceOf(DefinitionException.class);
+    }
+
+    @Test
+    void refusesALinkToAnOutsideFolderInTheMiddleOfThePath() throws IOException {
+        Path folder = writeDefinitionFolder(temporaryDirectory.resolve("definition"), builtInMainFile());
+        Path outside = Files.createDirectories(temporaryDirectory.resolve("outside"));
+        Files.writeString(outside.resolve("secret.md"), "Secret.\n");
+        Files.createSymbolicLink(folder.resolve("linked"), outside);
+
+        assertThatThrownBy(() -> new FolderDefinitionFiles(folder).read("linked/secret.md"))
+                .isInstanceOf(DefinitionException.class)
+                .hasMessage("The path linked/secret.md leaves the folder of the definition through a link.");
+    }
+
+    @Test
+    void refusesAnAbsolutePath() {
+        FolderDefinitionFiles files = new FolderDefinitionFiles(temporaryDirectory);
+
+        assertThatThrownBy(() -> files.read("/etc/passwd")).isInstanceOf(DefinitionException.class);
     }
 }
