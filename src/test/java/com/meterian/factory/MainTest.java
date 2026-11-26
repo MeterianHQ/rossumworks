@@ -15,6 +15,7 @@ import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.process.ProcessGroupLauncher;
 import com.meterian.factory.provider.ApiKeyProvider;
 import com.meterian.factory.provider.Provider;
 import com.meterian.factory.setup.CreateOptions;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.io.TempDir;
 class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
+    private static final String PROCESS_GROUP_PROGRAM = ProcessGroupLauncher.createForThisSystem().program();
 
     private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
             + "       rossumworks hash-password\n"
@@ -100,7 +102,7 @@ class MainTest {
 
     private Map<String, String> createEnvironmentWithAllCommands() throws IOException {
         Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
-        for (String command : List.of("claude", "git", "setsid", "kill", "tmux", "jq")) {
+        for (String command : StartChecks.listRequiredCommands("claude")) {
             Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
             assertThat(file.toFile().setExecutable(true)).isTrue();
         }
@@ -366,7 +368,7 @@ class MainTest {
     @Test
     void refusesToStartWhenTmuxAndJqAreMissing() throws IOException {
         Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
-        for (String command : List.of("claude", "git", "setsid", "kill")) {
+        for (String command : List.of("claude", "git", PROCESS_GROUP_PROGRAM, "kill")) {
             Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
             assertThat(file.toFile().setExecutable(true)).isTrue();
         }

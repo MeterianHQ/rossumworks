@@ -3,6 +3,7 @@ package com.meterian.factory;
 import com.meterian.factory.Main.StartupException;
 import com.meterian.factory.configuration.ProviderName;
 import com.meterian.factory.process.ChildEnvironment;
+import com.meterian.factory.process.ProcessGroupLauncher;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +46,12 @@ public final class StartChecks {
             throw new StartupException("Set ANTHROPIC_API_KEY: the provider is anthropic-api-key. "
                     + "To use the claude login, remove claude.provider.");
         }
+    }
+
+    /** The commands that the factory runs. The program that starts a process group depends on the system. */
+    public static List<String> listRequiredCommands(String claudeCommand) {
+        String processGroupProgram = ProcessGroupLauncher.createForThisSystem().program();
+        return List.of(claudeCommand, "git", processGroupProgram, "kill", "tmux", "jq");
     }
 
     public static void verifyCommandsOnPath(List<String> commands, String path) throws StartupException {

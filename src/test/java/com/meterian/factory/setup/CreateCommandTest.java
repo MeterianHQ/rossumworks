@@ -6,6 +6,7 @@ import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meterian.factory.StartChecks;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.RepositoryName;
@@ -36,7 +37,7 @@ class CreateCommandTest {
 
     private static final String PASSWORD = "correct-horse-battery";
     private static final String DEFAULT_START_LINE = "Start the worker with this command, in a clone of owner/project:";
-    private static final List<String> PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
+    private static final List<String> PROGRAMS = StartChecks.listRequiredCommands("claude");
 
     @TempDir
     Path temporaryDirectory;
