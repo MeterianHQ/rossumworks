@@ -1,6 +1,8 @@
 # RossumWorks
 
-![The board of RossumWorks, with cards in each column](docs/images/board.png)
+[![The demo video of RossumWorks: the board, with cards in each column](docs/images/board-video.png)](https://www.youtube.com/watch?v=fjbBpt8t38E)
+
+[Watch the demo video](https://www.youtube.com/watch?v=fjbBpt8t38E) (5 minutes)
 
 RossumWorks is an AI factory that runs on GitHub. The factory takes an issue, writes the change, builds it, reviews it, opens a pull request, and merges it if safe. It asks for your help when needed.
 
