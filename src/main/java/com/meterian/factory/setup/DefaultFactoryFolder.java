@@ -29,13 +29,20 @@ public final class DefaultFactoryFolder {
 
     /** The files by their path relative to the repository, with their text. */
     public static Map<String, String> files(RepositoryBuild build, String targetBranch) {
+        Map<String, String> files = new LinkedHashMap<>();
+        definitionFiles(build, targetBranch).forEach((path, text) -> files.put(FOLDER + path, text));
+        files.put(FOLDER + RUN_SCRIPT, readRunScript());
+        return files;
+    }
+
+    /** The files of the definition by their path relative to the definition folder. No run script. */
+    public static Map<String, String> definitionFiles(RepositoryBuild build, String targetBranch) {
         FactoryDefinition definition = BuiltInDefinition.load();
         Map<String, String> files = new LinkedHashMap<>();
-        files.put(FOLDER + MAIN_FILE, adaptMainFile(readResource(MAIN_FILE), build, targetBranch));
+        files.put(MAIN_FILE, adaptMainFile(readResource(MAIN_FILE), build, targetBranch));
         for (String promptPath : definition.prompts().keySet()) {
-            files.put(FOLDER + promptPath, readResource(promptPath));
+            files.put(promptPath, readResource(promptPath));
         }
-        files.put(FOLDER + RUN_SCRIPT, readRunScript());
         return files;
     }
 

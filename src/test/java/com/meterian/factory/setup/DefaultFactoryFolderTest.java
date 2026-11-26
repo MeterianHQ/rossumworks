@@ -44,6 +44,17 @@ class DefaultFactoryFolderTest {
     }
 
     @Test
+    void givesTheDefinitionFilesWithoutTheFolderAndWithoutTheRunScript() {
+        Map<String, String> repositoryFiles = DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main");
+
+        Map<String, String> definitionFiles = DefaultFactoryFolder.definitionFiles(RepositoryBuild.MAVEN, "main");
+
+        assertThat(definitionFiles).containsKey("factory.yaml").doesNotContainKey("run.sh");
+        assertThat(definitionFiles.get("factory.yaml")).isEqualTo(repositoryFiles.get(".factory/factory.yaml"));
+        assertThat(definitionFiles).hasSize(repositoryFiles.size() - 1);
+    }
+
+    @Test
     void addsTheRunScriptThatStartsTheLatestRelease() {
         String script = DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main").get(".factory/run.sh");
 
