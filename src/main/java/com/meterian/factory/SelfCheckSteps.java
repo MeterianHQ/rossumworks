@@ -14,15 +14,22 @@ import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.setup.DefaultFactoryFolder;
 import com.meterian.factory.setup.GeneratedFactoryFolder;
 import com.meterian.factory.setup.RepositoryBuild;
+import com.meterian.factory.state.ActionType;
+import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
+import com.meterian.factory.state.LivePlace;
+import com.meterian.factory.state.LiveSession;
+import com.meterian.factory.state.PendingPrompt;
 import com.meterian.factory.state.RiskLevel;
 import com.meterian.factory.state.StatusComment;
 import com.meterian.factory.state.Verdict;
+import com.meterian.factory.web.login.PasswordHash;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** The steps of the command self-check. Each step uses a part of the program that a native program can miss. */
 final class SelfCheckSteps {
@@ -31,6 +38,7 @@ final class SelfCheckSteps {
     private static final String CHECK_LOGIN = "self-check";
     private static final String UNKNOWN_VERSION = "unknown";
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final int CHECK_ITERATIONS = 1000;
 
     private SelfCheckSteps() {
     }
@@ -44,6 +52,7 @@ final class SelfCheckSteps {
                 new SelfCheckStep("events", SelfCheckSteps::verifyEvents),
                 new SelfCheckStep("live files", SelfCheckSteps::verifyLiveFiles),
                 new SelfCheckStep("gatekeeper", SelfCheckSteps::verifyGatekeeper),
+                new SelfCheckStep("password", folder -> verifyPassword()),
                 new SelfCheckStep("board", BoardSelfCheck::verifyBoard));
     }
 
@@ -59,9 +68,13 @@ final class SelfCheckSteps {
         GeneratedFactoryFolder.verifyLoads(DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main"));
     }
 
-    /** Jackson writes a record into the comment, and reads it again with reflection. */
+    /** Jackson writes a record into the comment, and reads it again with reflection. Each bound type has a value. */
     private static void verifyStatusComment() {
         IssueRecord record = IssueRecord.queued(1, "coding")
+                .withMove("coding", Optional.of(ActionType.CODING), "in-progress")
+                .withPendingPrompt(PendingPrompt.FIX)
+                .withLive(new LiveSession("0123abcd", Optional.of("https://claude.ai/code/session"), LivePlace.TERMINAL))
+                .withHandOver(HandOver.RELEASED)
                 .withReview("correctness", Verdict.APPROVE)
                 .withRisk(RiskLevel.LOW, true, List.of("A small change."))
                 .withNote("The self-check wrote this record.");
@@ -93,6 +106,18 @@ final class SelfCheckSteps {
         JsonNode event = MAPPER.readTree(lines.getFirst());
         if (!event.isObject() || event.isEmpty()) {
             throw new IllegalStateException("The event is not a JSON object: " + lines.getFirst());
+        }
+    }
+
+    /**
+     * The login of the board uses PBKDF2 and SecureRandom. A fast iteration count keeps the step short. Each call
+     * clears its password array, so each call gets a new array.
+     */
+    private static void verifyPassword() {
+        String password = "a password of the self-check";
+        PasswordHash hash = PasswordHash.parse(PasswordHash.create(password.toCharArray(), CHECK_ITERATIONS).format());
+        if (!hash.matches(password.toCharArray()) || hash.matches("another password".toCharArray())) {
+            throw new IllegalStateException("The password hash does not match its password.");
         }
     }
 

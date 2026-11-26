@@ -27,6 +27,7 @@ class RunScriptTest {
     private static final String X64_PROGRAM = "rossumworks-" + VERSION + "-linux-x64";
     private static final String ARM64_PROGRAM = "rossumworks-" + VERSION + "-linux-arm64";
     private static final String NATIVE_TEXT = "#!/bin/sh\necho \"native $*\"\n";
+    private static final String OLD_GLIBC_TEXT = "#!/bin/sh\necho \"GLIBC_2.34 not found\" >&2\nexit 1\n";
     private static final long TIMEOUT_SECONDS = 30;
 
     private static final String FAKE_CURL = """
@@ -149,6 +150,32 @@ class RunScriptTest {
         ScriptResult result = runScript("x86_64", Map.of("FAKE_SYSTEM", "Darwin"));
 
         assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run");
+        assertThat(result.exitCode()).isEqualTo(0);
+    }
+
+    @Test
+    void aNativeProgramThatDoesNotStartGivesTheJar() throws Exception {
+        publishAsset(X64_PROGRAM, OLD_GLIBC_TEXT);
+        publishAsset(X64_PROGRAM + ".sha256", computeSha256(OLD_GLIBC_TEXT) + "  " + X64_PROGRAM + "\n");
+        publishAsset(JAR, "jar");
+
+        ScriptResult result = runScript("x86_64");
+
+        assertThat(result.text()).contains("The native program " + nativeCache().resolve(X64_PROGRAM)
+                + " does not start on this machine. The script uses the jar.",
+                "java -jar " + jarCache().resolve(JAR) + " run").doesNotContain("GLIBC");
+        assertThat(result.exitCode()).isEqualTo(0);
+    }
+
+    @Test
+    void aCachedNativeProgramThatDoesNotStartGivesTheCachedJar() throws Exception {
+        writeExecutable(Files.createDirectories(nativeCache()).resolve(X64_PROGRAM), OLD_GLIBC_TEXT);
+        Files.writeString(Files.createDirectories(jarCache()).resolve("rossumworks-0.5.0.jar"), "jar");
+
+        ScriptResult result = runScript("x86_64", Map.of("FAKE_CURL_FAILS", "yes"));
+
+        assertThat(result.text()).contains("does not start on this machine",
+                "java -jar " + jarCache().resolve("rossumworks-0.5.0.jar") + " run");
         assertThat(result.exitCode()).isEqualTo(0);
     }
 

@@ -142,6 +142,11 @@ public final class CreateCommand {
         }
         RunningProgram program = runningProgram.get();
         String description = program.kind().description();
+        if (!program.hasCacheFileName()) {
+            output.println("The command does not copy the " + description + " " + program.path()
+                    + ": run.sh uses only the file names of a release.");
+            return;
+        }
         ProgramCache cache = new ProgramCache(program.cacheDirectory(home));
         try {
             cache.copy(program.path()).ifPresent(copy -> output.println(

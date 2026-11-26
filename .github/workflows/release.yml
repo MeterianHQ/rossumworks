@@ -5,31 +5,67 @@ on:
   push:
     tags: ['v*']
 
-permissions:
-  contents: write
+permissions: {}
 
 # A second push of the same tag waits for the first run.
 concurrency:
   group: release-${{ github.ref }}
 
 jobs:
+  # A short check before the native build, so that a wrong tag does not use the native runners.
+  check-tag:
+    name: Check the release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the JDK
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Check that the tag matches the version of pom.xml
+        run: |
+          version=$(./mvnw -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)
+          if [[ "$version" == *-SNAPSHOT ]]; then
+            echo "::error::The version $version is a SNAPSHOT. Make a release commit first. See CONTRIBUTING.md."
+            exit 1
+          fi
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME does not match the project version $version. Use the tag v$version."
+            exit 1
+          fi
+
   native:
     name: Build and test the native programs
+    needs: check-tag
     uses: ./.github/workflows/native.yml
     permissions:
       contents: read
 
   release:
     name: Build and publish the release
-    needs: native
+    needs: [check-tag, native]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 20
     steps:
+      # The build gets no token: gh reads GH_TOKEN only in the step that publishes.
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The release notes start at the previous tag, so the checkout needs all the tags.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install the JDK
         uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
@@ -41,8 +77,8 @@ jobs:
       - name: Build and test
         run: ./mvnw -B -ntp verify
 
-      # The jar and the native programs read the version from this resource, so the tag must be "v" + that version.
-      - name: Check that the tag matches the version
+      # The last check: the jar and the native programs read the version from this resource.
+      - name: Check that the tag matches the version of the build
         id: version
         run: |
           version=$(sed -n 's/^version=//p' target/classes/factory-version.properties)

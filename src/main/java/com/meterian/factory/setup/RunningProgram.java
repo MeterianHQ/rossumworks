@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * The program of this process: a jar, or a native program. Outside a jar, for example in a test, there is no
@@ -23,15 +24,18 @@ public record RunningProgram(Path path, Kind kind) {
 
     /** The two kinds of program that a release has. */
     public enum Kind {
-        JAR("jar", ".rossumworks/jars"),
-        NATIVE("native program", ".rossumworks/native");
+        JAR("jar", ".rossumworks/jars", "rossumworks-.+\\.jar"),
+        NATIVE("native program", ".rossumworks/native", "rossumworks-.+-linux-(x64|arm64)");
 
         private final String description;
         private final String cacheFolder;
+        private final Pattern cacheFileName;
 
-        Kind(String description, String cacheFolder) {
+        /** @param cacheFileName the file names that run.sh looks for in the cache folder */
+        Kind(String description, String cacheFolder, String cacheFileName) {
             this.description = description;
             this.cacheFolder = cacheFolder;
+            this.cacheFileName = Pattern.compile(cacheFileName);
         }
 
         public String description() {
@@ -53,6 +57,11 @@ public record RunningProgram(Path path, Kind kind) {
 
     public String startCommand() {
         return kind == Kind.JAR ? "java -jar " + path : path.toString();
+    }
+
+    /** A renamed program, for example rossumworks, has a name that run.sh does not look for. */
+    public boolean hasCacheFileName() {
+        return kind.cacheFileName.matcher(path.getFileName().toString()).matches();
     }
 
     /** The folder where run.sh looks for a program of this kind before it downloads a release. */

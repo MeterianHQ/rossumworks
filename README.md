@@ -65,7 +65,8 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
 ## Requirements
 
 - A Linux machine. The factory does not work on macOS or on Windows. It can probably work in WSL 2 on Windows, but nobody tested it.
-- For the jar only: a JDK 21 or later. The native programs for Linux x64 and Linux arm64 need no JDK.
+- For the jar only: a JDK 21 or later. The native programs for Linux x64 and Linux arm64 need no JDK, but they
+  need glibc 2.34 or later, for example Ubuntu 22.04, Debian 12, or RHEL 9.
 - `claude`, `git`, `setsid`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`.
 - A provider: a `claude` login with your Claude subscription, or an Anthropic API key. See
   [Providers](docs/providers.md).

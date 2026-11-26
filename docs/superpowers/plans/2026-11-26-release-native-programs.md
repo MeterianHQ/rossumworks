@@ -36,8 +36,9 @@
 | `events/FactoryVersion.java` | Reads the version from the resource. |
 | `setup/RunningProgram.java` (replaces `RunningJar.java`) | The jar or the native program of this process, and its start command. |
 | `setup/ProgramCache.java` (replaces `JarCache.java`) | The cache folder that `run.sh` reads. |
-| `check/SelfCheck.java` | Runs the checks in order, and prints one line for each check. |
-| `check/SelfCheckStep.java` | One named check. |
+| `SelfCheck.java` | Runs the checks in order, and prints one line for each check. |
+| `SelfCheckStep.java` | One named check. |
+| `SelfCheckSteps.java`, `BoardSelfCheck.java` | The steps. They are in the root package, because the board step uses `Main.SharedState` and `Main.createWebServer`. |
 | `Main.java` | The commands `--version` and `self-check`. |
 | `src/main/resources/META-INF/native-image/com.meterian/rossumworks/*` | The GraalVM configuration: resources, reflection, build arguments. |
 | `src/test/java/com/meterian/factory/nativeprogram/NativeProgramIT.java` | Starts the native program and checks its output. |
@@ -74,17 +75,20 @@
 
 ### Task 3: The command `self-check`
 
-**Files:** Create `check/SelfCheck.java`, `check/SelfCheckStep.java`. Modify `Main.java`. Test `check/SelfCheckTest.java`.
+**Files:** Create `SelfCheck.java`, `SelfCheckStep.java`, `SelfCheckSteps.java`, `BoardSelfCheck.java` in the root package. Modify `Main.java`. Test `SelfCheckTest.java`.
 
 - [ ] Write a failing test: `self-check` prints one `ok` line for each step and gives exit code 0.
 - [ ] Write a failing test: a step that throws prints `failed: <step>: <message>` and gives exit code 1. The next steps still run.
 - [ ] Write the steps:
   - `version`: the version is not `unknown`.
   - `definition`: `BuiltInDefinition.load()` and `DefaultFactoryFolder.files(RepositoryBuild.MAVEN, "main")` with `GeneratedFactoryFolder.verifyLoads`.
-  - `status comment`: render an `IssueRecord` with `StatusComment.render`, and read it again with `StatusComment.findRecord`.
+  - `status comment`: render an `IssueRecord` with `StatusComment.render`, and read it again with `StatusComment.findRecord`. Each type that Jackson binds has a value.
+  - `findings`: write and read a list of `Finding` with Jackson, as `pending-findings.json` does.
   - `events`: write a worker start event to a temporary `events.jsonl`, and read the line as JSON.
   - `live files`: `LiveFiles.install()` in a temporary folder.
-  - `board`: a configuration with `web` on `127.0.0.1:0` and no password. `Main.createWebServer`, start, GET `/`, `/page.js`, `/page.css`, `/events`. Each answer is 200. Stop.
+  - `gatekeeper`: `Gatekeeper.ensure()` in a temporary folder.
+  - `password`: make, format, read, and check a `PasswordHash`.
+  - `board`: a configuration with `web` on `127.0.0.1:0` and no password. `Main.createWebServer`, start, GET `/`, `/page.css`, `/page.js`, `/live.js`. Each answer is 200, and the page shows the card. `/events` stays open, so the step does not use it. Stop.
 - [ ] Each step uses a new temporary folder, and deletes it at the end.
 - [ ] Run `./mvnw verify`, and commit.
 
@@ -110,7 +114,7 @@
   - A wrong SHA-256 stops the script, and the file does not stay in the cache.
   - A release without a native program for the machine gives the jar and `java -jar`.
   - A failed download uses the newest cached native program, else the newest cached jar.
-- [ ] Change `run.sh`.
+- [ ] Change `run.sh`. Before it uses a native program, the script starts it once with `--version`. A native program needs glibc 2.34 or later, so on an older Linux the script uses the jar.
 - [ ] Run `./mvnw verify`, and commit.
 
 ### Task 6: The workflows
@@ -118,8 +122,8 @@
 **Files:** Create `.github/workflows/native.yml`, `.github/workflows/release.yml`.
 
 - [ ] `native.yml`: `workflow_dispatch` and `workflow_call`. A matrix of `linux-x64` on `ubuntu-latest` and `linux-arm64` on `ubuntu-24.04-arm`. It runs `./mvnw -B -ntp -Pnative verify`, and keeps `target/rossumworks` as the artifact `rossumworks-<platform>` for 7 days, with `overwrite: true`.
-- [ ] `release.yml`: start on a tag `v*`. Jobs `check-tag`, `native` (calls `native.yml`), and `release`. Use the same action pins as `build.yml`.
-- [ ] The job `release`: `./mvnw -B -ntp verify`, the version check from the manifest, the download of the native artifacts, the rename to `rossumworks-<version>-<platform>`, `sha256sum` for each file, the previous tag, and `gh release create` with the rerun logic of heidi-fix.
+- [ ] `release.yml`: start on a tag `v*`. Jobs `check-tag`, `native` (calls `native.yml`), and `release`. Use the same action pins as `build.yml`. `check-tag` reads the version of `pom.xml`.
+- [ ] The job `release`: `./mvnw -B -ntp verify`, the version check from `factory-version.properties` (not from the manifest, because the native program reads this file), the download of the native artifacts, the rename to `rossumworks-<version>-<platform>`, `sha256sum` for each file, the previous tag, and `gh release create` with the rerun logic of heidi-fix.
 - [ ] Run actionlint 1.7.12 on the workflows.
 - [ ] Commit.
 

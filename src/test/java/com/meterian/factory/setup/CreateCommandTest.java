@@ -274,6 +274,20 @@ class CreateCommandTest {
     }
 
     @Test
+    void doesNotCopyARenamedNativeProgram() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path program = Files.writeString(temporaryDirectory.resolve("rossumworks"), "program");
+        runningProgram = Optional.of(new RunningProgram(program, RunningProgram.Kind.NATIVE));
+
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(home.resolve(".rossumworks/native")).doesNotExist();
+        assertThat(outputText()).contains("The command does not copy the native program " + program
+                + ": run.sh uses only the file names of a release.");
+    }
+
+    @Test
     void aRunningNativeProgramGivesTheStartCommandWithItsPath() throws IOException {
         pushToMain(".factory/factory.yaml", "build: {}\n");
         Path program = Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0-linux-x64"), "program");

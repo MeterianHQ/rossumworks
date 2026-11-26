@@ -123,6 +123,16 @@ find_newest_cached_file() {
         | sort --version-sort | tail -n 1 | sed "s#^#${directory}/#" | grep .
 }
 
+# A native program needs glibc 2.34 or later. On an older Linux, it does not start, and the script uses the jar.
+verify_native_program_starts() {
+    local program="$1"
+    if "${program}" --version > /dev/null 2>&1; then
+        return 0
+    fi
+    echo "The native program ${program} does not start on this machine. The script uses the jar." >&2
+    return 1
+}
+
 # Prints the kind and the path of the program, on one line: "native <path>" or "jar <path>".
 select_program() {
     local release program status
@@ -133,7 +143,7 @@ select_program() {
             if [[ "${status}" -eq "${CHECKSUM_FAILURE}" ]]; then
                 return "${CHECKSUM_FAILURE}"
             fi
-            if [[ "${status}" -eq 0 ]]; then
+            if [[ "${status}" -eq 0 ]] && verify_native_program_starts "${program}"; then
                 echo "native ${program}"
                 return 0
             fi
@@ -145,7 +155,7 @@ select_program() {
     fi
     echo "Cannot download the latest release. The script uses the newest program in ${HOME}/.rossumworks." >&2
     if [[ -n "${platform}" ]] && program=$(find_newest_cached_file "${NATIVE_CACHE_DIRECTORY}" \
-            "rossumworks-.+-${platform}"); then
+            "rossumworks-.+-${platform}") && verify_native_program_starts "${program}"; then
         echo "native ${program}"
     elif program=$(find_newest_cached_file "${JAR_CACHE_DIRECTORY}" 'rossumworks-.+\.jar'); then
         echo "jar ${program}"

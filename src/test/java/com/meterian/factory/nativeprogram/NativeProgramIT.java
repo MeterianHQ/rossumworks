@@ -33,7 +33,7 @@ class NativeProgramIT {
     void passesTheSelfCheck() throws Exception {
         ProgramResult result = runProgram("self-check");
 
-        assertThat(result.text()).contains("ok: status comment", "ok: findings", "ok: board")
+        assertThat(result.text()).contains("ok: status comment", "ok: findings", "ok: password", "ok: board")
                 .endsWith("The self-check passed.\n").doesNotContain("failed:");
         assertThat(result.exitCode()).isEqualTo(0);
     }
