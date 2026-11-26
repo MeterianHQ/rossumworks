@@ -45,8 +45,8 @@ relative path. The hash is the SHA-256 of each relative path and each content, i
 bytes counts. Another type of entry, for example a symbolic link, makes the read fail with a message that names
 the entry.
 
-The version of a definition folder is `folder:` and the 64 hexadecimal characters of the hash. The prefix makes
-the difference from a commit clear in the status comment and in the log. The board and the notes show `folder:`
+The version of a definition folder is `local:` and the 64 hexadecimal characters of the hash. The prefix makes
+the difference from a commit clear in the status comment and in the log. The board and the notes show `local:`
 and the first 7 characters of the hash.
 
 ### 4.2 The copies
@@ -78,7 +78,7 @@ copy of the folder, and then rename it.
 ## 6. The record
 
 A new issue gets the current version, and its status comment keeps it. The Java field
-`IssueRecord.definitionCommit` becomes `definitionVersion`, because the value is a commit or a `folder:` version.
+`IssueRecord.definitionCommit` becomes `definitionVersion`, because the value is a commit or a `local:` version.
 The key in the status comment stays `definitionCommit`, so the old records and the factories of an older release
 read it.
 
@@ -87,8 +87,8 @@ The worker checks the value of the record before it uses it:
 | Mode of the worker | Value of the record | Check |
 |---|---|---|
 | Without `--definition` | A commit | It is on the default branch, the same as now. |
-| Without `--definition` | A `folder:` version | Refused. |
-| With `--definition` | A `folder:` version | Its copy exists. |
+| Without `--definition` | A `local:` version | Refused. |
+| With `--definition` | A `local:` version | Its copy exists. |
 | With `--definition` | A commit | Refused. |
 | Both | No value | The built-in definition, the same as now. |
 
@@ -131,7 +131,7 @@ repository, so this check protects nothing. But it costs nothing, and it keeps o
 |---|---|
 | `DefinitionLookup` | No change. |
 | `DefinitionSource` | New interface: `refresh()`, `current()`, `warning()`, and the methods of `DefinitionLookup`. `Worker`, `StartAgainRequests`, `IssueWorkflow`, and the web server use it in place of `DefinitionVersions`. |
-| `DefinitionVersions` | Renamed `GitDefinitionVersions`. It implements `DefinitionSource`. It refuses a `folder:` version. |
+| `DefinitionVersions` | Renamed `GitDefinitionVersions`. It implements `DefinitionSource`. It refuses a `local:` version. |
 | `FolderDefinitionVersions` | New. It implements `DefinitionSource` for a definition folder, with sections 4 to 6. |
 | `FolderHash` | New. It calculates the version of a folder (section 4.1). |
 | `DefinitionCopies` | New. It writes, finds, and lists the copies in `<work folder>/definitions`. |
@@ -149,7 +149,7 @@ repository, so this check protects nothing. But it costs nothing, and it keeps o
 - `FolderDefinitionVersions`: each row of the tables of sections 5 and 6, and the start with copies only.
 - `RunOptions`: the four valid forms, an option two times, an unknown option, an option without a value.
 - `CreateOptions` and `RepositorySetup`: each row of the tables of section 8.
-- `MainTest`: a worker with `--definition` takes an issue and records a `folder:` version.
+- `MainTest`: a worker with `--definition` takes an issue and records a `local:` version.
 
 ## 11. The documents
 
