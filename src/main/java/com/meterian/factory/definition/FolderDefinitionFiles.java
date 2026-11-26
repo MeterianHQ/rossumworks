@@ -27,8 +27,8 @@ public final class FolderDefinitionFiles implements DefinitionFiles {
             verifyFileIsInsideFolder(relativePath, file);
             return Optional.of(Files.readString(file, StandardCharsets.UTF_8));
         } catch (IOException exception) {
-            throw new DefinitionException("Cannot read the file " + relativePath + " of the folder " + folder
-                    + ": " + exception.getMessage(), exception);
+            throw new UnreadableDefinitionFileException("Cannot read the file " + relativePath + " of the folder "
+                    + folder + ": " + exception.getMessage(), exception);
         }
     }
 

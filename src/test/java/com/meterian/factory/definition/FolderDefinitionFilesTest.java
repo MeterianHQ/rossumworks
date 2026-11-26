@@ -57,4 +57,15 @@ class FolderDefinitionFilesTest {
 
         assertThatThrownBy(() -> files.read("/etc/passwd")).isInstanceOf(DefinitionException.class);
     }
+
+    @Test
+    void reportsAFileThatCannotBeRead() throws IOException {
+        Files.write(temporaryDirectory.resolve("prompt.md"), new byte[] {(byte) 0xff});
+        FolderDefinitionFiles files = new FolderDefinitionFiles(temporaryDirectory);
+
+        assertThatThrownBy(() -> files.read("prompt.md"))
+                .isInstanceOf(UnreadableDefinitionFileException.class)
+                .hasMessageStartingWith("Cannot read the file prompt.md of the folder ")
+                .hasCauseInstanceOf(IOException.class);
+    }
 }

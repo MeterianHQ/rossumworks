@@ -24,7 +24,7 @@ public final class FolderDefinitionVersions implements DefinitionSource {
     private final Map<String, IllegalStateException> failuresByVersion = new ConcurrentHashMap<>();
     private volatile Optional<DefinitionVersion> current = Optional.empty();
     private volatile Optional<String> warning = Optional.empty();
-    /** The hash of the folder at the last refresh. The same hash needs no new read. */
+    /** The hash of the content that the last refresh loaded. The same hash needs no new read. */
     private String lastFolderHash;
 
     public FolderDefinitionVersions(Path folder, DefinitionCopies copies, FactoryDefinition builtIn) {
@@ -41,43 +41,70 @@ public final class FolderDefinitionVersions implements DefinitionSource {
             if (folderHash.equals(lastFolderHash)) {
                 return;
             }
-            loadNewContent();
-            lastFolderHash = folderHash;
+            lastFolderHash = loadNewContent();
         } catch (UnreadableCopiesException exception) {
+            lastFolderHash = null;
             warnAbout("The definition folder " + folder + " does not load, and the definition copies in "
                     + copies.copiesFolder() + " cannot be listed: " + describeReason(exception) + ". ");
         } catch (IOException exception) {
-            warnAbout("The definition folder " + folder + " cannot be read: " + describeReason(exception) + ". ");
+            lastFolderHash = null;
+            takeNewestCopyAfterReadFailure();
+            warnAbout("The definition folder " + folder + " cannot be read or copied: " + describeReason(exception)
+                    + ". ");
         }
     }
 
-    /** The temporary copy goes in all cases: after a keep, it is already a definition copy. */
-    private void loadNewContent() throws IOException {
+    /** The worker deletes the temporary copy in all cases. After a keep, the copy is already a definition copy. */
+    private String loadNewContent() throws IOException {
         Path temporaryCopy = copies.copyToTemporaryFolder(folder);
         try {
-            loadTemporaryCopy(temporaryCopy);
+            return loadTemporaryCopy(temporaryCopy);
         } finally {
             copies.discard(temporaryCopy);
         }
     }
 
-    /** The hash and the load use the same temporary copy, so the version always matches its content. */
-    private void loadTemporaryCopy(Path temporaryCopy) throws IOException {
+    /**
+     * The hash and the load use the same temporary copy, so the version always matches its content.
+     *
+     * @return the hash of the temporary copy
+     * @throws IOException when a file of the copy cannot be read, so the next refresh reads the folder again
+     */
+    private String loadTemporaryCopy(Path temporaryCopy) throws IOException {
         String hash = FolderHash.calculate(temporaryCopy);
         FactoryDefinition definition;
         try {
             definition = DefinitionLoader.load(new FolderDefinitionFiles(temporaryCopy));
         } catch (DefinitionException exception) {
+            if (isReadFailure(exception)) {
+                throw new IOException(exception.getMessage(), exception);
+            }
             takeNewestCopyWhenNoVersionIsCurrent();
             warnAbout("The definition folder " + folder + " does not load: "
                     + DefinitionVersionText.describeReason(exception.getMessage()) + ". ");
-            return;
+            return hash;
         }
         copies.keep(temporaryCopy, hash);
         String version = LocalVersion.of(hash);
         definitionsByVersion.put(version, definition);
         current = Optional.of(new DefinitionVersion(version, definition));
         warning = Optional.empty();
+        return hash;
+    }
+
+    /** A failure of the read can go away, so the factory reads the files again later. */
+    private static boolean isReadFailure(DefinitionException exception) {
+        return exception instanceof UnreadableDefinitionFileException;
+    }
+
+    /** An error in the definition folder does not stop the worker: at the start, it takes the newest copy. */
+    private void takeNewestCopyAfterReadFailure() {
+        try {
+            takeNewestCopyWhenNoVersionIsCurrent();
+        } catch (UnreadableCopiesException exception) {
+            LOGGER.log(System.Logger.Level.WARNING, "The definition copies in {0} cannot be listed: {1}",
+                    copies.copiesFolder(), exception.getMessage());
+        }
     }
 
     /** After a start, the folder can fail while an older definition copy loads. */
@@ -169,7 +196,9 @@ public final class FolderDefinitionVersions implements DefinitionSource {
             IllegalStateException failure = new IllegalStateException("The definition copy "
                     + DefinitionVersionText.shorten(version) + " does not load: "
                     + DefinitionVersionText.describeReason(exception.getMessage()), exception);
-            failuresByVersion.put(version, failure);
+            if (!isReadFailure(exception)) {
+                failuresByVersion.put(version, failure);
+            }
             throw failure;
         }
     }
