@@ -187,7 +187,7 @@ public final class GitDefinitionVersions implements DefinitionSource {
             definitionsByCommit.put(commit, definition);
             return definition;
         } catch (DefinitionException exception) {
-            String reason = describeReason(exception.getMessage());
+            String reason = DefinitionVersionText.describeReason(exception.getMessage());
             if (exception.getCause() instanceof GitException) {
                 throw new UnreadableCommitException(reason, exception);
             }
@@ -226,11 +226,5 @@ public final class GitDefinitionVersions implements DefinitionSource {
                                 + "or run java -jar <path of the jar> create. The factory takes no new issue."
                         : "The default branch has no .factory that loads: " + reason
                                 + ". The factory takes no new issue.");
-    }
-
-    /** One line without a final period, so that the reason fits in the sentence of the warning. */
-    private static String describeReason(String message) {
-        String trimmed = message.replaceAll("\\s*\\R\\s*", " ").strip();
-        return trimmed.endsWith(".") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
     }
 }

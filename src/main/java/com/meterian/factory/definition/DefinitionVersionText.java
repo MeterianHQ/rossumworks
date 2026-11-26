@@ -17,6 +17,12 @@ public final class DefinitionVersionText {
         return shortenText(version);
     }
 
+    /** One line without a final period, so that the reason fits in the sentence of a warning. */
+    public static String describeReason(String message) {
+        String trimmed = message.replaceAll("\\s*\\R\\s*", " ").strip();
+        return trimmed.endsWith(".") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
+    }
+
     private static String shortenText(String text) {
         return text.length() <= SHORT_LENGTH ? text : text.substring(0, SHORT_LENGTH);
     }
