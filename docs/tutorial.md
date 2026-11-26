@@ -71,9 +71,11 @@ reviews start. The sample uses `./mvnw verify`, which is the default answer.
 **Warning: an empty password gives a board without a login.** Each program on your machine can then use the board. The
 board is the web page of the factory.
 
-1. Download `rossumworks-<version>.jar` from the
-   [releases](https://github.com/MeterianHQ/rossumworks/releases).
-2. Run `java -jar <path of the jar> create` in the clone.
+1. Download the native program of your machine from the
+   [releases](https://github.com/MeterianHQ/rossumworks/releases), for example
+   `rossumworks-<version>-linux-x64`, and make it executable. On another machine, download
+   `rossumworks-<version>.jar`.
+2. Run `<path of the native program> create` in the clone. With the jar, run `java -jar <path of the jar> create`.
 3. Push Enter at each question to take the default answer. For an API key, do steps 4 and 5 also.
 4. For an API key, type `anthropic-api-key` at the question about the provider.
 5. For an API key, type an amount at the question about the daily budget. The daily budget is the maximum cost of
@@ -353,4 +355,4 @@ same time.
 3. Delete the folder of the clone.
 4. Delete the work folder `~/.rossumworks/<owner>-<name>`. Use the owner and the name of your repository.
 
-The folder `~/.rossumworks/jars` stays. It holds the jar files of the factory.
+The folders `~/.rossumworks/native` and `~/.rossumworks/jars` stay. They hold the programs of the factory.

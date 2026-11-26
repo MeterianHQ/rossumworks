@@ -21,10 +21,11 @@ public record CreateOptions(
         Optional<ProviderName> provider,
         Optional<BigDecimal> dailyBudgetUsd) {
 
-    public static final String USAGE = "Usage: java -jar rossumworks.jar create [--repository owner/name]\n"
+    public static final String USAGE = "Usage: rossumworks create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
-            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>] [--yes]";
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>] [--yes]\n"
+            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
         Optional<RepositoryName> repository = Optional.empty();

@@ -12,6 +12,7 @@ import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.provider.ApiKeyProvider;
@@ -57,11 +58,14 @@ class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
-    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
-            + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
+    private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
+            + "       rossumworks hash-password\n"
+            + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--yes]";
+            + "[--yes]\n"
+            + "       rossumworks self-check\n"
+            + "       rossumworks --version\n"
+            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
 
     @TempDir
     Path temporaryDirectory;
@@ -490,6 +494,21 @@ class MainTest {
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Run hash-password in a terminal.");
+    }
+
+    @Test
+    void theVersionCommandShowsTheVersion() {
+        int exitCode = Main.showVersion(output);
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(outputText()).isEqualTo("RossumWorks " + FactoryVersion.current() + System.lineSeparator());
+    }
+
+    @Test
+    void theVersionCommandIsSelectedByItsName() {
+        assertThat(Main.isVersionCommand(new String[] {"--version"})).isTrue();
+        assertThat(Main.isVersionCommand(new String[] {"--version", "x"})).isFalse();
+        assertThat(Main.isVersionCommand(new String[] {"run"})).isFalse();
     }
 
     @Test

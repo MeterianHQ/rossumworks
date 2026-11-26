@@ -33,8 +33,8 @@ public final class WorkerFileFinder {
                         + "Run the command in a clone of the repository, or give the file with --config <file>."));
         Path workerFile = WorkerSettings.configurationFileIn(WorkerSettings.defaultWorkDirectory(home, repository));
         if (!Files.exists(workerFile)) {
-            throw new StartupException("The file " + workerFile + " does not exist. Run java -jar "
-                    + CreateCommand.findJarPath() + " create in this folder.");
+            throw new StartupException("The file " + workerFile + " does not exist. Run "
+                    + RunningProgram.findStartCommand() + " create in this folder.");
         }
         return workerFile;
     }

@@ -27,7 +27,7 @@ loader refuses a path that starts with `/` or that has the segment `..`.
 
 The jar of the factory contains a complete example:
 [`src/main/resources/factory/`](../src/main/resources/factory/). Section 15 shows its `factory.yaml`. To start,
-run the command `create` of the jar (see [Getting started](getting-started.md)). It writes this folder as `.factory` with the
+run the command `create` of the factory (see [Getting started](getting-started.md)). It writes this folder as `.factory` with the
 build command of your repository, adds `run.sh`, and opens the PR `factory/setup`. The loader does not read
 `run.sh`. Then change the files as you need.
 

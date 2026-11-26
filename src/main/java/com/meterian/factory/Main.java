@@ -18,6 +18,7 @@ import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
@@ -33,7 +34,7 @@ import com.meterian.factory.provider.Provider;
 import com.meterian.factory.provider.Providers;
 import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
-import com.meterian.factory.setup.RunningJar;
+import com.meterian.factory.setup.RunningProgram;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
@@ -87,11 +88,14 @@ public final class Main {
     public static final int EXIT_FAILURE = 1;
     static final int EXIT_CREDENTIAL_MISMATCH = 2;
 
-    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
-            + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
+    private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
+            + "       rossumworks hash-password\n"
+            + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--yes]";
+            + "[--yes]\n"
+            + "       rossumworks self-check\n"
+            + "       rossumworks --version\n"
+            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);
@@ -146,6 +150,12 @@ public final class Main {
     }
 
     public static void main(String[] arguments) {
+        if (isVersionCommand(arguments)) {
+            System.exit(showVersion(System.out));
+        }
+        if (isSelfCheckCommand(arguments)) {
+            System.exit(SelfCheck.withAllSteps(System.out).run());
+        }
         if (isHashPasswordCommand(arguments)) {
             System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
         }
@@ -153,6 +163,19 @@ public final class Main {
             System.exit(create(Arrays.asList(arguments).subList(1, arguments.length), System.out, System.err));
         }
         System.exit(run(arguments, System.getenv(), System.err));
+    }
+
+    static boolean isVersionCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("--version");
+    }
+
+    static int showVersion(PrintStream output) {
+        output.println("RossumWorks " + FactoryVersion.current());
+        return EXIT_SUCCESS;
+    }
+
+    static boolean isSelfCheckCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("self-check");
     }
 
     static boolean isHashPasswordCommand(String[] arguments) {
@@ -168,7 +191,7 @@ public final class Main {
         CreateCommand command = new CreateCommand(new SystemSetupConsole(), System.getenv(), output, errors,
                 StartChecks::readTokenFromGh, new ProcessGit(),
                 (repository, token) -> new HttpGitHubClient(GITHUB_API, token, repository, createHttpClient()),
-                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")), RunningJar.find());
+                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")), RunningProgram.find());
         return command.run(arguments);
     }
 
