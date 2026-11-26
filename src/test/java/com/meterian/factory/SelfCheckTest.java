@@ -25,7 +25,7 @@ class SelfCheckTest {
         int exitCode = SelfCheck.withAllSteps(output).run();
 
         assertThat(outputText()).isEqualTo(String.join(System.lineSeparator(),
-                "ok: version", "ok: definition", "ok: status comment", "ok: events", "ok: live files",
+                "ok: version", "ok: definition", "ok: status comment", "ok: findings", "ok: events", "ok: live files",
                 "ok: gatekeeper", "ok: board", "The self-check passed.") + System.lineSeparator());
         assertThat(exitCode).isEqualTo(0);
     }

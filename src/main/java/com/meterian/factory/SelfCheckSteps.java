@@ -1,7 +1,8 @@
 package com.meterian.factory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.events.EventsFile;
@@ -9,6 +10,7 @@ import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.setup.DefaultFactoryFolder;
 import com.meterian.factory.setup.GeneratedFactoryFolder;
 import com.meterian.factory.setup.RepositoryBuild;
@@ -28,6 +30,7 @@ final class SelfCheckSteps {
     static final String CHECK_REPOSITORY = "owner/project";
     private static final String CHECK_LOGIN = "self-check";
     private static final String UNKNOWN_VERSION = "unknown";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private SelfCheckSteps() {
     }
@@ -37,6 +40,7 @@ final class SelfCheckSteps {
                 new SelfCheckStep("version", folder -> verifyVersion()),
                 new SelfCheckStep("definition", folder -> verifyDefinition()),
                 new SelfCheckStep("status comment", folder -> verifyStatusComment()),
+                new SelfCheckStep("findings", folder -> verifyFindings()),
                 new SelfCheckStep("events", SelfCheckSteps::verifyEvents),
                 new SelfCheckStep("live files", SelfCheckSteps::verifyLiveFiles),
                 new SelfCheckStep("gatekeeper", SelfCheckSteps::verifyGatekeeper),
@@ -69,6 +73,16 @@ final class SelfCheckSteps {
         }
     }
 
+    /** The worker keeps the findings of a review in pending-findings.json with the same Jackson binding. */
+    private static void verifyFindings() throws Exception {
+        List<Finding> findings = List.of(new Finding("A title", "A detail."));
+        List<Finding> readFindings = MAPPER.readValue(MAPPER.writeValueAsString(findings), new TypeReference<>() {
+        });
+        if (!readFindings.equals(findings)) {
+            throw new IllegalStateException("The findings changed: " + readFindings);
+        }
+    }
+
     private static void verifyEvents(Path folder) throws Exception {
         EventsFile eventsFile = EventsFile.inWorkFolder(folder);
         new WorkerEvents(eventsFile, Clock.systemUTC()).writeWorkerStart(FactoryVersion.current(), CHECK_REPOSITORY);
@@ -76,7 +90,7 @@ final class SelfCheckSteps {
         if (lines.size() != 1) {
             throw new IllegalStateException("The events file has " + lines.size() + " lines, not 1.");
         }
-        JsonNode event = JsonMapper.builder().build().readTree(lines.getFirst());
+        JsonNode event = MAPPER.readTree(lines.getFirst());
         if (!event.isObject() || event.isEmpty()) {
             throw new IllegalStateException("The event is not a JSON object: " + lines.getFirst());
         }

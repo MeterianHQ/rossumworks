@@ -20,6 +20,9 @@
         <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <maven-failsafe-plugin.version>3.6.1</maven-failsafe-plugin.version>
+        <!-- The same version as heidi-fix: it works with GraalVM CE 21. -->
+        <native-maven-plugin.version>0.10.6</native-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -132,4 +135,56 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Builds the native program target/rossumworks with GraalVM, and runs the native tests *IT on it. -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native-maven-plugin.version}</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native-program</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <imageName>rossumworks</imageName>
+                            <mainClass>com.meterian.factory.Main</mainClass>
+                            <!-- The public GraalVM metadata of the common libraries, for example Jackson. -->
+                            <metadataRepository>
+                                <enabled>true</enabled>
+                            </metadataRepository>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${maven-failsafe-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <native.program>${project.build.directory}/rossumworks</native.program>
+                                <project.version>${project.version}</project.version>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
