@@ -93,6 +93,7 @@ public final class Main {
             + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
             + "[--yes]\n"
+            + "       rossumworks self-check\n"
             + "       rossumworks --version\n"
             + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
     private static final URI GITHUB_API = URI.create("https://api.github.com");
@@ -152,6 +153,9 @@ public final class Main {
         if (isVersionCommand(arguments)) {
             System.exit(showVersion(System.out));
         }
+        if (isSelfCheckCommand(arguments)) {
+            System.exit(SelfCheck.withAllSteps(System.out).run());
+        }
         if (isHashPasswordCommand(arguments)) {
             System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
         }
@@ -168,6 +172,10 @@ public final class Main {
     static int showVersion(PrintStream output) {
         output.println("RossumWorks " + FactoryVersion.current());
         return EXIT_SUCCESS;
+    }
+
+    static boolean isSelfCheckCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("self-check");
     }
 
     static boolean isHashPasswordCommand(String[] arguments) {

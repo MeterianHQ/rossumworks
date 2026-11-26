@@ -63,6 +63,7 @@ class MainTest {
             + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
             + "[--yes]\n"
+            + "       rossumworks self-check\n"
             + "       rossumworks --version\n"
             + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
 
