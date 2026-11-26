@@ -24,7 +24,6 @@ public final class CreateCommand {
     static final List<String> REQUIRED_PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
     private static final String JAVA_HOME_VARIABLE = "JAVA_HOME";
     private static final String CLONE_FOLDER = "repository";
-    private static final String DEFAULT_JAR = "rossumworks.jar";
     private static final String RUN_SCRIPT = ".factory/run.sh";
 
     /** Where the GitHub of a repository is. A test gives a fake client and a local repository. */
@@ -46,19 +45,19 @@ public final class CreateCommand {
     private final GitHubConnector gitHubConnector;
     private final Path currentFolder;
     private final Path home;
-    private final Optional<Path> runningJar;
+    private final Optional<RunningProgram> runningProgram;
 
     /**
      * @param ghToken         the token of gh, when the environment has no FACTORY_GITHUB_TOKEN
      * @param gitHubConnector the client and the clone URL of the repository on GitHub
      * @param currentFolder   the folder whose remote origin gives the default repository
-     * @param home            the folder of the default work folder and of the jar cache
-     * @param runningJar      the jar of this process, that create copies into the jar cache
+     * @param home            the folder of the default work folder and of the program caches
+     * @param runningProgram  the program of this process, that create copies into its cache
      */
     public CreateCommand(SetupConsole console, Map<String, String> environment, PrintStream output,
                          PrintStream errors, StartChecks.TokenSource ghToken, Git git,
                          GitHubConnector gitHubConnector, Path currentFolder, Path home,
-                         Optional<Path> runningJar) {
+                         Optional<RunningProgram> runningProgram) {
         this.console = console;
         this.environment = environment;
         this.output = output;
@@ -68,7 +67,7 @@ public final class CreateCommand {
         this.gitHubConnector = gitHubConnector;
         this.currentFolder = currentFolder;
         this.home = home;
-        this.runningJar = runningJar;
+        this.runningProgram = runningProgram;
     }
 
     public int run(List<String> arguments) {
@@ -118,7 +117,7 @@ public final class CreateCommand {
         writeWorkerFile(settings);
         PullRequest pullRequest = publishOrDeleteWorkerFile(setup, clone, settings, facts, files);
         Optional<String> assignmentProblem = setup.assignPullRequest(pullRequest, owner);
-        copyRunningJarToCache();
+        copyRunningProgramToCache();
         showResult(settings, files, Optional.of(pullRequest), assignmentProblem);
         return Main.EXIT_SUCCESS;
     }
@@ -131,21 +130,25 @@ public final class CreateCommand {
             return Main.EXIT_SUCCESS;
         }
         writeWorkerFile(settings);
-        copyRunningJarToCache();
+        copyRunningProgramToCache();
         showResult(settings, Map.of(), Optional.empty(), Optional.empty());
         return Main.EXIT_SUCCESS;
     }
 
     /** The run script then needs no download. A failed copy only gives the problem: the download still works. */
-    private void copyRunningJarToCache() {
-        if (runningJar.isEmpty()) {
+    private void copyRunningProgramToCache() {
+        if (runningProgram.isEmpty()) {
             return;
         }
-        JarCache cache = new JarCache(home);
+        RunningProgram program = runningProgram.get();
+        String description = program.kind().description();
+        ProgramCache cache = new ProgramCache(program.cacheDirectory(home));
         try {
-            cache.copy(runningJar.get()).ifPresent(copy -> output.println("The command copied the jar to " + copy + "."));
+            cache.copy(program.path()).ifPresent(copy -> output.println(
+                    "The command copied the " + description + " to " + copy + "."));
         } catch (IOException exception) {
-            output.println("Cannot copy the jar to " + cache.directory() + ": " + exception.getMessage());
+            output.println("Cannot copy the " + description + " to " + cache.directory() + ": "
+                    + exception.getMessage());
         }
     }
 
@@ -232,9 +235,9 @@ public final class CreateCommand {
         showStartCommand(settings, pullRequest.isPresent());
     }
 
-    /** After the merge, the run script of .factory starts the latest release. Without a PR, the running jar. */
+    /** After the merge, the run script of .factory starts the latest release. Without a PR, the running program. */
     private void showStartCommand(WorkerSettings settings, boolean pullRequestAddsRunScript) {
-        String program = pullRequestAddsRunScript ? RUN_SCRIPT : "java -jar " + findJarPath() + " run";
+        String program = pullRequestAddsRunScript ? RUN_SCRIPT : findStartCommand() + " run";
         output.println("Start the worker with this command, in a clone of " + settings.repository().fullName() + ":");
         output.println("  " + program + findConfigurationOption(settings));
         if (pullRequestAddsRunScript) {
@@ -252,8 +255,7 @@ public final class CreateCommand {
         return " --config " + settings.configurationFile();
     }
 
-    /** The path of the running jar. Outside a jar, for example in a test, the name of the jar. */
-    public static String findJarPath() {
-        return RunningJar.find().map(Path::toString).orElse(DEFAULT_JAR);
+    private String findStartCommand() {
+        return runningProgram.map(RunningProgram::startCommand).orElse(RunningProgram.DEFAULT_START_COMMAND);
     }
 }

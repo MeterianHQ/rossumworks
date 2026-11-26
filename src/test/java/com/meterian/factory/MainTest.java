@@ -58,11 +58,13 @@ class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
 
-    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>]\n"
-            + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name] [--work-directory <path>] "
+    private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
+            + "       rossumworks hash-password\n"
+            + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
             + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--yes]";
+            + "[--yes]\n"
+            + "       rossumworks --version\n"
+            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
 
     @TempDir
     Path temporaryDirectory;
