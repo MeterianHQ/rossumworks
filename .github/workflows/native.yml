@@ -1,0 +1,64 @@
+name: Native program
+
+# Builds the native program of RossumWorks and tests it on each platform.
+# release.yml calls it before a release. Run it by hand before a tag push.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Build and test on ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # setup-java gives the Maven cache.
+      - name: Install the JDK
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # setup-graalvm comes second, so JAVA_HOME points to GraalVM.
+      - name: Install GraalVM
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
+        with:
+          java-version: '21'
+          distribution: graalvm-community
+
+      # The native tests start target/rossumworks, and run its self-check.
+      - name: Build the native program and run the native tests
+        run: ./mvnw -B -ntp -Pnative verify
+
+      # overwrite permits "Re-run failed jobs": the rerun uploads this artifact a second time.
+      - name: Keep the native program
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rossumworks-${{ matrix.platform }}
+          path: target/rossumworks
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Keep the test reports of a failed run
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-test-reports-${{ matrix.platform }}
+          path: target/*-reports/
+          retention-days: 7
