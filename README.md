@@ -130,6 +130,7 @@ the same time, and the others wait in Queued. See [Configuration](docs/configura
 | [Events](docs/events.md) | watch the worker from a script or a monitoring agent |
 | [Factory definition](docs/factory-definition.md) | change the workflow, the prompts, the build, or the target branch of the merges |
 | [Legal considerations](docs/legal-considerations.md) | know the terms of Anthropic about the providers |
+| [FAQ](docs/faq.md) | find the answer to a frequent question |
 | [Glossary](docs/glossary.md) | find the meaning of a term in these documents |
 
 ## Contributing
