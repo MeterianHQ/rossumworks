@@ -6,6 +6,7 @@ import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meterian.factory.Main;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.RepositoryName;
@@ -384,6 +385,78 @@ class CreateCommandTest {
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Give --repository owner/name.");
+    }
+
+    @Test
+    void writesTheDefinitionFolderAndOpensNoPullRequest() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
+        assertThat(folder.resolve("run.sh")).doesNotExist();
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(branchesOfGitHub()).doesNotContain("factory/setup");
+        assertThat(outputText()).contains("java -jar ").contains(" run --config " + workerFile())
+                .contains(" --definition " + folder.toAbsolutePath());
+    }
+
+    @Test
+    void writesTheDefinitionFolderAndPushesNothingWhenTheRepositoryHasAFactory() {
+        pushToMain(".factory/factory.yaml", "build: {}\n");
+        String branchesBefore = branchesOfGitHub();
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--build-command", "make test", "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
+        assertThat(branchesOfGitHub()).isEqualTo(branchesBefore);
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(outputText()).doesNotContain("The repository already has a .factory.");
+    }
+
+    @Test
+    void keepsADefinitionFolderWithTheMainFile() throws IOException {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("my-factory"));
+        Files.writeString(folder.resolve("factory.yaml"), "mine");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).hasContent("mine");
+        assertThat(workerFile()).exists();
+    }
+
+    @Test
+    void stopsOnADefinitionFolderWithOtherFiles() throws IOException {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("my-factory"));
+        Files.writeString(folder.resolve("notes.md"), "notes");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("has files, but no factory.yaml");
+        assertThat(workerFile()).doesNotExist();
+    }
+
+    @Test
+    void ignoresAnIncompleteFactoryFolderOfTheRepositoryWithADefinitionFolder() {
+        pushToMain("package.json", "{}\n");
+        pushToMain(".factory/notes.md", "notes\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
     }
 
     private int runCreate(SetupConsole console, String... arguments) {

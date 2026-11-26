@@ -246,6 +246,14 @@ class SetupQuestionsTest {
     }
 
     @Test
+    void theConfirmationOfTheDefinitionFolderAsksNothingAboutAPullRequest() throws SetupException {
+        FakeSetupConsole console = FakeSetupConsole.answering("n");
+
+        assertFalse(questions(console, Map.of(), false).confirmDefinitionFolder(options(), "The summary"));
+        assertEquals(List.of("Write the files? [y/n]"), console.questions);
+    }
+
+    @Test
     void theEndOfInputStopsTheConfirmation() {
         FakeSetupConsole console = FakeSetupConsole.endingInput(List.of(""), List.of());
 

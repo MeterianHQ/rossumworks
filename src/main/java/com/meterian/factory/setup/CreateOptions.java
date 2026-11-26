@@ -19,12 +19,14 @@ public record CreateOptions(
         Optional<String> buildCommand,
         boolean yes,
         Optional<ProviderName> provider,
-        Optional<BigDecimal> dailyBudgetUsd) {
+        Optional<BigDecimal> dailyBudgetUsd,
+        Optional<Path> definitionFolder) {
 
     public static final String USAGE = "Usage: java -jar rossumworks.jar create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
-            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>] [--yes]";
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
+            + "       [--definition <folder>] [--yes]";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
         Optional<RepositoryName> repository = Optional.empty();
@@ -36,6 +38,7 @@ public record CreateOptions(
         boolean yes = false;
         Optional<ProviderName> provider = Optional.empty();
         Optional<BigDecimal> dailyBudgetUsd = Optional.empty();
+        Optional<Path> definitionFolder = Optional.empty();
         for (int index = 0; index < arguments.size(); index++) {
             String parameter = arguments.get(index);
             switch (parameter) {
@@ -49,6 +52,7 @@ public record CreateOptions(
                 case "--provider" -> provider = Optional.of(parseProvider(readValue(arguments, ++index, parameter)));
                 case "--daily-budget-usd" ->
                         dailyBudgetUsd = Optional.of(parseDailyBudget(readValue(arguments, ++index, parameter)));
+                case "--definition" -> definitionFolder = Optional.of(Path.of(readValue(arguments, ++index, parameter)));
                 default -> throw new SetupException("Unknown parameter " + parameter + ".\n" + USAGE);
             }
         }
@@ -56,7 +60,7 @@ public record CreateOptions(
             throw new SetupException("Give --web or --no-web, not both.\n" + USAGE);
         }
         return new CreateOptions(repository, workDirectory, web, noWeb, terminalCommand, buildCommand, yes,
-                provider, dailyBudgetUsd);
+                provider, dailyBudgetUsd, definitionFolder);
     }
 
     private static String readValue(List<String> arguments, int index, String parameter) throws SetupException {

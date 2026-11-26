@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** The command create: it asks the questions, writes worker.yaml, and opens the PR factory/setup. */
+/** The command create: it asks the questions, writes worker.yaml, and opens the PR factory/setup or writes the definition folder. */
 public final class CreateCommand {
 
     static final List<String> REQUIRED_PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
@@ -97,8 +97,15 @@ public final class CreateCommand {
         RepositoryFacts facts = setup.read(clone);
         WorkerSettings settings = new WorkerSettings(repository, workDirectory, web, terminalCommand,
                 findJavaHome(facts), provider);
+        if (options.definitionFolder().isPresent()) {
+            DefinitionFolderSetup definitionFolder =
+                    new DefinitionFolderSetup(options.definitionFolder().get().toAbsolutePath());
+            return createWithDefinitionFolder(options, questions, settings, facts, definitionFolder);
+        }
+        facts.verifyFactoryFolderIsComplete();
         if (facts.hasFactory()) {
-            return writeOnlyTheWorkerFile(options, questions, settings);
+            output.println("The repository already has a .factory. The command opens no pull request.");
+            return writeOnlyTheWorkerFile(options, questions, settings, Optional.empty());
         }
         Optional<PullRequest> openSetup = setup.findOpenSetup();
         if (openSetup.isPresent()) {
@@ -123,17 +130,55 @@ public final class CreateCommand {
         return Main.EXIT_SUCCESS;
     }
 
-    private int writeOnlyTheWorkerFile(CreateOptions options, SetupQuestions questions, WorkerSettings settings)
-            throws SetupException {
-        output.println("The repository already has a .factory. The command opens no pull request.");
+    private int writeOnlyTheWorkerFile(CreateOptions options, SetupQuestions questions, WorkerSettings settings,
+                                       Optional<Path> definitionFolder) throws SetupException {
         if (!questions.confirmWorkerFile(options, SetupSummary.describe(settings))) {
             showNothingWritten();
             return Main.EXIT_SUCCESS;
         }
         writeWorkerFile(settings);
         copyRunningJarToCache();
-        showResult(settings, Map.of(), Optional.empty(), Optional.empty());
+        if (definitionFolder.isPresent()) {
+            output.println("The command wrote the file " + settings.configurationFile() + ".");
+            showStartCommandWithDefinitionFolder(settings, definitionFolder.get());
+        } else {
+            showResult(settings, Map.of(), Optional.empty(), Optional.empty());
+        }
         return Main.EXIT_SUCCESS;
+    }
+
+    /** The definition stays outside the repository: the command writes the folder and opens no pull request. */
+    private int createWithDefinitionFolder(CreateOptions options, SetupQuestions questions,
+                                           WorkerSettings settings, RepositoryFacts facts,
+                                           DefinitionFolderSetup definitionFolder) throws SetupException {
+        if (!definitionFolder.needsDefinition()) {
+            output.println("The definition folder " + definitionFolder.folder() + " has a factory.yaml. "
+                    + "The command keeps the folder.");
+            return writeOnlyTheWorkerFile(options, questions, settings, Optional.of(definitionFolder.folder()));
+        }
+        RepositoryBuild build = questions.askBuild(options, BuildFinder.find(facts.hasFile()),
+                BuildFinder.isJavaRepository(facts.hasFile()));
+        Map<String, String> files = DefaultFactoryFolder.definitionFiles(build, facts.defaultBranch());
+        GeneratedFactoryFolder.verifyLoads(DefaultFactoryFolder.files(build, facts.defaultBranch()));
+        String summary = SetupSummary.describe(settings, build, definitionFolder.folder(), files);
+        if (!questions.confirmDefinitionFolder(options, summary)) {
+            showNothingWritten();
+            return Main.EXIT_SUCCESS;
+        }
+        writeWorkerFile(settings);
+        definitionFolder.write(files);
+        copyRunningJarToCache();
+        output.println("The command wrote the file " + settings.configurationFile() + ".");
+        output.println("The command wrote the definition folder " + definitionFolder.folder() + ".");
+        showStartCommandWithDefinitionFolder(settings, definitionFolder.folder());
+        return Main.EXIT_SUCCESS;
+    }
+
+    /** Outside a clone, run cannot find worker.yaml, so the command always has --config. */
+    private void showStartCommandWithDefinitionFolder(WorkerSettings settings, Path definitionFolder) {
+        output.println("Start the worker with this command:");
+        output.println("  java -jar " + findJarPath() + " run --config " + settings.configurationFile()
+                + " --definition " + definitionFolder);
     }
 
     /** The run script then needs no download. A failed copy only gives the problem: the download still works. */

@@ -1,6 +1,7 @@
 package com.meterian.factory.setup;
 
 import com.meterian.factory.usage.DollarAmount;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
@@ -16,6 +17,17 @@ final class SetupSummary {
         StringBuilder text = new StringBuilder(describe(settings));
         text.append("Build command: ").append(build.command()).append('\n');
         text.append("The PR from factory/setup to ").append(defaultBranch).append(" adds these files:\n");
+        files.keySet().forEach(path -> text.append("  ").append(path).append('\n'));
+        return text.toString();
+    }
+
+    /** The summary when the command writes worker.yaml and the definition folder. */
+    static String describe(WorkerSettings settings, RepositoryBuild build, Path definitionFolder,
+                           Map<String, String> files) {
+        StringBuilder text = new StringBuilder(describe(settings));
+        text.append("Build command: ").append(build.command()).append('\n');
+        text.append("The command writes these files in the definition folder ").append(definitionFolder)
+                .append(":\n");
         files.keySet().forEach(path -> text.append("  ").append(path).append('\n'));
         return text.toString();
     }
