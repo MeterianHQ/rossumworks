@@ -315,4 +315,17 @@ class GitDefinitionVersionsTest {
         assertThatThrownBy(() -> files.read("../a.txt")).isInstanceOf(DefinitionException.class);
         assertThatThrownBy(() -> files.read("/etc/passwd")).isInstanceOf(DefinitionException.class);
     }
+
+    @Test
+    void refusesALocalVersionInTheRecord() {
+        commitDefinition(author, builtInMainFile());
+        GitDefinitionVersions versions = createVersions();
+        versions.refresh();
+        IssueRecord record = RecordStates.queued(7).withDefinitionVersion("local:" + "a".repeat(64));
+
+        assertThatThrownBy(() -> versions.definitionOf(record))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("The version local:aaaaaaa of the record comes from a definition folder, "
+                        + "but this worker reads .factory of the branch main");
+    }
 }

@@ -138,6 +138,11 @@ public final class GitDefinitionVersions implements DefinitionSource {
      * default branch: the factory never runs a .factory of another branch.
      */
     private FactoryDefinition definitionOfRecordCommit(String commit) {
+        if (LocalVersion.isLocal(commit)) {
+            throw new IllegalStateException("The version " + DefinitionVersionText.shorten(commit) + " of the "
+                    + "record comes from a definition folder, but this worker reads .factory of the branch "
+                    + defaultBranch);
+        }
         if (!definitionsByCommit.containsKey(commit) && !isOnTheDefaultBranch(commit)) {
             throw new IllegalStateException("The commit " + DefinitionVersionText.shorten(commit)
                     + " of .factory in the record is not on the branch " + defaultBranch + ".");
