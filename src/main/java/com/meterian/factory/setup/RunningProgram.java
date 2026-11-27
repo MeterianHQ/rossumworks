@@ -25,7 +25,7 @@ public record RunningProgram(Path path, Kind kind) {
     /** The two kinds of program that a release has. */
     public enum Kind {
         JAR("jar", ".rossumworks/jars", "rossumworks-.+\\.jar"),
-        NATIVE("native program", ".rossumworks/native", "rossumworks-.+-linux-(x64|arm64)");
+        NATIVE("native program", ".rossumworks/native", "rossumworks-.+-(linux-x64|linux-arm64|macos-arm64)");
 
         private final String description;
         private final String cacheFolder;
