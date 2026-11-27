@@ -102,28 +102,32 @@
         });
     }
 
-    // For each list of cards that the user scrolled, the first card in view and its distance to the top.
+    // For each list of cards that the user scrolled, the cards in view in order, with their distance to the top.
     function findCardsInView(board) {
         return Array.from(board.querySelectorAll(".cards")).filter(function (list) {
             return list.scrollTop > 0;
         }).map(function (list) {
-            var listTop = list.getBoundingClientRect().top;
-            var card = Array.from(list.children).find(function (child) {
-                return child.getBoundingClientRect().bottom > listTop;
+            var listBox = list.getBoundingClientRect();
+            var cards = Array.from(list.children).filter(function (child) {
+                var childBox = child.getBoundingClientRect();
+                return childBox.bottom > listBox.top && childBox.top < listBox.bottom;
+            }).map(function (child) {
+                return { card: child, distance: child.getBoundingClientRect().top - listBox.top };
             });
-            return card ? { list: list, card: card, distance: card.getBoundingClientRect().top - listTop } : null;
-        }).filter(function (cardInView) {
-            return cardInView !== null;
+            return { list: list, cards: cards };
         });
     }
 
-    // When a card comes or goes above the view, the scroll position changes by the same height.
-    function keepCardInView(cardInView) {
-        if (!cardInView.list.isConnected || cardInView.card.parentNode !== cardInView.list) {
+    // The first card in view that is still in the list keeps its distance to the top, also when others go.
+    function keepCardInView(listInView) {
+        var cardInView = listInView.cards.find(function (candidate) {
+            return candidate.card.parentNode === listInView.list;
+        });
+        if (!listInView.list.isConnected || cardInView === undefined) {
             return;
         }
-        var distance = cardInView.card.getBoundingClientRect().top - cardInView.list.getBoundingClientRect().top;
-        cardInView.list.scrollTop += distance - cardInView.distance;
+        var distance = cardInView.card.getBoundingClientRect().top - listInView.list.getBoundingClientRect().top;
+        listInView.list.scrollTop += distance - cardInView.distance;
     }
 
     // A 401 reloads the page, so that the browser shows the login.

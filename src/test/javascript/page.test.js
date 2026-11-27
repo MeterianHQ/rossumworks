@@ -169,6 +169,21 @@ test("a card that goes above the view keeps the cards in view", async () => {
     assert.strictEqual(cardInView.getBoundingClientRect().top, -50);
 });
 
+test("when the card at the top of the view goes, the next card stays in view", async () => {
+    const page = openPage(renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 3, 4, 5, 6])),
+        renderColumn("done", renderCards([]))]));
+    const nextCard = findCard(page, 4);
+    findCardList(page, "queued").scrollTop = 250;
+    assert.strictEqual(nextCard.getBoundingClientRect().top, 50);
+
+    await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 4, 5, 6])),
+        renderColumn("done", renderCards([3]))]));
+
+    assert.strictEqual(findCardList(page, "queued").scrollTop, 250 - CARD_HEIGHT);
+    assert.strictEqual(findCard(page, 4), nextCard);
+    assert.strictEqual(nextCard.getBoundingClientRect().top, 50);
+});
+
 test("a card at the top of a list that the user did not scroll stays visible", async () => {
     const page = openPage(renderBoard("10:00", [renderColumn("queued", renderCards([2, 3]))]));
 
