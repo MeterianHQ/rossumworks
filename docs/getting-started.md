@@ -44,14 +44,22 @@ Each release has these programs. Each program has a `.sha256` file.
 |---|---|---|
 | `rossumworks-$VERSION-linux-x64` | Linux on x64, with glibc 2.34 or later | No |
 | `rossumworks-$VERSION-linux-arm64` | Linux on arm64, with glibc 2.34 or later | No |
+| `rossumworks-$VERSION-macos-arm64` | macOS on arm64 (Apple silicon), version 26 or later | No |
 | `rossumworks-$VERSION.jar` | Any machine of the requirements | Yes, 21 or later |
 
 The native program and the jar do the same work. To use a native program, do these steps:
 
 1. Download the program and its `.sha256` file into the same folder.
-2. Run `sha256sum -c rossumworks-$VERSION-linux-x64.sha256`.
+2. Run `sha256sum -c rossumworks-$VERSION-linux-x64.sha256`. On a Mac, run
+   `shasum -a 256 -c rossumworks-$VERSION-macos-arm64.sha256`.
 3. Run `chmod +x rossumworks-$VERSION-linux-x64`.
-4. Run `./rossumworks-$VERSION-linux-x64 self-check`.
+4. On a Mac, run `xattr -d com.apple.quarantine rossumworks-$VERSION-macos-arm64`. See the note below.
+5. Run `./rossumworks-$VERSION-linux-x64 self-check`.
+
+**The quarantine flag on macOS.** A browser puts the quarantine flag on each file that it downloads. The program
+has no Apple signature, so macOS blocks a program with this flag. The command of step 4 removes the flag. A
+file that you download with `curl` has no flag, and then `xattr` shows an error that you can ignore. `run.sh`
+downloads with `curl`, so it needs no extra step.
 
 The command `self-check` uses the parts of the program that need no network: the resources, the status
 comment, the events file, the gatekeeper, and the board. Each part gives a line `ok` or `failed`. When a part
@@ -138,11 +146,11 @@ The default `.factory` holds the script `run.sh`. `create` commits it with the e
 
 1. It asks the GitHub API for the latest release of `MeterianHQ/rossumworks`. The script sends the token of
    `FACTORY_GITHUB_TOKEN`, or else the token of `gh`. With a token, GitHub permits more API calls.
-2. On Linux x64 and on Linux arm64, it downloads the native program of the machine into
+2. On Linux x64, on Linux arm64, and on macOS arm64, it downloads the native program of the machine into
    `~/.rossumworks/native`. It checks the SHA-256 of the program with the `.sha256` file of the release. A
    wrong SHA-256 stops the script with the exit code 1, and the script keeps no file.
-3. It starts the native program once with `--version`. On a Linux with a glibc older than 2.34, the native
-   program does not start, and the script shows a warning.
+3. It starts the native program once with `--version`. On a Linux with a glibc older than 2.34, or on a macOS
+   older than 26, the native program does not start, and the script shows a warning.
 4. On another machine, when the native program does not start, or when the release has no native program with
    a `.sha256` file, it downloads the jar into `~/.rossumworks/jars`.
 5. It does not download a program that is already in its folder.
@@ -152,8 +160,8 @@ The default `.factory` holds the script `run.sh`. `create` commits it with the e
 When the download fails, the script uses the newest native program of the machine in `~/.rossumworks/native`.
 When that folder has no program that starts, it uses the newest jar in `~/.rossumworks/jars`. A cached native
 program comes before a cached jar, also when the jar has a newer version. When both folders are
-empty, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. On Linux, it also
-needs `sha256sum`.
+empty, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. It also
+needs `sha256sum`, or `shasum` on an older macOS.
 
 `create` copies its own program into the folder of `run.sh`: a native program into `~/.rossumworks/native`,
 and a jar into `~/.rossumworks/jars`. The copy has the same file name. Thus the first run of the script needs

@@ -67,9 +67,9 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
 ## Requirements
 
 - A Linux machine or a Mac. The factory does not work on Windows. It can probably work in WSL 2 on Windows, but nobody tested it.
-- For the jar only: a JDK 21 or later. The native programs for Linux x64 and Linux arm64 need no JDK, but they
-  need glibc 2.34 or later, for example Ubuntu 22.04, Debian 12, or RHEL 9. macOS has no native program, so a
-  Mac uses the jar.
+- For the jar only: a JDK 21 or later. The native programs need no JDK. The native programs for Linux x64 and
+  Linux arm64 need glibc 2.34 or later, for example Ubuntu 22.04, Debian 12, or RHEL 9. The native program for
+  macOS arm64 needs macOS 26 or later. Another Mac uses the jar.
 - `claude`, `git`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`. Linux also needs `setsid`. macOS also needs
   `perl`, and macOS includes it. On macOS, Homebrew installs a missing command, for example `brew install tmux`.
 - A provider: a `claude` login with your Claude subscription, or an Anthropic API key. See
@@ -90,7 +90,9 @@ procedure on the machine that runs the worker, after you get the items in "Requi
 2. Log in to GitHub with `gh auth login`.
 3. Download the native program of your machine from the
    [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases), for example
-   `rossumworks-$VERSION-linux-x64`, and make it executable. On another machine, download `rossumworks-$VERSION.jar`.
+   `rossumworks-$VERSION-linux-x64` or `rossumworks-$VERSION-macos-arm64`, and make it executable. On a Mac,
+   also remove the quarantine flag. See [The programs of a release](docs/getting-started.md#the-programs-of-a-release).
+   On another machine, download `rossumworks-$VERSION.jar`.
 4. Go to the folder that hosts a clone of your repository.
 5. Run `<path of the native program> create`, and answer the questions. With the jar, run
    `java -jar <path of the jar> create`.
