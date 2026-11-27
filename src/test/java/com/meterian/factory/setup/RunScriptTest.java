@@ -266,8 +266,13 @@ class RunScriptTest {
         publishNativeProgramWithChecksum(MAC_PROGRAM);
         writeExecutable(fakeCommands.resolve("shasum"), createFakeShasum(computeSha256(NATIVE_TEXT)));
 
-        ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin",
-                "PATH", fakeCommands + ":" + linkSystemCommandsWithoutSha256sum()));
+        Path systemCommands = linkSystemCommandsWithoutSha256sum();
+        ScriptResult result;
+        try {
+            result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin", "PATH", fakeCommands + ":" + systemCommands));
+        } finally {
+            deleteLinkedSystemCommands(systemCommands);
+        }
 
         assertThat(result.text()).contains("shasum -a 256 ", "native run");
         assertThat(result.exitCode()).isEqualTo(0);
@@ -292,6 +297,16 @@ class RunScriptTest {
             }
         }
         return systemCommands;
+    }
+
+    /** Deletes the links and the folder, not the commands that the links point to. */
+    private static void deleteLinkedSystemCommands(Path systemCommands) throws IOException {
+        try (Stream<Path> links = Files.list(systemCommands)) {
+            for (Path link : links.toList()) {
+                Files.delete(link);
+            }
+        }
+        Files.delete(systemCommands);
     }
 
     private static void linkCommand(Path systemCommands, Path command) throws IOException {
