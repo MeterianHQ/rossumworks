@@ -1,0 +1,12 @@
+{
+  "resources": {
+    "includes": [
+      {"pattern": "\\Qfactory-version.properties\\E"},
+      {"pattern": "factory/.*"},
+      {"pattern": "gatekeeper/.*"},
+      {"pattern": "live/.*"},
+      {"pattern": "setup/.*"},
+      {"pattern": "web/.*"}
+    ]
+  }
+}

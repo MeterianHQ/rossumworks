@@ -1,7 +1,8 @@
 # Tutorial
 In this tutorial, you give a small project to RossumWorks. The factory fixes a bug, reviews the fix, and merges it.
 [Getting started](getting-started.md) tells how you use the factory on your own project. The
-[Glossary](glossary.md) gives the meaning of the terms.
+[Glossary](glossary.md) gives the meaning of the terms. The
+[demo video](https://www.youtube.com/watch?v=fjbBpt8t38E) shows the factory on a sample project.
 
 <img width="1600" height="700" alt="image" src="https://github.com/user-attachments/assets/d2ace119-429e-46e5-9e45-75271845b12c" />
 
@@ -19,13 +20,15 @@ risk check. A review that rejects the change causes more sessions.
 
 You need:
 
-- Linux.
+- Linux or macOS. On macOS, the script `tutorial/create-issues.sh` needs bash 4 or later. macOS includes bash 3.2, so
+  install a newer bash, for example with `brew install bash`.
 - A JDK 21 or later.
 - The `claude` CLI.
 - A provider. The provider gives the `claude` sessions their access to Claude, and pays for them. See
   [Providers](providers.md). The default is your Claude subscription, with a `claude` login.
 - The `gh` CLI. Run `gh auth login` to log in.
-- `git`, `setsid`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`.
+- `git`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`. Linux also needs `setsid`. macOS also needs `perl`, and
+  macOS includes it.
 
 For the subscription, do not set `ANTHROPIC_API_KEY`. For an API key, set `ANTHROPIC_API_KEY` to the key.
 
@@ -71,9 +74,12 @@ reviews start. The sample uses `./mvnw verify`, which is the default answer.
 **Warning: an empty password gives a board without a login.** Each program on your machine can then use the board. The
 board is the web page of the factory.
 
-1. Download `rossumworks-<version>.jar` from the
-   [releases](https://github.com/MeterianHQ/rossumworks/releases).
-2. Run `java -jar <path of the jar> create` in the clone.
+1. Download the native program of your machine from the
+   [releases](https://github.com/MeterianHQ/rossumworks/releases), for example
+   `rossumworks-<version>-linux-x64` or `rossumworks-<version>-macos-arm64`, and make it executable. On a Mac,
+   also remove the quarantine flag. See [The programs of a release](getting-started.md#the-programs-of-a-release).
+   On another machine, download `rossumworks-<version>.jar`.
+2. Run `<path of the native program> create` in the clone. With the jar, run `java -jar <path of the jar> create`.
 3. Push Enter at each question to take the default answer. For an API key, do steps 4 and 5 also.
 4. For an API key, type `anthropic-api-key` at the question about the provider.
 5. For an API key, type an amount at the question about the daily budget. The daily budget is the maximum cost of
@@ -216,7 +222,8 @@ The value `mode` in `.factory/factory.yaml` controls the merge. The value `risk`
 
 ```
 git pull
-sed -i 's/mode: risk/mode: always-ask/' .factory/factory.yaml
+sed -i.bak 's/mode: risk/mode: always-ask/' .factory/factory.yaml
+rm .factory/factory.yaml.bak
 git --no-pager diff
 ```
 
@@ -244,7 +251,8 @@ tutorial/create-issues.sh approval
 
 ```
 git pull
-sed -i 's/mode: always-ask/mode: risk/' .factory/factory.yaml
+sed -i.bak 's/mode: always-ask/mode: risk/' .factory/factory.yaml
+rm .factory/factory.yaml.bak
 git commit -am "Let the risk decide the merge"
 git push
 ```
@@ -353,4 +361,4 @@ same time.
 3. Delete the folder of the clone.
 4. Delete the work folder `~/.rossumworks/<owner>-<name>`. Use the owner and the name of your repository.
 
-The folder `~/.rossumworks/jars` stays. It holds the jar files of the factory.
+The folders `~/.rossumworks/native` and `~/.rossumworks/jars` stay. They hold the programs of the factory.

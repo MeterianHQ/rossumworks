@@ -12,8 +12,10 @@ import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.process.ProcessGroupLauncher;
 import com.meterian.factory.provider.ApiKeyProvider;
 import com.meterian.factory.provider.Provider;
 import com.meterian.factory.setup.CreateOptions;
@@ -55,15 +57,18 @@ import org.junit.jupiter.api.io.TempDir;
 class MainTest {
 
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
+    private static final String PROCESS_GROUP_PROGRAM = ProcessGroupLauncher.createForThisSystem().program();
 
-    private static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>] "
-            + "[--definition <folder>]\n"
-            + "       java -jar rossumworks.jar hash-password\n"
-            + "       java -jar rossumworks.jar create [--repository owner/name]\n"
+    private static final String USAGE = "Usage: rossumworks run [--config <file>] [--definition <folder>]\n"
+            + "       rossumworks hash-password\n"
+            + "       rossumworks create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
             + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
-            + "       [--definition <folder>] [--yes]";
+            + "       [--definition <folder>] [--yes]\n"
+            + "       rossumworks self-check\n"
+            + "       rossumworks --version\n"
+            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
 
     @TempDir
     Path temporaryDirectory;
@@ -98,7 +103,7 @@ class MainTest {
 
     private Map<String, String> createEnvironmentWithAllCommands() throws IOException {
         Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
-        for (String command : List.of("claude", "git", "setsid", "kill", "tmux", "jq")) {
+        for (String command : StartChecks.listRequiredCommands("claude")) {
             Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
             assertThat(file.toFile().setExecutable(true)).isTrue();
         }
@@ -372,7 +377,7 @@ class MainTest {
     @Test
     void refusesToStartWhenTmuxAndJqAreMissing() throws IOException {
         Path binDirectory = Files.createDirectories(temporaryDirectory.resolve("bin"));
-        for (String command : List.of("claude", "git", "setsid", "kill")) {
+        for (String command : List.of("claude", "git", PROCESS_GROUP_PROGRAM, "kill")) {
             Path file = Files.writeString(binDirectory.resolve(command), "#!/bin/sh\n");
             assertThat(file.toFile().setExecutable(true)).isTrue();
         }
@@ -500,6 +505,21 @@ class MainTest {
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Run hash-password in a terminal.");
+    }
+
+    @Test
+    void theVersionCommandShowsTheVersion() {
+        int exitCode = Main.showVersion(output);
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(outputText()).isEqualTo("RossumWorks " + FactoryVersion.current() + System.lineSeparator());
+    }
+
+    @Test
+    void theVersionCommandIsSelectedByItsName() {
+        assertThat(Main.isVersionCommand(new String[] {"--version"})).isTrue();
+        assertThat(Main.isVersionCommand(new String[] {"--version", "x"})).isFalse();
+        assertThat(Main.isVersionCommand(new String[] {"run"})).isFalse();
     }
 
     @Test

@@ -9,7 +9,7 @@ import java.util.Optional;
 /** The arguments of the command run: --config <file> and --definition <folder>, in any order. */
 public record RunOptions(Optional<Path> configurationFile, Optional<Path> definitionFolder) {
 
-    public static final String USAGE = "Usage: java -jar rossumworks.jar run [--config <file>] "
+    public static final String USAGE = "Usage: rossumworks run [--config <file>] "
             + "[--definition <folder>]";
     private static final String COMMAND = "run";
     private static final String CONFIG_OPTION = "--config";

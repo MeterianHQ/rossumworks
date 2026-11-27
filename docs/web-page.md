@@ -12,7 +12,8 @@ The command `create` writes the `web` section for you. It asks for the address a
 
 To set the password yourself:
 
-1. Make the hash of a password: `java -jar rossumworks-$VERSION.jar hash-password`. The command asks for the
+1. Make the hash of a password: `<path of the program> hash-password`. With the jar, the program is
+   `java -jar rossumworks-$VERSION.jar`. The command asks for the
    password two times. The password must have 12 characters or more.
 2. Copy the output line `password-hash: pbkdf2-sha256:...` into the `web` section of `worker.yaml`:
 

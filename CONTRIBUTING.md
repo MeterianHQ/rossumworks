@@ -24,6 +24,73 @@ to `main`. It also checks the workflow files with `actionlint`.
 
 GitHub does not start Build for a pull request of Autofix. Close and reopen the pull request to start Build.
 
+## The native program
+
+The Maven profile `native` builds the [native program](docs/glossary.md) `target/rossumworks` with GraalVM.
+You need GraalVM CE 21 or later, for example `sdk install java 21.0.2-graalce`. Set `JAVA_HOME` to GraalVM,
+and run:
+
+```
+./mvnw -Pnative verify
+```
+
+The profile also runs the native tests `*IT`. They start `target/rossumworks`, and run its command
+`self-check`. `./mvnw verify` without the profile needs no GraalVM, and runs no native test.
+
+A native program contains only the resources and the reflection that its configuration names. The
+configuration is in `src/main/resources/META-INF/native-image/com.meterian/rossumworks`. When you add a
+resource folder, add it to `resource-config.json`. When Jackson binds a new class, add the class to
+`reflect-config.json`, and add a step to the self-check. A missing entry makes a step of `self-check` fail.
+
+The workflow [Native program](.github/workflows/native.yml) builds and tests the native program on Linux x64,
+Linux arm64, and macOS arm64. You can start it by hand on a branch. GitHub counts each macOS minute 10 times,
+so the workflow runs only by hand and at a release.
+
+## Release
+
+The workflow [Release](.github/workflows/release.yml) builds and publishes a release from a tag. `main`
+always has a `-SNAPSHOT` version. The tag points to a release commit outside `main`, and this commit changes
+only the version.
+
+To make a release, do these steps:
+
+1. Run `git fetch origin`.
+2. Run `git checkout --detach origin/main`.
+3. Run `./mvnw versions:set -DnewVersion=<version> -DgenerateBackupPoms=false`.
+4. Make sure that `pom.xml` shows the new version. No other line changes.
+5. Run `./mvnw verify`.
+6. Commit `pom.xml` with the message `Release <version>`.
+7. Run the workflow [Native program](.github/workflows/native.yml) by hand on `main`, and make sure that it
+   passes. The release runs it again, and a failure stops the release.
+8. Run `git tag -a v<version> -m "RossumWorks <version>"`.
+9. Run `git push origin v<version>`. Do not push the commit to `main`.
+10. Run `git checkout main`.
+11. Make sure that the Release workflow passes.
+12. Edit the release notes on GitHub. Write the changes, the install, and the upgrade steps.
+
+The workflow does these steps:
+
+- It builds and tests the native program on Linux x64, Linux arm64, and macOS arm64 with the workflow
+  `native.yml`. A failure creates no release.
+- It runs `./mvnw verify`. A failed build creates no release.
+- It reads the version from `factory-version.properties`. If the tag is not `v` + this version, the workflow
+  fails and creates no release. A `-SNAPSHOT` version also fails the workflow.
+- It publishes `rossumworks-<version>.jar`, `rossumworks-<version>-linux-x64`,
+  `rossumworks-<version>-linux-arm64`, and `rossumworks-<version>-macos-arm64`, and a `.sha256` file for each
+  file.
+- A version with a suffix, for example `0.6.0-rc.1`, gives a pre-release. A version without a suffix gives a
+  normal release. `run.sh` uses only the latest normal release.
+- GitHub writes the first release notes from the pull requests that merged after the previous tag.
+
+If the run fails, correct the cause and run the workflow again. Use "Re-run failed jobs": it keeps the native
+programs of the first run, because a native build is not byte-identical. The native programs stay for 7 days.
+After 7 days, release a new version. A rerun deletes a draft release and makes the release again. It keeps a
+release that is published.
+
+The first release with native programs needs an upgrade text in its notes. A `run.sh` of version 0.5.0 or
+earlier uses only the jar. Tell the users to replace `.factory/run.sh` with the new script, because `create`
+does not replace it.
+
 ## The rules of the code
 
 The file [CLAUDE.md](CLAUDE.md) holds the rules of the project. They apply to people and to Claude. The rules

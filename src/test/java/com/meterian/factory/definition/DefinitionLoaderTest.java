@@ -48,7 +48,7 @@ class DefinitionLoaderTest {
     void loadsTheOtherSectionsOfTheDefault() throws Exception {
         FactoryDefinition definition = DefinitionLoader.load(new ClasspathDefinitionFiles());
 
-        assertThat(definition.build()).isEqualTo(new BuildDefinition("./mvnw verify", Map.of("LANG", "C.utf8")));
+        assertThat(definition.build()).isEqualTo(new BuildDefinition("./mvnw verify", Map.of("LANG", "C.UTF-8")));
         assertThat(definition.allowedTools()).startsWith("Read", "Edit").hasSize(11);
         assertThat(definition.mergeTargetBranch()).isEqualTo("main");
         assertThat(definition.repositories()).isEmpty();

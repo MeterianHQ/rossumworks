@@ -89,7 +89,7 @@ final class GitProcess {
         throw new GitException("git " + arguments.getFirst() + " did not end in " + describe(timeout.get()) + ".");
     }
 
-    /** Git does not run under setsid, so the descendants (ssh, a hook) end one by one, then git. */
+    /** Git does not lead a process group, so the descendants (ssh, a hook) end one by one, then git. */
     private static void endWithDescendants(Process process) throws InterruptedException {
         process.descendants().forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();

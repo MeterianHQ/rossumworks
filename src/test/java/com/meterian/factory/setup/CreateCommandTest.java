@@ -7,6 +7,7 @@ import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meterian.factory.Main;
+import com.meterian.factory.StartChecks;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.RepositoryName;
@@ -24,6 +25,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +38,7 @@ class CreateCommandTest {
 
     private static final String PASSWORD = "correct-horse-battery";
     private static final String DEFAULT_START_LINE = "Start the worker with this command, in a clone of owner/project:";
-    private static final List<String> PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
+    private static final List<String> PROGRAMS = StartChecks.listRequiredCommands("claude");
 
     @TempDir
     Path temporaryDirectory;
@@ -51,7 +53,7 @@ class CreateCommandTest {
     private Path currentFolder;
     private Path home;
     private Path programs;
-    private Optional<Path> runningJar = Optional.empty();
+    private Optional<RunningProgram> runningProgram = Optional.empty();
 
     @BeforeEach
     void createRepositories() throws IOException {
@@ -209,7 +211,7 @@ class CreateCommandTest {
     @Test
     void copiesTheRunningJarIntoTheCacheOfTheRunScript() throws IOException {
         pushToMain("package.json", "{}\n");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
+        runningProgram = runningJar(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
@@ -225,7 +227,7 @@ class CreateCommandTest {
         Path cachedJar = home.resolve(".rossumworks/jars/rossumworks-0.1.0.jar");
         Files.createDirectories(cachedJar.getParent());
         Files.writeString(cachedJar, "cached");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
+        runningProgram = runningJar(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "", "y"));
 
@@ -239,7 +241,7 @@ class CreateCommandTest {
         pushToMain("package.json", "{}\n");
         Files.createDirectories(home.resolve(".rossumworks"));
         Files.writeString(home.resolve(".rossumworks/jars"), "not a folder");
-        runningJar = Optional.of(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
+        runningProgram = runningJar(Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0.jar"), "jar"));
 
         int exitCode = runCreate(answering("", "", "", "", "", "y"));
 
@@ -248,12 +250,59 @@ class CreateCommandTest {
     }
 
     @Test
-    void withoutARunningJarTheCacheStaysEmpty() {
+    void withoutARunningProgramTheCachesStayEmpty() {
         pushToMain("package.json", "{}\n");
 
         runCreate(answering("", "", "", "", "", "y"));
 
         assertThat(home.resolve(".rossumworks/jars")).doesNotExist();
+        assertThat(home.resolve(".rossumworks/native")).doesNotExist();
+    }
+
+    @Test
+    void copiesTheRunningNativeProgramIntoItsOwnCache() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path program = Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0-linux-x64"), "program");
+        Files.setPosixFilePermissions(program, PosixFilePermissions.fromString("rwxr-xr-x"));
+        runningProgram = Optional.of(new RunningProgram(program, RunningProgram.Kind.NATIVE));
+
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
+
+        Path cachedProgram = home.resolve(".rossumworks/native/rossumworks-0.1.0-linux-x64");
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(cachedProgram).hasContent("program").isExecutable();
+        assertThat(outputText()).contains("The command copied the native program to " + cachedProgram + ".");
+        assertThat(home.resolve(".rossumworks/jars")).doesNotExist();
+    }
+
+    @Test
+    void doesNotCopyARenamedNativeProgram() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path program = Files.writeString(temporaryDirectory.resolve("rossumworks"), "program");
+        runningProgram = Optional.of(new RunningProgram(program, RunningProgram.Kind.NATIVE));
+
+        int exitCode = runCreate(answering("", "", "", "", "", "y"));
+
+        assertThat(exitCode).isEqualTo(0);
+        assertThat(home.resolve(".rossumworks/native")).doesNotExist();
+        assertThat(outputText()).contains("The command does not copy the native program " + program
+                + ": run.sh uses only the file names of a release.");
+    }
+
+    @Test
+    void aRunningNativeProgramGivesTheStartCommandWithItsPath() throws IOException {
+        pushToMain(".factory/factory.yaml", "build: {}\n");
+        Path program = Files.writeString(temporaryDirectory.resolve("rossumworks-0.1.0-linux-x64"), "program");
+        runningProgram = Optional.of(new RunningProgram(program, RunningProgram.Kind.NATIVE));
+
+        runCreate(answering("", "", "", "", "y"));
+
+        assertThat(outputText()).contains("  " + program + " run" + System.lineSeparator())
+                .doesNotContain("java -jar");
+    }
+
+    private static Optional<RunningProgram> runningJar(Path jar) {
+        return Optional.of(new RunningProgram(jar, RunningProgram.Kind.JAR));
     }
 
     @Test
@@ -509,7 +558,7 @@ class CreateCommandTest {
         CreateCommand command = new CreateCommand(console, environment,
                 new PrintStream(outputBytes, true, StandardCharsets.UTF_8),
                 new PrintStream(errorBytes, true, StandardCharsets.UTF_8),
-                () -> Optional.of("token"), git, new LocalGitHub(), currentFolder, home, runningJar);
+                () -> Optional.of("token"), git, new LocalGitHub(), currentFolder, home, runningProgram);
         return command.run(List.of(arguments));
     }
 

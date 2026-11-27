@@ -21,13 +21,12 @@ You need the items in the "Requirements" section of the README. You also need th
    See [Providers](providers.md).
 2. Give the worker a GitHub token. Log in with `gh auth login`, or set `FACTORY_GITHUB_TOKEN` to a token of
    the account of the worker.
-3. Download `rossumworks-$VERSION.jar` from the
-   [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases). You can also build the jar from the
-   source. See [Contributing](../CONTRIBUTING.md). In these documents, `$VERSION` is the version of the jar,
-   for example `0.2.0`.
+3. Download a program of the factory from the
+   [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases). In these documents, `$VERSION` is
+   the version of the release, for example `0.6.0`. See "The programs of a release" below.
 4. Go to the folder of the clone of your repository.
-5. Run `java -jar <path of the jar> create`, for example
-   `java -jar ~/Downloads/rossumworks-$VERSION.jar create`.
+5. Run `create` with the program, for example `~/Downloads/rossumworks-$VERSION-linux-x64 create`. With the
+   jar, run `java -jar ~/Downloads/rossumworks-$VERSION.jar create`.
 6. Answer the questions. When you push Enter, `create` uses the default answer.
 7. Check the summary that `create` shows, and type `y` to confirm.
 8. `create` opens the pull request `factory/setup` on your repository. Merge it.
@@ -37,11 +36,44 @@ You need the items in the "Requirements" section of the README. You also need th
 The worker takes no issue until you merge the pull request `factory/setup`. Until then, the board shows the
 reason.
 
+### The programs of a release
+
+Each release has these programs. Each program has a `.sha256` file.
+
+| Program | Machine | Needs a JDK |
+|---|---|---|
+| `rossumworks-$VERSION-linux-x64` | Linux on x64, with glibc 2.34 or later | No |
+| `rossumworks-$VERSION-linux-arm64` | Linux on arm64, with glibc 2.34 or later | No |
+| `rossumworks-$VERSION-macos-arm64` | macOS on arm64 (Apple silicon), version 26 or later | No |
+| `rossumworks-$VERSION.jar` | Any machine of the requirements | Yes, 21 or later |
+
+The native program and the jar do the same work. In these steps, `<program>` is the file name of the program,
+for example `rossumworks-$VERSION-linux-x64`. To use a native program, do these steps:
+
+1. Download the program and its `.sha256` file into the same folder.
+2. Run `sha256sum -c <program>.sha256`. On a Mac, run `shasum -a 256 -c <program>.sha256`.
+3. Run `chmod +x <program>`.
+4. On a Mac, run `xattr -d com.apple.quarantine <program>`. See the note below.
+5. Run `./<program> self-check`.
+
+**The quarantine flag on macOS.** A browser puts the quarantine flag on each file that it downloads. The program
+has no Apple signature, so macOS blocks a program with this flag. The command of step 4 removes the flag. A
+file that you download with `curl` has no flag, and then `xattr` shows an error that you can ignore. `run.sh`
+downloads with `curl`, so it needs no extra step.
+
+The command `self-check` uses the parts of the program that need no network: the resources, the status
+comment, the events file, the gatekeeper, and the board. Each part gives a line `ok` or `failed`. When a part
+fails, use the jar, and tell the problem in an issue.
+
+The command `--version` shows the version of the program. You can also build the jar or the native program
+from the source. See [Contributing](../CONTRIBUTING.md).
+
 ## What `create` does
 
 `create` does these steps in this order:
 
-1. It checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`.
+1. It checks that `claude`, `git`, `kill`, `tmux`, and `jq` are on the `PATH`. It also checks `setsid` on Linux,
+   and `perl` on macOS.
 2. It asks for the name of your GitHub repository and for the work folder. The **work folder** is the folder of the worker. The
    default is `~/.rossumworks/<owner>-<name>`.
 3. It asks for the address of the board, the terminal command of the live mode, and the provider. Then it
@@ -85,7 +117,7 @@ request. When the write of the folder fails, `create` deletes `worker.yaml` agai
 | A pull request from `factory/setup` is open | It shows the link of the pull request, and writes no file. |
 | The branch `factory/setup` exists on GitHub, without an open pull request | It stops, and writes no file. This occurs when the push succeeds and the creation of the pull request fails. The gatekeeper refuses to delete a branch, so the message gives a `gh api` command that deletes it on GitHub. Then run `create` again. |
 | Your default branch has a folder `.factory` without `factory.yaml` | It stops. Correct the folder, and run `create` again. |
-| Your default branch has `.factory/factory.yaml` | It writes only `worker.yaml`, and opens no pull request. It shows the `java -jar` command to start the worker, because the repository has no `run.sh` of `create`. |
+| Your default branch has `.factory/factory.yaml` | It writes only `worker.yaml`, and opens no pull request. It shows the command of the running program to start the worker, because the repository has no `run.sh` of `create`. |
 | The assignment of the pull request fails | It shows the problem, keeps `worker.yaml`, and ends with success. Assign the pull request yourself. |
 | With `--definition`, the folder has `factory.yaml` | It keeps the folder, and writes only `worker.yaml`. |
 | With `--definition`, the folder has other files, but no `factory.yaml` | It stops, and writes no file. Hidden entries, for example `.git`, do not count. |
@@ -122,23 +154,37 @@ parameters:
 
 The default `.factory` holds the script `run.sh`. `create` commits it with the execute permission. The script starts the worker with the latest release of the factory:
 
-1. It asks the GitHub API for the latest release of `MeterianHQ/rossumworks`. The repository is private, so
-   the script sends the token of `FACTORY_GITHUB_TOKEN`, or else the token of `gh`.
-2. It downloads the jar of that release into `~/.rossumworks/jars`. It does not download a jar that is
-   already in this folder.
-3. It goes to the root of the clone, and runs `java -jar <the jar> run`. It gives its own arguments to `run`,
-   for example `.factory/run.sh --config <work folder>/worker.yaml`.
+1. It asks the GitHub API for the latest release of `MeterianHQ/rossumworks`. The script sends the token of
+   `FACTORY_GITHUB_TOKEN`, or else the token of `gh`. With a token, GitHub permits more API calls.
+2. On Linux x64, on Linux arm64, and on macOS arm64, it downloads the native program of the machine into
+   `~/.rossumworks/native`. It checks the SHA-256 of the program with the `.sha256` file of the release. A
+   wrong SHA-256 stops the script with the exit code 1, and the script keeps no file.
+3. It starts the native program once with `--version`. On a Linux with a glibc older than 2.34, or on a macOS
+   older than 26, the native program does not start, and the script shows a warning.
+4. On another machine, when the native program does not start, or when the release has no native program with
+   a `.sha256` file, it downloads the jar into `~/.rossumworks/jars`.
+5. It does not download a program that is already in its folder.
+6. It goes to the root of the clone, and runs `<the native program> run`, or `java -jar <the jar> run`. It
+   gives its own arguments to `run`, for example `.factory/run.sh --config <work folder>/worker.yaml`.
 
-When the download fails, the script uses the newest jar in `~/.rossumworks/jars`. When that folder has no jar,
-the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`.
+When the download fails, the script uses the newest native program of the machine in `~/.rossumworks/native`.
+When that folder has no program that starts, it uses the newest jar in `~/.rossumworks/jars`. A cached native
+program comes before a cached jar, also when the jar has a newer version. When both folders are
+empty, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. It also
+needs `sha256sum`, or `shasum` on an older macOS.
 
-`create` copies its own jar into `~/.rossumworks/jars`, with the same file name. Thus the first run of the
-script needs no download when this jar is the latest release. `create` does not overwrite a jar in that folder.
+`create` copies its own program into the folder of `run.sh`: a native program into `~/.rossumworks/native`,
+and a jar into `~/.rossumworks/jars`. The copy has the same file name. Thus the first run of the script needs
+no download when this program is the latest release. `create` does not overwrite a program in that folder.
 When the copy fails, `create` shows the problem and ends with success.
+
+A `run.sh` of version 0.5.0 or earlier uses only the jar. To use the native program, replace
+`.factory/run.sh` with the [new script](../src/main/resources/setup/run.sh), and keep the execute
+permission. `create` does not replace the script.
 
 ### The configuration file
 
-The command `run` of the jar starts the worker. Without `--config`, it finds the configuration from the clone. It reads the owner and the name of the GitHub
+The command `run` starts the worker. Without `--config`, it finds the configuration from the clone. It reads the owner and the name of the GitHub
 repository of the clone, for example `octocat/hello-world`. Then it reads
 `~/.rossumworks/octocat-hello-world/worker.yaml`.
 
@@ -147,8 +193,8 @@ folder that is not the default, give the file: `run --config <work folder>/worke
 such a work folder, `create` shows the command with `--config`.
 
 With a definition folder, give it with `--definition`, for example
-`java -jar <path of the jar> run --config <work folder>/worker.yaml --definition <folder>`. The order of the
-options has no effect.
+`<path of the native program> run --config <work folder>/worker.yaml --definition <folder>`. With the jar, write
+`java -jar <path of the jar>` in place of the native program. The order of the options has no effect.
 
 ### When the worker starts
 

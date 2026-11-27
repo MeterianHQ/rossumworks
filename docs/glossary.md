@@ -22,15 +22,19 @@ When a new document needs a new term, add the term to this page first.
 | enter state | The state where an issue goes when you open the live mode. In the default workflow, it is `live`. The error messages call it the enter target. |
 | event | The result of an action, for example `passed` or `failed`. The workflow uses the event to select the next state. |
 | factory | All the parts together: the worker, the board, the gatekeeper, the definition, and the `claude` sessions. |
+| gate | A check that each change must pass before the merge: the build command, the reviews, the risk check, and the merge gate. See [FAQ](faq.md). |
 | gatekeeper | A local git repository. Each push of the worker goes through it, and it forwards the push to GitHub only when the push is safe. See [More than one factory](multiple-factories.md). |
 | hidden entry | A file or a folder whose name starts with a dot, for example `.git`. The worker skips the hidden entries of the definition folder. |
 | live conversation | A conversation between you and the agent of an issue, through Remote Control. |
 | live files | The files of the live mode in the live folder of the machine. See [Live mode](live-mode.md). |
 | live mode | The mode where you talk to the agent in a live conversation. Only the subscription has it. See [Live mode](live-mode.md). |
 | log event | One line of the file `events.jsonl`. See [Events](events.md). |
+| merge gate | The action `merge-gate`. It merges the change, or waits for your approval. See [Factory definition](factory-definition.md). |
+| native program | The program of the factory for one platform, for example `rossumworks-$VERSION-linux-x64`. GraalVM compiles it from the jar, so it needs no JDK. See [Getting started](getting-started.md). |
 | note | A short text that the worker writes in the status comment. The card shows the newest note. |
 | previous | The last state with an action that does not wait for you. See [Factory definition](factory-definition.md). |
 | provider | The source of the access to Claude for the `claude` sessions, and of the payment: your Claude subscription, or an Anthropic API key. See [Providers](providers.md). |
+| quarantine flag | The mark `com.apple.quarantine` that a browser puts on a downloaded file on macOS. macOS blocks a program with this mark and no Apple signature. `xattr -d com.apple.quarantine <program>` removes the mark. See [Getting started](getting-started.md). |
 | record | The data of an issue that the worker keeps in the status comment, for example the state. |
 | Remote Control | The function of Claude Code that opens a session on claude.ai. |
 | request label | A label that tells the factory what to do: `factory`, `factory:approve`, `factory:block`, `factory:enter`, or `factory:start-again`. See [Issues and labels](issues-and-labels.md). |
@@ -47,6 +51,6 @@ When a new document needs a new term, add the term to this page first.
 | text-change state | The state where an issue goes when its text changed. In the default workflow, it is `text-changed`. |
 | usage window | A period of time, for example one week, with a limit on the use of the subscription. The worker reads the percent that you used. |
 | work folder | The folder of the worker, in `work-directory` of `worker.yaml`. The default is `~/.rossumworks/<owner>-<name>`. |
-| worker | The Java program that runs on your machine. It reads the issues on GitHub and does the work of the factory. |
+| worker | The program that runs on your machine: the jar or the native program. It reads the issues on GitHub and does the work of the factory. |
 | workflow | The states of an issue, and the transitions between them. The definition holds it. |
 | you | The person who runs the factory. |

@@ -27,7 +27,7 @@ loader refuses a path that starts with `/` or that has the segment `..`.
 
 The jar of the factory contains a complete example:
 [`src/main/resources/factory/`](../src/main/resources/factory/). Section 15 shows its `factory.yaml`. To start,
-run the command `create` of the jar (see [Getting started](getting-started.md)). It writes this folder as `.factory` with the
+run the command `create` of the factory (see [Getting started](getting-started.md)). It writes this folder as `.factory` with the
 build command of your repository, adds `run.sh`, and opens the PR `factory/setup`. The loader does not read
 `run.sh`. Then change the files as you need.
 
@@ -535,7 +535,7 @@ reason `MERGE_NEEDS_APPROVAL` becomes the state `waits-for-approval`.
 ```yaml
 build:
   command: ./mvnw verify
-  environment: { LANG: C.utf8 }
+  environment: { LANG: C.UTF-8 }
 ```
 
 | Key | Required | Description |
@@ -708,7 +708,7 @@ workflow:
       action: { type: finish }
 build:
   command: ./mvnw verify
-  environment: { LANG: C.utf8 }
+  environment: { LANG: C.UTF-8 }
 claude:
   allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)",
                   "Bash(git show*)", "Bash(./mvnw *)", "Bash(mvn *)"]
@@ -781,8 +781,10 @@ You can keep the definition in a definition folder outside the repository. Give 
 `--definition` of `run`:
 
 ```
-java -jar rossumworks.jar run --definition <folder>
+rossumworks run --definition <folder>
 ```
+
+With the jar, write `java -jar rossumworks-<version>.jar` in place of `rossumworks`.
 
 The definition folder has the same content as `.factory`: `factory.yaml` and the prompt files. It does not need
 git. Without `--definition`, the worker reads `.factory` of the default branch. The worker refuses a value of

@@ -1,6 +1,8 @@
 # RossumWorks
 
-![The board of RossumWorks, with cards in each column](docs/images/board.png)
+[![The demo video of RossumWorks: the board, with cards in each column](docs/images/board-video.png)](https://www.youtube.com/watch?v=fjbBpt8t38E)
+
+[Watch the demo video](https://www.youtube.com/watch?v=fjbBpt8t38E) (5 minutes)
 
 RossumWorks is an AI factory that runs on GitHub. The factory takes an issue, writes the change, builds it, reviews it, opens a pull request, and merges it if safe. It asks for your help when needed.
 
@@ -65,9 +67,12 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
 
 ## Requirements
 
-- A Linux machine. The factory does not work on macOS or on Windows. It can probably work in WSL 2 on Windows, but nobody tested it.
-- A JDK 21 or later.
-- `claude`, `git`, `setsid`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`.
+- A Linux machine or a Mac. The factory does not work on Windows. It can probably work in WSL 2 on Windows, but nobody tested it.
+- For the jar only: a JDK 21 or later. The native programs need no JDK. The native programs for Linux x64 and
+  Linux arm64 need glibc 2.34 or later, for example Ubuntu 22.04, Debian 12, or RHEL 9. The native program for
+  macOS arm64 needs macOS 26 or later. A Mac with an Intel processor, or with a macOS older than 26, uses the jar.
+- `claude`, `git`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`. Linux also needs `setsid`. macOS also needs
+  `perl`, and macOS includes it. On macOS, Homebrew installs a missing command, for example `brew install tmux`.
 - A provider: a `claude` login with your Claude subscription, or an Anthropic API key. See
   [Providers](docs/providers.md).
 - A `gh` login, or a GitHub token in `FACTORY_GITHUB_TOKEN`.
@@ -84,10 +89,14 @@ procedure on the machine that runs the worker, after you get the items in "Requi
 
 1. Prepare the provider of the `claude` sessions: by default your subscription is used. See [Providers](docs/providers.md).
 2. Log in to GitHub with `gh auth login`.
-3. Download `rossumworks-$VERSION.jar` from the
-   [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases).
+3. Download the native program of your machine from the
+   [GitHub releases](https://github.com/MeterianHQ/rossumworks/releases), for example
+   `rossumworks-$VERSION-linux-x64` or `rossumworks-$VERSION-macos-arm64`, and make it executable. On a Mac,
+   also remove the quarantine flag. See [The programs of a release](docs/getting-started.md#the-programs-of-a-release).
+   On another machine, download `rossumworks-$VERSION.jar`.
 4. Go to the folder that hosts a clone of your repository.
-5. Run `java -jar <path of the jar> create`, and answer the questions.
+5. Run `<path of the native program> create`, and answer the questions. With the jar, run
+   `java -jar <path of the jar> create`.
 6. `create` opens a pull request called `factory/setup` on your repository. Merge it.
 7. Pull the default branch in your clone, to get `.factory/run.sh`.
 8. Run `.factory/run.sh`. This script starts the worker with the latest release of the factory.
@@ -126,6 +135,7 @@ the same time, and the others wait in Queued. See [Configuration](docs/configura
 | [Events](docs/events.md) | watch the worker from a script or a monitoring agent |
 | [Factory definition](docs/factory-definition.md) | change the workflow, the prompts, the build, or the target branch of the merges |
 | [Legal considerations](docs/legal-considerations.md) | know the terms of Anthropic about the providers |
+| [FAQ](docs/faq.md) | find the answer to a frequent question |
 | [Glossary](docs/glossary.md) | find the meaning of a term in these documents |
 
 ## Contributing

@@ -2,6 +2,7 @@ package com.meterian.factory.agent;
 
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.process.ProcessGroup;
+import com.meterian.factory.process.ProcessGroupLauncher;
 import com.meterian.factory.provider.Provider;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,7 +12,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +33,7 @@ public final class ClaudeAgentRunner implements AgentRunner {
     private final Map<String, String> parentEnvironment;
     private final IntConsumer afterRegistration;
     private final Path claudeHome;
+    private final ProcessGroupLauncher processGroupLauncher = ProcessGroupLauncher.createForThisSystem();
     private final Map<Integer, Run> runs = new ConcurrentHashMap<>();
     private volatile boolean refusesNewPhases;
 
@@ -89,12 +90,9 @@ public final class ClaudeAgentRunner implements AgentRunner {
     }
 
     private Process startProcess(PhaseRequest request) throws AgentException {
-        List<String> command = new ArrayList<>(List.of("setsid", "--wait"));
-        command.addAll(ClaudeCommand.arguments(settings, request, provider.phaseArguments()));
-        ProcessBuilder builder = new ProcessBuilder(command);
+        List<String> command = ClaudeCommand.arguments(settings, request, provider.phaseArguments());
+        ProcessBuilder builder = processGroupLauncher.prepare(command, ClaudeCommand.environment(parentEnvironment));
         builder.directory(request.workingDirectory().toFile());
-        builder.environment().clear();
-        builder.environment().putAll(ClaudeCommand.environment(parentEnvironment));
         builder.redirectInput(ProcessBuilder.Redirect.PIPE);
         try {
             Process process = builder.start();

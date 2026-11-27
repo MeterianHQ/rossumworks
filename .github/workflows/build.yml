@@ -57,3 +57,6 @@ jobs:
       - name: Run actionlint
         run: |
           "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
+
+      - name: Test the script of the native programs
+        run: bash .github/scripts/test-collect-native-programs.sh

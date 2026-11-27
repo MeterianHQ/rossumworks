@@ -63,6 +63,8 @@ After the session shows its link, the worker runs the terminal command. The work
 command at the end of the terminal command.
 
 - The command comes only from the configuration, never from a request. The default is `gnome-terminal --`.
+- macOS has no `gnome-terminal`. On macOS, Terminal works only when you set a terminal command in `worker.yaml`.
+  Browser works without a setting.
 - When the command does not start, the worker writes a note in the status comment and a warning in the log. The
   Remote Control link still works.
 - Terminal needs a desktop session with `DISPLAY` for the user of the worker.

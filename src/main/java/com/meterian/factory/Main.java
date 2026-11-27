@@ -21,6 +21,7 @@ import com.meterian.factory.definition.DefinitionSource;
 import com.meterian.factory.definition.FolderDefinitionVersions;
 import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.events.EventsFile;
+import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
@@ -37,7 +38,7 @@ import com.meterian.factory.provider.Providers;
 import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
 import com.meterian.factory.setup.CreateOptions;
-import com.meterian.factory.setup.RunningJar;
+import com.meterian.factory.setup.RunningProgram;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.usage.ContextTracker;
@@ -92,8 +93,11 @@ public final class Main {
     static final int EXIT_CREDENTIAL_MISMATCH = 2;
 
     private static final String USAGE = RunOptions.USAGE + "\n"
-            + "       java -jar rossumworks.jar hash-password\n"
-            + "       " + CreateOptions.COMMAND_LINE;
+            + "       rossumworks hash-password\n"
+            + "       " + CreateOptions.COMMAND_LINE + "\n"
+            + "       rossumworks self-check\n"
+            + "       rossumworks --version\n"
+            + CreateOptions.JAR_NOTE;
     private static final URI GITHUB_API = URI.create("https://api.github.com");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);
@@ -148,6 +152,12 @@ public final class Main {
     }
 
     public static void main(String[] arguments) {
+        if (isVersionCommand(arguments)) {
+            System.exit(showVersion(System.out));
+        }
+        if (isSelfCheckCommand(arguments)) {
+            System.exit(SelfCheck.withAllSteps(System.out).run());
+        }
         if (isHashPasswordCommand(arguments)) {
             System.exit(hashPassword(Main::readPasswordFromConsole, System.out, System.err));
         }
@@ -155,6 +165,19 @@ public final class Main {
             System.exit(create(Arrays.asList(arguments).subList(1, arguments.length), System.out, System.err));
         }
         System.exit(run(arguments, System.getenv(), System.err));
+    }
+
+    static boolean isVersionCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("--version");
+    }
+
+    static int showVersion(PrintStream output) {
+        output.println("RossumWorks " + FactoryVersion.current());
+        return EXIT_SUCCESS;
+    }
+
+    static boolean isSelfCheckCommand(String[] arguments) {
+        return arguments.length == 1 && arguments[0].equals("self-check");
     }
 
     static boolean isHashPasswordCommand(String[] arguments) {
@@ -170,7 +193,7 @@ public final class Main {
         CreateCommand command = new CreateCommand(new SystemSetupConsole(), System.getenv(), output, errors,
                 StartChecks::readTokenFromGh, new ProcessGit(),
                 (repository, token) -> new HttpGitHubClient(GITHUB_API, token, repository, createHttpClient()),
-                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")), RunningJar.find());
+                Path.of("").toAbsolutePath(), Path.of(System.getProperty("user.home")), RunningProgram.find());
         return command.run(arguments);
     }
 
@@ -288,8 +311,7 @@ public final class Main {
     }
 
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
-        StartChecks.verifyCommandsOnPath(
-                List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq"), path);
+        StartChecks.verifyCommandsOnPath(StartChecks.listRequiredCommands(configuration.claude().command()), path);
     }
 
     static HttpClient createHttpClient() {
@@ -517,7 +539,7 @@ public final class Main {
         return cause == null ? exception.getMessage() : exception.getMessage() + ": " + cause.getMessage();
     }
 
-    /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
+    /** On Ctrl-C or a kill, the hook ends the claude process groups. They lead their own sessions and get no signal. */
     static Thread createShutdownHook(Worker worker, Optional<WebServer> webServer) {
         return new Thread(() -> {
             webServer.ifPresent(WebServer::stop);

@@ -23,12 +23,15 @@ public record CreateOptions(
         Optional<Path> definitionFolder) {
 
     /** The command line of create, without the word Usage. The command line of Main shows it too. */
-    public static final String COMMAND_LINE = "java -jar rossumworks.jar create [--repository owner/name]\n"
+    public static final String COMMAND_LINE = "rossumworks create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
             + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
             + "       [--definition <folder>] [--yes]";
-    public static final String USAGE = "Usage: " + COMMAND_LINE;
+    /** The note for a person who runs the jar and not the native program. */
+    public static final String JAR_NOTE =
+            "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
+    public static final String USAGE = "Usage: " + COMMAND_LINE + "\n" + JAR_NOTE;
     private static final String OPTION_PREFIX = "--";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
