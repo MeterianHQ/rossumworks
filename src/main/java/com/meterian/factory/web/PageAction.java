@@ -1,6 +1,7 @@
 package com.meterian.factory.web;
 
 import com.meterian.factory.board.IssueCard;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.LivePlace;
 import com.meterian.factory.state.ActionType;
@@ -19,16 +20,16 @@ import java.util.stream.Collectors;
  * the live conversation opens.
  */
 public enum PageAction {
-    ENTER_TERMINAL("enter-terminal", "Terminal", "factory:enter", LivePlace.TERMINAL,
+    ENTER_TERMINAL("enter-terminal", "Terminal", RequestLabels.ENTER, LivePlace.TERMINAL,
             "Enter sent. The worker stops the current action, and a terminal window opens in a few seconds.",
             "Opens the conversation in a terminal window on this machine. Close the window with Ctrl-b d."),
-    ENTER_BROWSER("enter-browser", "Browser", "factory:enter", LivePlace.BROWSER,
+    ENTER_BROWSER("enter-browser", "Browser", RequestLabels.ENTER, LivePlace.BROWSER,
             "Enter sent. The worker stops the current action, and the new tab opens the conversation in a few seconds.",
             "Opens the conversation in a new tab of this browser. The tab waits a few seconds for the link."),
-    APPROVE("approve", "Approve", "factory:approve", null,
+    APPROVE("approve", "Approve", RequestLabels.APPROVE, null,
             "Approval sent. The worker takes it in a few seconds.", ""),
-    BLOCK("block", "Block", "factory:block", null, "Block sent. The worker stops the issue in a few seconds.", ""),
-    START_AGAIN("start-again", "Start again", "factory:start-again", null,
+    BLOCK("block", "Block", RequestLabels.BLOCK, null, "Block sent. The worker stops the issue in a few seconds.", ""),
+    START_AGAIN("start-again", "Start again", RequestLabels.START_AGAIN, null,
             "Start again sent. The worker starts the issue again in a few seconds.", ""),
     CONTINUE("continue", "Continue", null, null, "Continue sent. The factory takes the issue back in a few seconds.",
             ""),

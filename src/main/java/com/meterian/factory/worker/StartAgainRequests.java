@@ -5,6 +5,7 @@ import com.meterian.factory.definition.DefinitionVersion;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.workflow.IssueDefinitionFacts;
 import com.meterian.factory.workflow.IssueText;
@@ -14,7 +15,7 @@ import com.meterian.factory.workflow.StatusPublisher;
 /** The label factory:start-again, and the new record that removes it. */
 final class StartAgainRequests {
 
-    static final String START_AGAIN_LABEL = "factory:start-again";
+    static final String START_AGAIN_LABEL = RequestLabels.START_AGAIN;
     private static final String STARTED_AGAIN_NOTE = "The owner started the issue again. The earlier work is discarded.";
     private static final String NO_EFFECT_NOTE =
             "Start again has no effect: it works only on a Blocked issue without a live conversation.";

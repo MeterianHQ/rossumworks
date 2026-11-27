@@ -1,12 +1,13 @@
 package com.meterian.factory.workflow;
 
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
 
 final class FinishAction implements Action {
 
-    private static final String FACTORY_LABEL = "factory";
+    private static final String FACTORY_LABEL = RequestLabels.FACTORY;
 
     private final ActionServices services;
     private final VersionServices version;

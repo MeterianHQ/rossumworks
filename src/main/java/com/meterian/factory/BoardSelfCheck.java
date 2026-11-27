@@ -7,6 +7,7 @@ import com.meterian.factory.definition.BuiltInDefinition;
 import com.meterian.factory.definition.DefinitionLookup;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.web.LabelWriter;
 import com.meterian.factory.web.WebServer;
@@ -38,7 +39,7 @@ final class BoardSelfCheck {
         FactoryConfiguration configuration = ConfigurationLoader.load(writeWorkerFile(folder, findFreePort()));
         Main.SharedState shared = Main.SharedState.create(configuration);
         FactoryDefinition definition = BuiltInDefinition.load();
-        shared.board().recordIssue(new Issue(1, CARD_TITLE, "", Set.of("factory")),
+        shared.board().recordIssue(new Issue(1, CARD_TITLE, "", Set.of(RequestLabels.FACTORY)),
                 IssueRecord.queued(1, definition.workflow().start()));
         WebServer server = Main.createWebServer(configuration, shared, new UnavailableLiveSessions(), false,
                 refuseLabels(), DefinitionLookup.builtInOnly(definition), Optional::empty, () -> 0, () -> 0, () -> { },
