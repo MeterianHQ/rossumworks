@@ -825,9 +825,16 @@ be a hidden entry.
 
 ### 17.3 An edit that is not complete
 
-The worker can read the folder while your edit is not complete. When the content that is not complete loads, new issues
-can start with it. To prevent this, edit a copy of the folder. When the copy is complete, rename it to the
-name of the definition folder.
+The worker can read the folder while your edit is not complete. When the content that is not complete loads,
+new issues can start with it. To prevent this, give `--definition` a symbolic link that points to the definition
+folder. Do these steps for each edit:
+
+1. Copy the definition folder to a new folder.
+2. Edit the files in the new folder.
+3. Point the link to the new folder, for example with `ln -sfn <new folder> <link>`.
+
+The worker reads the folder of the link. When the worker reads the link at the moment of the change, it cannot
+read the folder. It then keeps the current version for one poll.
 
 ### 17.4 The checks of the status comment
 

@@ -3,6 +3,7 @@ package com.meterian.factory.setup;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
@@ -36,7 +37,7 @@ public final class DefinitionFolderSetup {
         if (!Files.isDirectory(folder)) {
             throw new SetupException("The definition folder " + folder + " is not a folder.");
         }
-        if (Files.isRegularFile(folder.resolve(MAIN_FILE))) {
+        if (Files.isRegularFile(folder.resolve(MAIN_FILE), LinkOption.NOFOLLOW_LINKS)) {
             return false;
         }
         if (!hasOnlyHiddenEntries()) {

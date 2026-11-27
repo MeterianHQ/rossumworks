@@ -12,9 +12,19 @@ import java.util.Optional;
 public final class FolderDefinitionFiles implements DefinitionFiles {
 
     private final Path folder;
+    private final Path folderInMessages;
 
     public FolderDefinitionFiles(Path folder) {
+        this(folder, folder);
+    }
+
+    /**
+     * @param folder           the folder that the files come from
+     * @param folderInMessages the folder that the messages name, for example the definition folder of a temporary copy
+     */
+    public FolderDefinitionFiles(Path folder, Path folderInMessages) {
         this.folder = folder;
+        this.folderInMessages = folderInMessages;
     }
 
     @Override
@@ -28,11 +38,11 @@ public final class FolderDefinitionFiles implements DefinitionFiles {
             verifyFileIsInsideFolder(relativePath, file);
             return Optional.of(Files.readString(file, StandardCharsets.UTF_8));
         } catch (CharacterCodingException exception) {
-            throw new DefinitionException("The file " + relativePath + " of the folder " + folder
+            throw new DefinitionException("The file " + relativePath + " of the folder " + folderInMessages
                     + " is not valid UTF-8.", exception);
         } catch (IOException exception) {
             throw new UnreadableDefinitionFileException("Cannot read the file " + relativePath + " of the folder "
-                    + folder + ": " + exception.getMessage(), exception);
+                    + folderInMessages + ": " + exception.getMessage(), exception);
         }
     }
 

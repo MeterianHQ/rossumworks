@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meterian.factory.agent.LiveFiles;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.LocalVersion;
 import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
@@ -36,6 +37,7 @@ final class SelfCheckSteps {
 
     static final String CHECK_REPOSITORY = "owner/project";
     private static final String CHECK_LOGIN = "self-check";
+    private static final String DEFINITION_VERSION_KEY = "definitionCommit";
     private static final String UNKNOWN_VERSION = "unknown";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int CHECK_ITERATIONS = 1000;
@@ -77,12 +79,21 @@ final class SelfCheckSteps {
                 .withHandOver(HandOver.RELEASED)
                 .withReview("correctness", Verdict.APPROVE)
                 .withRisk(RiskLevel.LOW, true, List.of("A small change."))
-                .withNote("The self-check wrote this record.");
+                .withNote("The self-check wrote this record.")
+                .withDefinitionVersion(LocalVersion.of("0".repeat(64)));
         String body = StatusComment.render(record, Map.of(), List.of("correctness"));
+        verifyKeyOfTheDefinitionVersion(body);
         IssueRecord readRecord = StatusComment.findRecord(List.of(new IssueComment(1, CHECK_LOGIN, body)), CHECK_LOGIN)
                 .orElseThrow(() -> new IllegalStateException("The status comment has no record."));
         if (!readRecord.equals(record)) {
             throw new IllegalStateException("The record of the status comment changed: " + readRecord);
+        }
+    }
+
+    /** The jar and the native program must agree on the key, so each one reads the versions of the other. */
+    private static void verifyKeyOfTheDefinitionVersion(String body) {
+        if (!body.contains("\"" + DEFINITION_VERSION_KEY + "\":")) {
+            throw new IllegalStateException("The status comment has no key " + DEFINITION_VERSION_KEY + ".");
         }
     }
 

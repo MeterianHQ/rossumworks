@@ -36,6 +36,18 @@ class DefinitionFolderSetupTest {
     }
 
     @Test
+    void refusesAMainFileThatIsASymbolicLink() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Path target = Files.writeString(temporaryDirectory.resolve("outside.yaml"), "version: 1\n");
+        Files.createSymbolicLink(folder.resolve("factory.yaml"), target);
+
+        assertThatThrownBy(() -> new DefinitionFolderSetup(folder).needsDefinition())
+                .isInstanceOf(SetupException.class)
+                .hasMessage("The definition folder " + folder + " has files, but no factory.yaml. "
+                        + "Correct the folder, or give an empty folder, and run create again.");
+    }
+
+    @Test
     void needsNoDefinitionWhenTheFolderHasTheMainFile() throws Exception {
         Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
         Files.writeString(folder.resolve("factory.yaml"), "version: 1\n");

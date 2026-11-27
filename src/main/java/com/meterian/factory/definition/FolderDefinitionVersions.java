@@ -74,7 +74,7 @@ public final class FolderDefinitionVersions implements DefinitionSource {
         String hash = FolderHash.calculate(temporaryCopy);
         FactoryDefinition definition;
         try {
-            definition = DefinitionLoader.load(new FolderDefinitionFiles(temporaryCopy));
+            definition = DefinitionLoader.load(new FolderDefinitionFiles(temporaryCopy, folder));
         } catch (DefinitionException exception) {
             if (isReadFailure(exception)) {
                 throw new IOException(exception.getMessage(), exception);

@@ -28,10 +28,10 @@ When a new document needs a new term, add the term to this page first.
 | live conversation | A conversation between you and the agent of an issue, through Remote Control. |
 | live files | The files of the live mode in the live folder of the machine. See [Live mode](live-mode.md). |
 | live mode | The mode where you talk to the agent in a live conversation. Only the subscription has it. See [Live mode](live-mode.md). |
+| local version | The version of a definition folder: `local:` and the SHA-256 hash of its content. See [Factory definition](factory-definition.md), section 17. |
 | log event | One line of the file `events.jsonl`. See [Events](events.md). |
 | merge gate | The action `merge-gate`. It merges the change, or waits for your approval. See [Factory definition](factory-definition.md). |
 | native program | The program of the factory for one platform, for example `rossumworks-$VERSION-linux-x64`. GraalVM compiles it from the jar, so it needs no JDK. See [Getting started](getting-started.md). |
-| local version | The version of a definition folder: `local:` and the SHA-256 hash of its content. See [Factory definition](factory-definition.md), section 17. |
 | note | A short text that the worker writes in the status comment. The card shows the newest note. |
 | previous | The last state with an action that does not wait for you. See [Factory definition](factory-definition.md). |
 | provider | The source of the access to Claude for the `claude` sessions, and of the payment: your Claude subscription, or an Anthropic API key. See [Providers](providers.md). |

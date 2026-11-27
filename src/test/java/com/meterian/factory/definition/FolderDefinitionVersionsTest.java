@@ -184,7 +184,8 @@ class FolderDefinitionVersionsTest {
         assertThat(currentVersion(versions)).isEqualTo(good);
         assertThat(versions.warning()).hasValueSatisfying(warning -> assertThat(warning)
                 .startsWith("The definition folder " + folder + " does not load: ")
-                .contains("The file " + firstPromptPath() + " of the folder ")
+                .contains("The file " + firstPromptPath() + " of the folder " + folder + " ")
+                .doesNotContain(".partial-")
                 .contains(" is not valid UTF-8")
                 .endsWith("The factory keeps the version " + DefinitionVersionText.shorten(good) + "."));
     }
