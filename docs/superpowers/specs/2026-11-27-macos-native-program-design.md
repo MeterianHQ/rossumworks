@@ -78,6 +78,13 @@ program stops the script. `build.yml` runs the test script in the job "Check the
 The plan finds the minimum macOS version of the program from the `macos-latest` runner. The documents give
 this version.
 
+## 6a. The class `RunningProgram`
+
+`create` copies its own native program into `~/.rossumworks/native`, but only when the file name matches the
+pattern of `RunningProgram.Kind.NATIVE`. The pattern is `rossumworks-.+-linux-(x64|arm64)` now. It changes to
+`rossumworks-.+-(linux-x64|linux-arm64|macos-arm64)`, so a Mac also gets the copy. `RunningProgramTest` checks
+the new name.
+
 ## 7. The tests of `run.sh`
 
 `RunScriptTest` uses a fake `uname`. These tests change or come in:
