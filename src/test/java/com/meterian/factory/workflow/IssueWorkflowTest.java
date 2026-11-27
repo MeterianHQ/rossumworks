@@ -1824,6 +1824,10 @@ class IssueWorkflowTest {
         assertThat(record.state()).isEqualTo("blocked");
         assertThat(record.notes()).contains(CodingAction.MISSING_FINDINGS_NOTE);
         assertThat(agent.requests()).hasSize(1);
+        JsonNode blockedCoding = events.ofType("action-end").getLast();
+        assertThat(blockedCoding.path("action").asText()).isEqualTo("coding");
+        assertThat(blockedCoding.path("result").asText()).isEqualTo("blocked");
+        assertThat(blockedCoding.has("prompt")).isFalse();
     }
 
     @Test
@@ -1926,6 +1930,10 @@ class IssueWorkflowTest {
         assertThat(run(worktree(), "rev-parse", "HEAD^")).isEqualTo(mergedUpstream);
         assertThat(run(worktree(), "rev-list", "--merges", mergedUpstream + "..HEAD")).isEmpty();
         assertThat(run(worktree(), "show", "HEAD:a.txt")).isEqualTo("agent and main");
+        JsonNode finishedMerge = events.ofType("action-end").getLast();
+        assertThat(finishedMerge.path("action").asText()).isEqualTo("coding");
+        assertThat(finishedMerge.path("result").asText()).isEqualTo("changed");
+        assertThat(finishedMerge.has("prompt")).isFalse();
     }
 
     private static final String LIVE_LINK = "https://claude.ai/code/session_test7";

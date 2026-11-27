@@ -14,12 +14,8 @@ final class ActionEndFields {
     private ActionEndFields() {
     }
 
-    /** @param record the record before the action */
-    static Map<String, Object> describe(ActionType type, IssueRecord record, ActionResult result) {
+    static Map<String, Object> describe(ActionType type, ActionResult result) {
         Map<String, Object> fields = new LinkedHashMap<>();
-        if (type == ActionType.CODING) {
-            fields.put("prompt", ImplementPrompt.nameOf(record));
-        }
         if (!(result instanceof ActionResult.Event event)) {
             return fields;
         }

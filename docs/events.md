@@ -54,7 +54,7 @@ More about some fields:
 
 | `action` | Fields of `action-end` |
 |---|---|
-| `coding` | `prompt` (`implement`, `fix`, `continue`, `resume`) |
+| `coding` | `prompt` (`implement`, `fix`, `continue`, `resume`), when the action runs an agent session |
 | `build` | `exit_code`, when the build command ends by itself |
 | `reviews` | `reviews`: one object for each review, for example `{"correctness": {"verdict": "approve", "findings": 0}}` |
 | `risk` | `risk`, `small`, `reasons` (the first reason only) |

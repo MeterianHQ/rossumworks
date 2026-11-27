@@ -14,44 +14,52 @@ final class ImplementPrompt {
 
     private static final String CONTINUE_PROMPT_NAME = "continue";
 
+    /**
+     * The chosen prompt.
+     *
+     * @param name the name of the prompt for the event action-end: implement, continue, fix, or resume
+     * @param text the text of the prompt for the agent session
+     */
+    record Choice(String name, String text) {
+    }
+
     private ImplementPrompt() {
     }
 
     /** Empty when the findings of the pending prompt are missing. */
-    static Optional<String> choose(PromptLibrary prompts, Issue issue, IssueRecord record, FactoryFolder folder) {
+    static Optional<Choice> choose(PromptLibrary prompts, Issue issue, IssueRecord record, FactoryFolder folder) {
         // A new session (also after a restart without the worktree) gets the full task, not the findings.
         if (!record.agentSessionStarted()) {
-            return Optional.of(prompts.implement(issue));
+            return Optional.of(chooseImplement(prompts, issue));
         }
         PendingPrompt pendingPrompt = record.pendingPrompt().orElse(PendingPrompt.IMPLEMENT);
         if (record.afterConversation()) {
             return continueWithThePendingPrompt(prompts, pendingPrompt, folder);
         }
         if (pendingPrompt == PendingPrompt.IMPLEMENT) {
-            return Optional.of(prompts.implement(issue));
+            return Optional.of(chooseImplement(prompts, issue));
         }
-        return renderWithTheFindings(prompts, pendingPrompt, folder);
+        return renderWithTheFindings(prompts, pendingPrompt, folder)
+                .map(text -> new Choice(nameOf(pendingPrompt), text));
     }
 
-    /** The name of the prompt that choose gives for the record: implement, continue, fix, or resume. */
-    static String nameOf(IssueRecord record) {
-        if (!record.agentSessionStarted()) {
-            return PendingPrompt.IMPLEMENT.name().toLowerCase();
-        }
-        if (record.afterConversation()) {
-            return CONTINUE_PROMPT_NAME;
-        }
-        return record.pendingPrompt().orElse(PendingPrompt.IMPLEMENT).name().toLowerCase();
+    private static Choice chooseImplement(PromptLibrary prompts, Issue issue) {
+        return new Choice(nameOf(PendingPrompt.IMPLEMENT), prompts.implement(issue));
+    }
+
+    private static String nameOf(PendingPrompt pendingPrompt) {
+        return pendingPrompt.name().toLowerCase();
     }
 
     /** A conversation in a fix must not lose the findings: the pending prompt follows the prompt continue. */
-    private static Optional<String> continueWithThePendingPrompt(PromptLibrary prompts, PendingPrompt pendingPrompt,
+    private static Optional<Choice> continueWithThePendingPrompt(PromptLibrary prompts, PendingPrompt pendingPrompt,
             FactoryFolder folder) {
         String continuePrompt = prompts.continueAfterConversation();
         if (pendingPrompt == PendingPrompt.IMPLEMENT) {
-            return Optional.of(continuePrompt);
+            return Optional.of(new Choice(CONTINUE_PROMPT_NAME, continuePrompt));
         }
-        return renderWithTheFindings(prompts, pendingPrompt, folder).map(prompt -> continuePrompt + "\n\n" + prompt);
+        return renderWithTheFindings(prompts, pendingPrompt, folder)
+                .map(prompt -> new Choice(CONTINUE_PROMPT_NAME, continuePrompt + "\n\n" + prompt));
     }
 
     private static Optional<String> renderWithTheFindings(PromptLibrary prompts, PendingPrompt pendingPrompt,
