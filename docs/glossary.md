@@ -15,16 +15,20 @@ When a new document needs a new term, add the term to this page first.
 | build command | The command that compiles and tests each change, in `build.command` of the definition. The exit code 0 means that the build passed. See [Factory definition](factory-definition.md). |
 | card | One issue on the board. |
 | daily budget | With an API key, the maximum cost of one day, in `limits.daily-budget-usd`. See [Providers](providers.md). |
-| definition | The folder `.factory` of your repository. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |
+| definition | The folder `.factory` of your repository, or the definition folder. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |
+| definition copy | A copy of one version of the definition folder, in `<work folder>/definitions/<hash>/`. The worker writes it, and an issue reads its definition from it. |
+| definition folder | A folder outside the repository that holds the definition. You give it with the option `--definition` of `run` and `create`. |
 | Enter | Your request to open a live conversation: the label `factory:enter`, or the button Terminal or Browser. |
 | enter state | The state where an issue goes when you open the live mode. In the default workflow, it is `live`. The error messages call it the enter target. |
 | event | The result of an action, for example `passed` or `failed`. The workflow uses the event to select the next state. |
 | factory | All the parts together: the worker, the board, the gatekeeper, the definition, and the `claude` sessions. |
 | gate | A check that each change must pass before the merge: the build command, the reviews, the risk check, and the merge gate. See [FAQ](faq.md). |
 | gatekeeper | A local git repository. Each push of the worker goes through it, and it forwards the push to GitHub only when the push is safe. See [More than one factory](multiple-factories.md). |
+| hidden entry | A file or a folder whose name starts with a dot, for example `.git`. The worker skips the hidden entries of the definition folder. |
 | live conversation | A conversation between you and the agent of an issue, through Remote Control. |
 | live files | The files of the live mode in the live folder of the machine. See [Live mode](live-mode.md). |
 | live mode | The mode where you talk to the agent in a live conversation. Only the subscription has it. See [Live mode](live-mode.md). |
+| local version | The version of a definition folder: `local:` and the SHA-256 hash of its content. See [Factory definition](factory-definition.md), section 17. |
 | log event | One line of the file `events.jsonl`. See [Events](events.md). |
 | merge gate | The action `merge-gate`. It merges the change, or waits for your approval. See [Factory definition](factory-definition.md). |
 | native program | The program of the factory for one platform, for example `rossumworks-$VERSION-linux-x64`. GraalVM compiles it from the jar, so it needs no JDK. See [Getting started](getting-started.md). |

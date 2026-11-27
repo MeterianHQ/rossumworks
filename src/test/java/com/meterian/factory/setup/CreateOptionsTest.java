@@ -101,4 +101,25 @@ class CreateOptionsTest {
                 .isInstanceOf(SetupException.class)
                 .hasMessageStartingWith("The daily budget must be a number from 0.01 to 1000000.");
     }
+
+    @Test
+    void readsTheDefinitionFolder() throws SetupException {
+        CreateOptions options = CreateOptions.parse(List.of("--definition", "my-factory"));
+
+        assertThat(options.definitionFolder()).contains(Path.of("my-factory"));
+    }
+
+    @Test
+    void needsAValueForTheDefinitionFolder() {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--definition")))
+                .hasMessageStartingWith("The parameter --definition needs a value.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "--yes"})
+    void refusesADefinitionFolderThatIsEmptyOrAnOption(String value) {
+        assertThatThrownBy(() -> CreateOptions.parse(List.of("--definition", value)))
+                .isInstanceOf(SetupException.class)
+                .hasMessage("The parameter --definition needs a value.\n" + CreateOptions.USAGE);
+    }
 }

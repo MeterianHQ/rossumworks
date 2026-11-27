@@ -27,6 +27,24 @@ class GeneratedFactoryFolderTest {
     }
 
     @Test
+    void acceptsTheDefaultDefinitionFiles() {
+        Map<String, String> files = DefaultFactoryFolder.definitionFiles(RepositoryBuild.MAVEN, "main");
+
+        assertThatCode(() -> GeneratedFactoryFolder.verifyDefinitionLoads(files)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesDefinitionFilesThatDoNotLoad() {
+        Map<String, String> files = new LinkedHashMap<>(DefaultFactoryFolder.definitionFiles(RepositoryBuild.MAVEN,
+                "main"));
+        files.put("factory.yaml", "version: 1\n");
+
+        assertThatThrownBy(() -> GeneratedFactoryFolder.verifyDefinitionLoads(files))
+                .isInstanceOf(SetupException.class)
+                .hasMessageStartingWith("The generated definition does not load: ");
+    }
+
+    @Test
     void refusesAFolderWithoutTheMainFile() {
         assertThatThrownBy(() -> GeneratedFactoryFolder.verifyLoads(Map.of()))
                 .isInstanceOf(SetupException.class)

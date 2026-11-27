@@ -43,7 +43,8 @@ The worker starts three types of `claude` session for an issue:
 ### The workflow of an issue
 
 The folder `.factory` of your repository holds the definition of **the workflow**. It defines the states and the
-transitions, the prompts of the sessions, the build command, and the target branch of the merges. The default workflow follows this flow:
+transitions, the prompts of the sessions, the build command, and the target branch of the merges. You can also keep the definition in a folder outside the repository. See
+[Factory definition](docs/factory-definition.md), section 17. The default workflow follows this flow:
 
 1. You add the label `factory` to an issue.
 2. At its next poll, the worker assigns the issue to the GitHub account of its token. It writes the status

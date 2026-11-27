@@ -8,11 +8,11 @@ public interface DefinitionFiles {
 
     Optional<String> read(String relativePath) throws DefinitionException;
 
-    /** Refuses a path with a segment .. or a leading slash: a prompt path must stay in the folder .factory. */
+    /** Refuses a path with a segment .. or a leading slash: a prompt path must stay in the folder of the definition. */
     static void verifyPathStaysInFolder(String relativePath) throws DefinitionException {
         boolean hasParentSegment = Arrays.asList(relativePath.split("/", -1)).contains("..");
         if (hasParentSegment || relativePath.startsWith("/")) {
-            throw new DefinitionException("The prompt path " + relativePath + " leaves the folder .factory.");
+            throw new DefinitionException("The prompt path " + relativePath + " leaves the folder of the definition.");
         }
     }
 }

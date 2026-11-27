@@ -247,6 +247,16 @@ public final class SetupQuestions {
     }
 
     public boolean confirm(CreateOptions options, String summary) throws SetupException {
+        return confirmWithQuestion(options, summary, "Write the files and open the pull request?");
+    }
+
+    /** The confirmation with --definition: the command opens no pull request. */
+    public boolean confirmDefinitionFolder(CreateOptions options, String summary) throws SetupException {
+        return confirmWithQuestion(options, summary, "Write the files?");
+    }
+
+    private boolean confirmWithQuestion(CreateOptions options, String summary, String question)
+            throws SetupException {
         if (options.yes()) {
             return true;
         }
@@ -254,7 +264,7 @@ public final class SetupQuestions {
             throw new SetupException("The command needs a confirmation. Give --yes.");
         }
         console.show(summary);
-        return askYesOrNo("Write the files and open the pull request?");
+        return askYesOrNo(question);
     }
 
     /** The confirmation when the repository already has a .factory. Without a console, no --yes is necessary. */

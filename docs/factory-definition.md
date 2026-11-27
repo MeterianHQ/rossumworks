@@ -581,6 +581,8 @@ pushes to the default branch or to a tag directly. It merges a pull request into
 
 ## 13. How the worker reads `.factory`
 
+With `--definition`, the worker reads a definition folder in place of `.factory`. See section 17.
+
 - At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
   newest commit with git, never from the worktree of an issue.
 - A new issue gets the newest version that loads. Its status comment keeps the commit of that version.
@@ -774,3 +776,83 @@ of a workflow:
       limit: { entries: 10, then: blocked }
       on: { approved: merge, rejected: code }
 ```
+
+## 17. A definition outside the repository
+
+You can keep the definition in a definition folder outside the repository. Give the folder with the option
+`--definition` of `run`:
+
+```
+rossumworks run --definition <folder>
+```
+
+With the jar, write `java -jar rossumworks-<version>.jar` in place of `rossumworks`.
+
+The definition folder has the same content as `.factory`: `factory.yaml` and the prompt files. It does not need
+git. Without `--definition`, the worker reads `.factory` of the default branch. The worker refuses a value of
+`--definition` that is empty or that starts with `--`.
+
+### 17.1 The versions
+
+At the start of each poll, the worker reads the definition folder. When the content changes, the worker makes a
+new version: a local version. A local version is `local:` and the 64 characters of the SHA-256 hash of the
+content. The board shows a short form, for example `local:8be41d0`.
+
+The worker keeps each version that loads as a definition copy in `<work folder>/definitions/<hash>/`. The
+status comment of an issue keeps its version. The issue reads its definition from its copy, never from the
+definition folder. So an edit of the folder reaches only the new issues. To give an edit to an issue in the block
+state, use Start again (section 10.6).
+
+The worker never deletes a definition copy.
+
+### 17.2 When the definition folder does not load
+
+- The worker keeps the last version that loads, and the board shows the reason at the top.
+- After a restart, the worker takes the newest definition copy that loads. The newest copy is the copy with the
+  newest modification time. A copy keeps the time of its first write, also when the same content comes back
+  later.
+- When no version loads, the worker takes no new issue.
+
+A file that is not valid UTF-8 is an error of the definition. The definition then does not load.
+
+A symbolic link below the definition folder is an error. The worker cannot read the folder, so it keeps the
+current version. At the start, it then takes the newest definition copy that loads. The worker reads the folder
+again at each poll. When you remove the link, the worker loads the folder again.
+
+The worker skips each hidden entry, for example `.git`, at each level. So you can keep the definition folder in a
+git repository: a commit does not make a new version, and the copies do not contain `.git`. A prompt file cannot
+be a hidden entry.
+
+### 17.3 An edit that is not complete
+
+The worker can read the folder while your edit is not complete. When the content that is not complete loads,
+new issues can start with it. To prevent this, give `--definition` a symbolic link that points to the definition
+folder. Do these steps for each edit:
+
+1. Copy the definition folder to a new folder.
+2. Edit the files in the new folder.
+3. Point the link to the new folder, for example with `ln -sfn <new folder> <link>`.
+
+The worker reads the folder of the link. When the worker reads the link at the moment of the change, it cannot
+read the folder. It then keeps the current version for one poll.
+
+### 17.4 The checks of the status comment
+
+A person with write access to the repository can edit the status comment. So the worker checks the version of
+each record:
+
+| Mode of the worker | Version in the record | What the worker does |
+|---|---|---|
+| Without `--definition` | A commit | It uses the commit when the commit is on the default branch. |
+| Without `--definition` | A `local:` version | It blocks the issue. |
+| With `--definition` | A `local:` version | It uses the version when its definition copy exists. |
+| With `--definition` | A commit | It blocks the issue. |
+| Both | No version | It uses the built-in definition. |
+
+When another person takes over the issue, their factory writes a new record with its own current version. See
+[More than one factory](multiple-factories.md). When the same account runs the worker on a machine without the
+definition copy, the worker blocks the issue.
+
+With `--definition`, a pull request that changes `.factory` still ends with the event `factory-changed`, and the
+merge needs your approval. The worker does not use that `.factory`. A change of the definition folder never gives
+`factory-changed`, because the folder is not in the repository.

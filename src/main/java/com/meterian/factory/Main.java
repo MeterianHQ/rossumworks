@@ -15,8 +15,11 @@ import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.WebSettings;
 import com.meterian.factory.definition.BuiltInDefinition;
+import com.meterian.factory.definition.DefinitionCopies;
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionSource;
+import com.meterian.factory.definition.FolderDefinitionVersions;
+import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.events.EventsFile;
 import com.meterian.factory.events.FactoryVersion;
 import com.meterian.factory.events.WorkerEvents;
@@ -34,6 +37,7 @@ import com.meterian.factory.provider.Provider;
 import com.meterian.factory.provider.Providers;
 import com.meterian.factory.provider.SubscriptionProvider;
 import com.meterian.factory.setup.CreateCommand;
+import com.meterian.factory.setup.CreateOptions;
 import com.meterian.factory.setup.RunningProgram;
 import com.meterian.factory.setup.SystemSetupConsole;
 import com.meterian.factory.setup.WorkerFileFinder;
@@ -81,21 +85,19 @@ import java.util.concurrent.Executors;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
-/** The command line: run [--config <file>], hash-password, or create. */
+/** The command line: run [--config <file>] [--definition <folder>], hash-password, or create. */
 public final class Main {
 
     public static final int EXIT_SUCCESS = 0;
     public static final int EXIT_FAILURE = 1;
     static final int EXIT_CREDENTIAL_MISMATCH = 2;
 
-    private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
+    private static final String USAGE = RunOptions.USAGE + "\n"
             + "       rossumworks hash-password\n"
-            + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
-            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--yes]\n"
+            + "       " + CreateOptions.COMMAND_LINE + "\n"
             + "       rossumworks self-check\n"
             + "       rossumworks --version\n"
-            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
+            + CreateOptions.JAR_NOTE;
     private static final URI GITHUB_API = URI.create("https://api.github.com");
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration MERGE_RETRY_DELAY = Duration.ofSeconds(10);
@@ -232,7 +234,7 @@ public final class Main {
     @FunctionalInterface
     interface WorkerStarter {
         int start(FactoryConfiguration configuration, Provider provider, RetrySettings retries, String token,
-                  PrintStream errors)
+                  PrintStream errors, Optional<Path> definitionFolder)
                 throws InterruptedException, StartupException;
     }
 
@@ -253,7 +255,9 @@ public final class Main {
                    StartChecks.TokenSource ghToken,
                    WorkerStarter workerStarter, Git git, WorkerFileFinder finder) {
         try {
-            Path configurationFile = readConfigurationPath(arguments, finder);
+            RunOptions options = readRunOptions(arguments);
+            Path configurationFile = options.findConfigurationFile(finder);
+            Optional<Path> definitionFolder = options.verifyDefinitionFolder();
             RetrySettings retries = readRetrySettings();
             FactoryConfiguration configuration = ConfigurationLoader.load(configurationFile);
             StartChecks.verifyCredential(environment, configuration.claude().provider());
@@ -263,7 +267,7 @@ public final class Main {
             cloneRepositoryIfMissing(configuration, git);
             Provider provider = Providers.create(configuration, environment);
             errors.println(provider.describe());
-            return workerStarter.start(configuration, provider, retries, token, errors);
+            return workerStarter.start(configuration, provider, retries, token, errors, definitionFolder);
         } catch (StartupException | ConfigurationException | GitException | GitHubException exception) {
             errors.println(exception.getMessage());
             return EXIT_FAILURE;
@@ -297,16 +301,13 @@ public final class Main {
         git.cloneRepository(configuration.repository().sshUrl(), clone);
     }
 
-    /** run --config <file> gives the file. run alone finds the worker.yaml of the clone in the current folder. */
-    static Path readConfigurationPath(String[] arguments, WorkerFileFinder finder) throws StartupException {
-        if (arguments.length == 1 && arguments[0].equals("run")) {
-            return finder.find();
-        }
-        boolean isValid = arguments.length == 3 && arguments[0].equals("run") && arguments[1].equals("--config");
-        if (!isValid) {
+    /** A wrong command shows the usage of all the commands, not only of run. */
+    private static RunOptions readRunOptions(String[] arguments) throws StartupException {
+        try {
+            return RunOptions.parse(arguments);
+        } catch (StartupException exception) {
             throw new StartupException(USAGE);
         }
-        return Path.of(arguments[2]);
     }
 
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
@@ -321,7 +322,8 @@ public final class Main {
     }
 
     private static int runWorker(FactoryConfiguration configuration, Provider provider, RetrySettings retries,
-                                 String token, PrintStream errors)
+                                 String token, PrintStream errors,
+                                 Optional<Path> definitionFolder)
             throws InterruptedException, StartupException {
         LiveFiles liveFiles = installLiveFiles(configuration);
         GitHubClient gitHub = new HttpGitHubClient(GITHUB_API, token, configuration.repository(), createHttpClient());
@@ -331,7 +333,7 @@ public final class Main {
         ClaudeAgentRunner agentRunner = new ClaudeAgentRunner(configuration.claude(), Clock.systemUTC(), claudeHome,
                 provider);
         Git git = new ProcessGit();
-        DefinitionVersions definitions = createDefinitionVersions(git, configuration);
+        DefinitionSource definitions = createDefinitionSource(git, configuration, definitionFolder);
         BuildRunner buildRunner = new BuildRunner();
         LiveSessions liveSessions = createLiveSessions(configuration, provider, liveFiles);
         IssueWorkflow workflow = createWorkflow(configuration, gitHub, git, agentRunner, buildRunner,
@@ -383,15 +385,26 @@ public final class Main {
                 TmuxLiveSessions.DEFAULT_OPEN_TIMEOUT, configuration.terminalCommand());
     }
 
+    /** With --definition, the definition folder. Else, the folder .factory of the default branch. */
+    private static DefinitionSource createDefinitionSource(Git git, FactoryConfiguration configuration,
+                                                           Optional<Path> definitionFolder)
+            throws StartupException {
+        if (definitionFolder.isPresent()) {
+            return new FolderDefinitionVersions(definitionFolder.get(),
+                    DefinitionCopies.inWorkFolder(configuration.workDirectory()), BuiltInDefinition.load());
+        }
+        return createDefinitionVersions(git, configuration);
+    }
+
     /**
      * The default branch is read once, at the start. The first poll reads its definition: until a version loads,
      * the worker takes no new issue.
      */
-    private static DefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
+    private static GitDefinitionVersions createDefinitionVersions(Git git, FactoryConfiguration configuration)
             throws StartupException {
         Path clone = configuration.cloneDirectory();
         try {
-            return new DefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
+            return new GitDefinitionVersions(git, clone, git.defaultBranch(clone), BuiltInDefinition.load());
         } catch (GitException exception) {
             throw new StartupException("The factory cannot read the default branch of the clone " + clone + ": "
                     + exception.getMessage());
@@ -538,7 +551,7 @@ public final class Main {
                                                 ClaudeAgentRunner agentRunner, BuildRunner buildRunner,
                                                 String workerLogin,
                                                 LiveSessions liveSessions, SharedState shared,
-                                                DefinitionVersions definitions, RetrySettings retries) {
+                                                DefinitionSource definitions, RetrySettings retries) {
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, workerLogin);
         return new IssueWorkflow(configuration, gitHub, git, agentRunner, definitions,

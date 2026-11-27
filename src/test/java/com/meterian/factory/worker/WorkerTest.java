@@ -4,6 +4,7 @@ import static com.meterian.factory.testing.TemporaryRepository.commitFile;
 import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
 import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
 import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
+import static com.meterian.factory.testing.DefinitionFolders.writeDefinitionFolder;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -24,7 +25,12 @@ import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionCopies;
+import com.meterian.factory.definition.DefinitionSource;
+import com.meterian.factory.definition.FolderDefinitionVersions;
+import com.meterian.factory.definition.FolderHash;
+import com.meterian.factory.definition.GitDefinitionVersions;
+import com.meterian.factory.definition.LocalVersion;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -183,12 +189,12 @@ class WorkerTest {
         return createWorker(agent, configuration, board, createVersions(configuration));
     }
 
-    private DefinitionVersions createVersions(FactoryConfiguration configuration) {
-        return new DefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
+    private GitDefinitionVersions createVersions(FactoryConfiguration configuration) {
+        return new GitDefinitionVersions(git, clone, "main", builtInWithBuild(buildCommand));
     }
 
     private Worker createWorker(FakeAgentRunner agent, FactoryConfiguration configuration, BoardUpdates board,
-                                DefinitionVersions versions) {
+                                DefinitionSource versions) {
         BuildRunner buildRunner = new BuildRunner();
         OwnershipGuard ownershipGuard = new GitHubOwnershipGuard(gitHub, WORKER_LOGIN);
         LostIssues lostIssues = new LostIssues();
@@ -285,14 +291,28 @@ class WorkerTest {
 
         worker.pollOnce();
 
-        assertThat(readRecord(ISSUE).orElseThrow().definitionCommit()).contains(commit);
+        assertThat(readRecord(ISSUE).orElseThrow().definitionVersion()).contains(commit);
+    }
+
+    @Test
+    void givesTheIntakeTheVersionOfTheDefinitionFolder() throws IOException {
+        Path folder = writeDefinitionFolder(temporaryDirectory.resolve("definition"), mainFileFor("true"));
+        FactoryConfiguration configuration = createConfiguration(0, Duration.ofSeconds(60));
+        FolderDefinitionVersions versions = new FolderDefinitionVersions(folder,
+                DefinitionCopies.inWorkFolder(configuration.workDirectory()), builtInWithBuild(buildCommand));
+        Worker worker = createWorker(new FakeAgentRunner(), configuration, board, versions);
+
+        worker.pollOnce();
+
+        assertThat(readRecord(ISSUE).orElseThrow().definitionVersion())
+                .contains(LocalVersion.of(FolderHash.calculate(folder)));
     }
 
     @Test
     void blocksARecordWhoseDefinitionDoesNotLoadAndStartsTheNextIssue() throws InterruptedException {
         String broken = commitDefinition(clone, "version: 1\nworkflow: [\n");
         IssueRecord unloadable = RecordStates.move(RecordStates.queued(ISSUE).withAgentSessionStarted(), "implement")
-                .withDefinitionCommit(broken);
+                .withDefinitionVersion(broken);
         gitHub.addCommentBy(ISSUE, WORKER_LOGIN, StatusComment.render(unloadable, LIMITS, RecordStates.REVIEW_NAMES));
         addLabeledIssue(OTHER_ISSUE);
         Worker worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
@@ -653,7 +673,7 @@ class WorkerTest {
         assertThat(record.column()).isEqualTo("queued");
         assertThat(record.state()).isEqualTo("prepare");
         assertThat(record.action()).contains(ActionType.PREPARE);
-        assertThat(record.definitionCommit()).isEqualTo(blocked.definitionCommit()).isPresent();
+        assertThat(record.definitionVersion()).isEqualTo(blocked.definitionVersion()).isPresent();
         assertThat(record.sessionId()).isNotEqualTo(blocked.sessionId());
         assertThat(record.agentSessionStarted()).isFalse();
         assertThat(record.entriesOf("implement")).isLessThanOrEqualTo(1);
@@ -687,14 +707,14 @@ class WorkerTest {
         worker.pollOnce();
         IssueRecord blocked = writeBlockedRecordWithEarlierWork();
         String correction = commitDefinition(clone, mainFileFor("echo corrected"));
-        assertThat(blocked.definitionCommit()).isPresent().isNotEqualTo(Optional.of(correction));
+        assertThat(blocked.definitionVersion()).isPresent().isNotEqualTo(Optional.of(correction));
         gitHub.addLabel(ISSUE, START_AGAIN_LABEL);
 
         worker.pollOnce();
 
         IssueRecord record = readRecord(ISSUE).orElseThrow();
         assertThat(record.state()).isEqualTo("prepare");
-        assertThat(record.definitionCommit()).contains(correction);
+        assertThat(record.definitionVersion()).contains(correction);
     }
 
     @Test

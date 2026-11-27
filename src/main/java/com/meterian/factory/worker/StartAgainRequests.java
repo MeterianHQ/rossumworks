@@ -1,7 +1,7 @@
 package com.meterian.factory.worker;
 
+import com.meterian.factory.definition.DefinitionSource;
 import com.meterian.factory.definition.DefinitionVersion;
-import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
@@ -27,11 +27,11 @@ final class StartAgainRequests {
 
     private final GitHubClient gitHub;
     private final StatusPublisher statusPublisher;
-    private final DefinitionVersions definitions;
+    private final DefinitionSource definitions;
     private final IssueDefinitionFacts facts;
     private final WorkerMove workerMove;
 
-    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionVersions definitions,
+    StartAgainRequests(GitHubClient gitHub, StatusPublisher statusPublisher, DefinitionSource definitions,
                        WorkerMove workerMove) {
         this.gitHub = gitHub;
         this.workerMove = workerMove;
@@ -82,7 +82,7 @@ final class StartAgainRequests {
     private IssueRecord createQueuedRecord(Issue issue, IssueRecord record, DefinitionVersion current) {
         WorkflowDefinition workflow = current.definition().workflow();
         IssueRecord queued = IssueRecord.queued(issue.number(), workflow.start())
-                .withDefinitionCommit(current.commit())
+                .withDefinitionVersion(current.identifier())
                 .withIssueTextHash(IssueText.computeHash(issue))
                 .withNote(STARTED_AGAIN_NOTE);
         workerMove.writeMoveOfAnotherState(workflow, record, queued);

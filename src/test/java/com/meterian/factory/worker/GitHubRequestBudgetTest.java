@@ -16,7 +16,7 @@ import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.configuration.IsolationMode;
 import com.meterian.factory.configuration.RepositoryName;
 import com.meterian.factory.configuration.WorkerLimits;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
@@ -170,7 +170,7 @@ class GitHubRequestBudgetTest {
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
         commitDefinition(clone, mainFileFor(BUILD_COMMAND));
-        DefinitionVersions versions = new DefinitionVersions(git, clone, "main",
+        GitDefinitionVersions versions = new GitDefinitionVersions(git, clone, "main",
                 builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
         LostIssues lostIssues = new LostIssues();

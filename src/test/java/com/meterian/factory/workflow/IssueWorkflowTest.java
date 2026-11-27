@@ -774,13 +774,13 @@ class IssueWorkflowTest {
     void blocksAnIssueWhoseDefinitionDoesNotLoad() throws Exception {
         String commit = "0123456789abcdef0123456789abcdef01234567";
         DefinitionLookup definitions = record -> {
-            if (record.definitionCommit().isPresent()) {
+            if (record.definitionVersion().isPresent()) {
                 throw new IllegalStateException("factory.yaml: unknown key workflow.x");
             }
             return BuiltInDefinition.load();
         };
 
-        IssueRecord record = createWorkflow("true", definitions).advance(queuedRecord().withDefinitionCommit(commit));
+        IssueRecord record = createWorkflow("true", definitions).advance(queuedRecord().withDefinitionVersion(commit));
 
         assertThat(record.state()).isEqualTo("prepare");
         assertThat(record.column()).isEqualTo("blocked");
@@ -793,13 +793,13 @@ class IssueWorkflowTest {
     void doesNotStartARecordWhoseDefinitionDoesNotLoad() throws Exception {
         String commit = "0123456789abcdef0123456789abcdef01234567";
         DefinitionLookup definitions = record -> {
-            if (record.definitionCommit().isPresent()) {
+            if (record.definitionVersion().isPresent()) {
                 throw new IllegalStateException("factory.yaml: unknown key workflow.x");
             }
             return BuiltInDefinition.load();
         };
         IssueWorkflow workflow = createWorkflow("true", definitions);
-        IssueRecord inImplement = RecordStates.move(queuedRecord(), "implement").withDefinitionCommit(commit);
+        IssueRecord inImplement = RecordStates.move(queuedRecord(), "implement").withDefinitionVersion(commit);
 
         IssueRecord record = workflow.advance(inImplement);
 
@@ -816,11 +816,11 @@ class IssueWorkflowTest {
     void runsEachIssueWithItsOwnVersion() throws Exception {
         agent.thenChangeFile().thenChangeFile().thenChangeFile().thenChangeFile().thenChangeFile();
         FactoryDefinition twoEntries = loadBuiltInWithImplementLimit(2);
-        DefinitionLookup definitions = record -> record.definitionCommit().isPresent() ? twoEntries
+        DefinitionLookup definitions = record -> record.definitionVersion().isPresent() ? twoEntries
                 : BuiltInDefinition.load();
         IssueWorkflow workflow = createWorkflow("false", definitions);
 
-        IssueRecord record = advanceUntilWaiting(workflow, queuedRecord().withDefinitionCommit("1234567890"));
+        IssueRecord record = advanceUntilWaiting(workflow, queuedRecord().withDefinitionVersion("1234567890"));
 
         assertThat(record.state()).isEqualTo("blocked");
         assertThat(agent.requests()).hasSize(2);

@@ -86,11 +86,9 @@ public final class RepositorySetup {
         String defaultBranch = obtainDefaultBranch(clone);
         String baseCommit = git.commitOf(clone, "origin/" + defaultBranch);
         boolean hasFactory = git.hasPath(clone, baseCommit, MAIN_FILE);
-        if (!hasFactory && git.hasPath(clone, baseCommit, FACTORY_FOLDER)) {
-            throw new SetupException("The default branch has a folder .factory without factory.yaml. "
-                    + "Correct the folder, and run create again.");
-        }
-        return new RepositoryFacts(defaultBranch, baseCommit, hasFactory, path -> git.hasPath(clone, baseCommit, path));
+        boolean hasFactoryFolder = git.hasPath(clone, baseCommit, FACTORY_FOLDER);
+        return new RepositoryFacts(defaultBranch, baseCommit, hasFactory, hasFactoryFolder,
+                path -> git.hasPath(clone, baseCommit, path));
     }
 
     private String obtainDefaultBranch(Path clone) throws SetupException {

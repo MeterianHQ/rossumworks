@@ -6,8 +6,8 @@ import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.board.FactorySwitch;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.definition.ColumnNames;
+import com.meterian.factory.definition.DefinitionSource;
 import com.meterian.factory.definition.DefinitionVersion;
-import com.meterian.factory.definition.DefinitionVersions;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.definition.WorkflowDefinition;
 import com.meterian.factory.events.FactoryVersion;
@@ -69,7 +69,7 @@ public final class Worker {
     private final FactoryConfiguration configuration;
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;
-    private final DefinitionVersions definitions;
+    private final DefinitionSource definitions;
     private final PhaseStopper phaseStopper;
     private final PageRequests pageRequests;
     private final String workerLogin;
@@ -112,7 +112,7 @@ public final class Worker {
     private boolean labelsEnsured;
 
     public Worker(FactoryConfiguration configuration, GitHubClient gitHub, IssueWorkflow workflow,
-                  DefinitionVersions definitions, PhaseStopper phaseStopper, PageRequests pageRequests,
+                  DefinitionSource definitions, PhaseStopper phaseStopper, PageRequests pageRequests,
                   String workerLogin, ExecutorService executor, LiveSessions liveSessions, Clock clock,
                   BoardUpdates board, FactorySwitch factorySwitch, LostIssues lostIssues, WorkerEvents events) {
         this.configuration = configuration;
@@ -632,7 +632,7 @@ public final class Worker {
     private Optional<IssueRecord> createQueuedRecord(int issueNumber) {
         Optional<DefinitionVersion> version = definitions.current();
         return version.map(current -> IssueRecord.queued(issueNumber, current.definition().workflow().start())
-                .withDefinitionCommit(current.commit()));
+                .withDefinitionVersion(current.identifier()));
     }
 
     /** There is no record before the first record, so the publisher always writes it. */

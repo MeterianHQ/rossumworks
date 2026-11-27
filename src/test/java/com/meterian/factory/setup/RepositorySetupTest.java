@@ -83,7 +83,7 @@ class RepositorySetupTest {
     void refusesAFactoryFolderWithoutTheMainFile() {
         pushToMain(".factory/other.txt", "x\n");
 
-        assertThatThrownBy(() -> setup.read(clone))
+        assertThatThrownBy(() -> setup.read(clone).verifyFactoryFolderIsComplete())
                 .isInstanceOf(SetupException.class)
                 .hasMessage("The default branch has a folder .factory without factory.yaml. "
                         + "Correct the folder, and run create again.");

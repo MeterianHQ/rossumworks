@@ -105,12 +105,22 @@ class StatusCommentTest {
 
     @Test
     void writesAndReadsTheStateTheActionAndTheDefinitionCommit() {
-        IssueRecord withCommit = RecordStates.move(RecordStates.queued(7), "merge").withDefinitionCommit("abc123");
+        IssueRecord withCommit = RecordStates.move(RecordStates.queued(7), "merge").withDefinitionVersion("abc123");
         String body = StatusComment.render(withCommit, LIMIT, REVIEWS);
         IssueComment comment = new IssueComment(1, WORKER, body);
 
         assertThat(body).contains("\"state\":\"merge\"").contains("\"action\":\"merge-gate\"");
         assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(withCommit);
+    }
+
+    @Test
+    void keepsTheKeyDefinitionCommitForTheVersion() {
+        IssueRecord withVersion = RecordStates.queued(7).withDefinitionVersion("local:" + "a".repeat(64));
+        String body = StatusComment.render(withVersion, LIMIT, REVIEWS);
+        IssueComment comment = new IssueComment(1, WORKER, body);
+
+        assertThat(body).contains("\"definitionCommit\":\"local:" + "a".repeat(64) + "\"");
+        assertThat(StatusComment.findRecord(List.of(comment), WORKER)).contains(withVersion);
     }
 
     @Test

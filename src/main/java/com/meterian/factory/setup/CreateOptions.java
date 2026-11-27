@@ -19,13 +19,20 @@ public record CreateOptions(
         Optional<String> buildCommand,
         boolean yes,
         Optional<ProviderName> provider,
-        Optional<BigDecimal> dailyBudgetUsd) {
+        Optional<BigDecimal> dailyBudgetUsd,
+        Optional<Path> definitionFolder) {
 
-    public static final String USAGE = "Usage: rossumworks create [--repository owner/name]\n"
+    /** The command line of create, without the word Usage. The command line of Main shows it too. */
+    public static final String COMMAND_LINE = "rossumworks create [--repository owner/name]\n"
             + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
             + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
-            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>] [--yes]\n"
-            + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
+            + "       [--definition <folder>] [--yes]";
+    /** The note for a person who runs the jar and not the native program. */
+    public static final String JAR_NOTE =
+            "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
+    public static final String USAGE = "Usage: " + COMMAND_LINE + "\n" + JAR_NOTE;
+    private static final String OPTION_PREFIX = "--";
 
     public static CreateOptions parse(List<String> arguments) throws SetupException {
         Optional<RepositoryName> repository = Optional.empty();
@@ -37,6 +44,7 @@ public record CreateOptions(
         boolean yes = false;
         Optional<ProviderName> provider = Optional.empty();
         Optional<BigDecimal> dailyBudgetUsd = Optional.empty();
+        Optional<Path> definitionFolder = Optional.empty();
         for (int index = 0; index < arguments.size(); index++) {
             String parameter = arguments.get(index);
             switch (parameter) {
@@ -50,6 +58,7 @@ public record CreateOptions(
                 case "--provider" -> provider = Optional.of(parseProvider(readValue(arguments, ++index, parameter)));
                 case "--daily-budget-usd" ->
                         dailyBudgetUsd = Optional.of(parseDailyBudget(readValue(arguments, ++index, parameter)));
+                case "--definition" -> definitionFolder = Optional.of(readFolder(arguments, ++index, parameter));
                 default -> throw new SetupException("Unknown parameter " + parameter + ".\n" + USAGE);
             }
         }
@@ -57,7 +66,7 @@ public record CreateOptions(
             throw new SetupException("Give --web or --no-web, not both.\n" + USAGE);
         }
         return new CreateOptions(repository, workDirectory, web, noWeb, terminalCommand, buildCommand, yes,
-                provider, dailyBudgetUsd);
+                provider, dailyBudgetUsd, definitionFolder);
     }
 
     private static String readValue(List<String> arguments, int index, String parameter) throws SetupException {
@@ -65,6 +74,15 @@ public record CreateOptions(
             throw new SetupException("The parameter " + parameter + " needs a value.\n" + USAGE);
         }
         return arguments.get(index);
+    }
+
+    /** A folder that is empty or that is the next option is not a path. */
+    private static Path readFolder(List<String> arguments, int index, String parameter) throws SetupException {
+        String folder = readValue(arguments, index, parameter);
+        if (folder.isEmpty() || folder.startsWith(OPTION_PREFIX)) {
+            throw new SetupException("The parameter " + parameter + " needs a value.\n" + USAGE);
+        }
+        return Path.of(folder);
     }
 
     private static String readBuildCommand(List<String> arguments, int index, String parameter)

@@ -9,7 +9,7 @@ import com.meterian.factory.board.BoardUpdates;
 import com.meterian.factory.build.BuildRunner;
 import com.meterian.factory.configuration.FactoryConfiguration;
 import com.meterian.factory.definition.DefinitionLookup;
-import com.meterian.factory.definition.DefinitionVersions;
+import com.meterian.factory.definition.DefinitionVersionText;
 import com.meterian.factory.definition.FactoryDefinition;
 import com.meterian.factory.definition.Target;
 import com.meterian.factory.events.WorkerEvents;
@@ -42,7 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class IssueWorkflow {
 
     private static final System.Logger LOGGER = System.getLogger(IssueWorkflow.class.getName());
-    /** The key of the built-in version: a record without a commit uses it. A commit is never this text. */
+    /** The key of the built-in version: a record without a version uses it. A version is never this text. */
     private static final String BUILT_IN_VERSION = "built-in";
     private static final String TOO_EARLY_NOTE =
             "The factory opens a live conversation only after the first coding action.";
@@ -65,7 +65,7 @@ public final class IssueWorkflow {
     private final ActionServices services;
     /** The notes of the review round of the current action, by issue number. Each issue thread uses its own entry. */
     private final Map<Integer, List<ReviewNote>> reviewNotesToPublish = new ConcurrentHashMap<>();
-    /** The actions of each definition version, by commit. Several issue threads read and fill this map. */
+    /** The actions of each definition version, by version. Several issue threads read and fill this map. */
     private final Map<String, ActionSet> actionSets = new ConcurrentHashMap<>();
 
     /**
@@ -230,15 +230,15 @@ public final class IssueWorkflow {
         return runActionAndCatchFailures(issue, known, actionSet);
     }
 
-    /** The definition is the same for all records with the same commit, so each version builds its actions once. */
+    /** The definition is the same for all records with the same version, so each version builds its actions once. */
     private ActionSet actionSetOf(IssueRecord record) {
-        String version = record.definitionCommit().orElse(BUILT_IN_VERSION);
+        String version = record.definitionVersion().orElse(BUILT_IN_VERSION);
         return actionSets.computeIfAbsent(version, key -> ActionSet.create(definitions.definitionOf(record), services));
     }
 
     /** A merged change is final: the record keeps its state and gets the note. Any other issue blocks. */
     private IssueRecord stopOnAnUnloadableDefinition(IssueRecord record, IllegalStateException exception) {
-        String commit = DefinitionVersions.shorten(record.definitionCommit().orElse(BUILT_IN_VERSION));
+        String commit = DefinitionVersionText.shorten(record.definitionVersion().orElse(BUILT_IN_VERSION));
         String note = "The definition " + commit + " of the issue does not load: " + exception.getMessage() + ".";
         if (isInTheFinishState(record)) {
             return MergedIssue.noteFailureInTheFinishState(record, exception).withNote(note);

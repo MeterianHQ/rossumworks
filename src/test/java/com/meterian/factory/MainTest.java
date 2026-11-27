@@ -19,7 +19,6 @@ import com.meterian.factory.process.ProcessGroupLauncher;
 import com.meterian.factory.provider.ApiKeyProvider;
 import com.meterian.factory.provider.Provider;
 import com.meterian.factory.setup.CreateOptions;
-import com.meterian.factory.setup.WorkerFileFinder;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.FakeGitHubClient;
 import com.meterian.factory.testing.FakeLiveSessions;
@@ -60,11 +59,13 @@ class MainTest {
     private static final DefinitionLookup BUILT_IN = DefinitionLookup.builtInOnly(BuiltInDefinition.load());
     private static final String PROCESS_GROUP_PROGRAM = ProcessGroupLauncher.createForThisSystem().program();
 
-    private static final String USAGE = "Usage: rossumworks run [--config <file>]\n"
+    private static final String USAGE = "Usage: rossumworks run [--config <file>] [--definition <folder>]\n"
             + "       rossumworks hash-password\n"
-            + "       rossumworks create [--repository owner/name] [--work-directory <path>] "
-            + "[--web <address:port> | --no-web] [--terminal-command \"<command>\"] [--build-command \"<command>\"] "
-            + "[--yes]\n"
+            + "       rossumworks create [--repository owner/name]\n"
+            + "       [--work-directory <path>] [--web <address:port> | --no-web]\n"
+            + "       [--terminal-command \"<command>\"] [--build-command \"<command>\"]\n"
+            + "       [--provider subscription|anthropic-api-key] [--daily-budget-usd <amount>]\n"
+            + "       [--definition <folder>] [--yes]\n"
             + "       rossumworks self-check\n"
             + "       rossumworks --version\n"
             + "With the jar, write java -jar rossumworks-<version>.jar in place of rossumworks.";
@@ -82,7 +83,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached the token");
                 },
-                (configuration, provider, retries, token, errorStream) -> {
+                (configuration, provider, retries, token, errorStream, definitionFolder) -> {
                     throw new AssertionError("The test reached the worker");
                 }, createRecordingGit(new ArrayList<>()));
     }
@@ -121,7 +122,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream) -> {
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
                     startedWithClone.add(loaded.cloneDirectory());
                     assertThat(clone).isDirectory();
                     return 0;
@@ -143,7 +144,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream) -> 0, createRecordingGit(clones));
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> 0, createRecordingGit(clones));
 
         assertThat(exitCode).isZero();
         assertThat(clones).isEmpty();
@@ -176,7 +177,7 @@ class MainTest {
                     () -> {
                         throw new AssertionError("The test reached gh");
                     },
-                    (loaded, provider, retries, token, errorStream) -> {
+                    (loaded, provider, retries, token, errorStream, definitionFolder) -> {
                         throw new AssertionError("The test reached the worker");
                     }, createRecordingGit(new ArrayList<>()));
 
@@ -199,7 +200,7 @@ class MainTest {
                     () -> {
                         throw new AssertionError("The test reached gh");
                     },
-                    (loaded, provider, retries, token, errorStream) -> {
+                    (loaded, provider, retries, token, errorStream, definitionFolder) -> {
                         startedWith.add(retries);
                         return 0;
                     }, createRecordingGit(new ArrayList<>()));
@@ -222,46 +223,11 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream) -> {
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
                     throw new IllegalArgumentException("A defect of the worker");
                 }, createRecordingGit(new ArrayList<>())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("A defect of the worker");
         assertThat(errorText()).doesNotContain("A defect of the worker");
-    }
-
-    @Test
-    void readsTheConfigurationPath() throws Main.StartupException {
-        Path path = Main.readConfigurationPath(new String[] {"run", "--config", "factory.yaml"}, refusingFinder());
-
-        assertThat(path).isEqualTo(Path.of("factory.yaml"));
-    }
-
-    @Test
-    void findsTheConfigurationOfTheCloneWithoutTheOptionConfig() throws Exception {
-        Path workerFile = Files.createDirectories(temporaryDirectory.resolve(".rossumworks/owner-project"))
-                .resolve("worker.yaml");
-        Files.writeString(workerFile, "repository: owner/project\n");
-        WorkerFileFinder finder = new WorkerFileFinder(temporaryDirectory,
-                () -> Optional.of(new RepositoryName("owner", "project")));
-
-        Path path = Main.readConfigurationPath(new String[] {"run"}, finder);
-
-        assertThat(path).isEqualTo(workerFile);
-    }
-
-    @Test
-    void refusesOtherArguments() {
-        for (String[] arguments : List.of(new String[] {}, new String[] {"start", "--config", "factory.yaml"},
-                new String[] {"run", "--config"}, new String[] {"run", "--file", "factory.yaml"},
-                new String[] {"run", "factory.yaml"})) {
-            assertThatThrownBy(() -> Main.readConfigurationPath(arguments, refusingFinder())).hasMessage(USAGE);
-        }
-    }
-
-    private static WorkerFileFinder refusingFinder() {
-        return new WorkerFileFinder(Path.of("no-home"), () -> {
-            throw new AssertionError("The command gives the file, so the finder must not run.");
-        });
     }
 
     private Path writeApiKeyConfiguration() throws IOException {
@@ -318,7 +284,7 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream) -> {
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
                     started.add(provider);
                     return 0;
                 }, createRecordingGit(new ArrayList<>()));
@@ -337,11 +303,54 @@ class MainTest {
                 () -> {
                     throw new AssertionError("The test reached gh");
                 },
-                (loaded, provider, retries, token, errorStream) -> 0, createRecordingGit(new ArrayList<>()));
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> 0,
+                createRecordingGit(new ArrayList<>()));
 
         assertThat(exitCode).isZero();
         assertThat(errorText())
                 .contains("The provider is subscription: the sessions use the claude login of the owner.");
+    }
+
+    @Test
+    void givesTheDefinitionFolderToTheWorker() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        List<Optional<Path>> startedWithFolder = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString(), "--definition",
+                        folder.toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
+                    startedWithFolder.add(definitionFolder);
+                    return Main.EXIT_SUCCESS;
+                }, createRecordingGit(new ArrayList<>()));
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(startedWithFolder).containsExactly(Optional.of(folder.toAbsolutePath()));
+    }
+
+    @Test
+    void aMissingDefinitionFolderStopsTheCommandBeforeTheClone() throws IOException {
+        Path configuration = writeConfiguration("claude");
+        Path missing = temporaryDirectory.resolve("missing");
+        List<String> clones = new ArrayList<>();
+
+        int exitCode = Main.run(new String[] {"run", "--config", configuration.toString(), "--definition",
+                        missing.toString()},
+                createEnvironmentWithAllCommands(), errors,
+                () -> {
+                    throw new AssertionError("The test reached gh");
+                },
+                (loaded, provider, retries, token, errorStream, definitionFolder) -> {
+                    throw new AssertionError("The test reached the worker");
+                }, createRecordingGit(clones));
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("The definition folder " + missing.toAbsolutePath() + " does not exist.");
+        assertThat(clones).isEmpty();
     }
 
     @Test

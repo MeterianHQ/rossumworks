@@ -1,5 +1,6 @@
 package com.meterian.factory.state;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -51,7 +52,7 @@ public record IssueRecord(
         Optional<String> failedForwardTree,
         Optional<LiveSession> live,
         boolean afterConversation,
-        Optional<String> definitionCommit,
+        @JsonProperty("definitionCommit") Optional<String> definitionVersion,
         Optional<String> approvedTree,
         Optional<HandOver> handOver) {
 
@@ -71,7 +72,7 @@ public record IssueRecord(
         reviewedHeadCommit = reviewedHeadCommit == null ? Optional.empty() : reviewedHeadCommit;
         failedForwardTree = failedForwardTree == null ? Optional.empty() : failedForwardTree;
         live = live == null ? Optional.empty() : live;
-        definitionCommit = definitionCommit == null ? Optional.empty() : definitionCommit;
+        definitionVersion = definitionVersion == null ? Optional.empty() : definitionVersion;
         approvedTree = approvedTree == null ? Optional.empty() : approvedTree;
         handOver = handOver == null ? Optional.empty() : handOver;
     }
@@ -156,8 +157,8 @@ public record IssueRecord(
         return copy(fields -> fields.agentSessionStarted = true);
     }
 
-    public IssueRecord withDefinitionCommit(String commit) {
-        return copy(fields -> fields.definitionCommit = Optional.of(commit));
+    public IssueRecord withDefinitionVersion(String version) {
+        return copy(fields -> fields.definitionVersion = Optional.of(version));
     }
 
     /** The reviews keep the order of their first verdict, which is the order of the definition. */
@@ -341,7 +342,7 @@ public record IssueRecord(
         private Optional<String> failedForwardTree;
         private Optional<LiveSession> live;
         private boolean afterConversation;
-        private Optional<String> definitionCommit;
+        private Optional<String> definitionVersion;
         private Optional<String> approvedTree;
         private Optional<HandOver> handOver;
 
@@ -374,7 +375,7 @@ public record IssueRecord(
             failedForwardTree = record.failedForwardTree;
             live = record.live;
             afterConversation = record.afterConversation;
-            definitionCommit = record.definitionCommit;
+            definitionVersion = record.definitionVersion;
             approvedTree = record.approvedTree;
             handOver = record.handOver;
         }
@@ -384,7 +385,7 @@ public record IssueRecord(
                     pendingPrompt, actionStarted, reviews, risk, small, riskReasons, reviewedTreeHash, reviewedPatchId,
                     builtTreeHash, pullRequestNumber, statusCommentId, notes, agentSessionStarted,
                     failedReviewRounds, conflictedPaths, issueTextHash, reviewedHeadCommit, failedForwardChecks,
-                    failedForwardTree, live, afterConversation, definitionCommit, approvedTree, handOver);
+                    failedForwardTree, live, afterConversation, definitionVersion, approvedTree, handOver);
         }
     }
 }

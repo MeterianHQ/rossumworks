@@ -6,6 +6,7 @@ import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meterian.factory.Main;
 import com.meterian.factory.StartChecks;
 import com.meterian.factory.configuration.ConfigurationLoader;
 import com.meterian.factory.configuration.FactoryConfiguration;
@@ -433,6 +434,124 @@ class CreateCommandTest {
 
         assertThat(exitCode).isEqualTo(1);
         assertThat(errorText()).contains("Give --repository owner/name.");
+    }
+
+    @Test
+    void writesTheDefinitionFolderAndOpensNoPullRequest() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
+        assertThat(folder.resolve("run.sh")).doesNotExist();
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(branchesOfGitHub()).doesNotContain("factory/setup");
+        assertThat(outputText()).contains("java -jar ").contains(" run --config " + workerFile())
+                .contains(" --definition " + folder.toAbsolutePath());
+    }
+
+    @Test
+    void writesTheDefinitionFolderAndPushesNothingWhenTheRepositoryHasAFactory() {
+        pushToMain(".factory/factory.yaml", "build: {}\n");
+        String branchesBefore = branchesOfGitHub();
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--build-command", "make test", "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
+        assertThat(branchesOfGitHub()).isEqualTo(branchesBefore);
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(outputText()).doesNotContain("The repository already has a .factory.");
+    }
+
+    @Test
+    void keepsADefinitionFolderWithTheMainFile() throws IOException {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("my-factory"));
+        Files.writeString(folder.resolve("factory.yaml"), "mine");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).hasContent("mine");
+        assertThat(workerFile()).exists();
+        assertThat(gitHub.pullRequests()).isEmpty();
+        assertThat(outputText()).contains("The command wrote the file " + workerFile() + ".")
+                .contains(" run --config " + workerFile() + " --definition " + folder.toAbsolutePath())
+                .doesNotContain("The repository already has a .factory.");
+    }
+
+    @Test
+    void stopsOnADefinitionPathThatIsAFileBeforeTheClone() throws IOException {
+        Path file = Files.writeString(temporaryDirectory.resolve("my-factory"), "text");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", file.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("The definition folder " + file + " is not a folder.");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(workDirectory().resolve("repository")).doesNotExist();
+    }
+
+    @Test
+    void aFailedWriteOfTheDefinitionFolderLeavesNoWorkerFile() throws IOException {
+        pushToMain("package.json", "{}\n");
+        Path folder = Files.createSymbolicLink(temporaryDirectory.resolve("my-factory"),
+                temporaryDirectory.resolve("missing-target"));
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("Cannot write the definition folder " + folder);
+        assertThat(workerFile()).doesNotExist();
+    }
+
+    @Test
+    void noRefusesTheDefinitionFolderAndWritesNoFile() {
+        pushToMain("package.json", "{}\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+        FakeSetupConsole console = answering("", "", "", "", "", "n");
+
+        int exitCode = runCreate(console, "--definition", folder.toString());
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(console.questions).contains("Write the files? [y/n]");
+        assertThat(outputText()).contains("The command wrote no file and pushed nothing.");
+        assertThat(workerFile()).doesNotExist();
+        assertThat(folder).doesNotExist();
+    }
+
+    @Test
+    void stopsOnADefinitionFolderWithOtherFiles() throws IOException {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("my-factory"));
+        Files.writeString(folder.resolve("notes.md"), "notes");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_FAILURE);
+        assertThat(errorText()).contains("has files, but no factory.yaml");
+        assertThat(workerFile()).doesNotExist();
+    }
+
+    @Test
+    void ignoresAnIncompleteFactoryFolderOfTheRepositoryWithADefinitionFolder() {
+        pushToMain("package.json", "{}\n");
+        pushToMain(".factory/notes.md", "notes\n");
+        Path folder = temporaryDirectory.resolve("my-factory");
+
+        int exitCode = runCreate(FakeSetupConsole.withoutTerminal(), "--definition", folder.toString(),
+                "--no-web", "--yes");
+
+        assertThat(exitCode).isEqualTo(Main.EXIT_SUCCESS);
+        assertThat(folder.resolve("factory.yaml")).exists();
     }
 
     private int runCreate(SetupConsole console, String... arguments) {
