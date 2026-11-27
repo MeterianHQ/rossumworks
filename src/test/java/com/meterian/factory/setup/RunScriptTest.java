@@ -29,6 +29,7 @@ class RunScriptTest {
     private static final String JAR = "rossumworks-" + VERSION + ".jar";
     private static final String X64_PROGRAM = "rossumworks-" + VERSION + "-linux-x64";
     private static final String ARM64_PROGRAM = "rossumworks-" + VERSION + "-linux-arm64";
+    private static final String MAC_PROGRAM = "rossumworks-" + VERSION + "-macos-arm64";
     private static final String NATIVE_TEXT = "#!/bin/sh\necho \"native $*\"\n";
     private static final String OLD_GLIBC_TEXT = "#!/bin/sh\necho \"GLIBC_2.34 not found\" >&2\nexit 1\n";
     private static final long TIMEOUT_SECONDS = 30;
@@ -152,13 +153,29 @@ class RunScriptTest {
     }
 
     @Test
-    void anotherSystemThanLinuxGivesTheJar() throws Exception {
+    void startsTheNativeProgramOfAMacWithArm64() throws Exception {
+        publishNativeProgramWithChecksum(ARM64_PROGRAM);
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
+        publishAsset(JAR, "jar");
+
+        ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin"));
+
+        assertThat(result.text()).contains("Download of " + MAC_PROGRAM, "native run")
+                .doesNotContain(ARM64_PROGRAM, "java");
+        assertThat(result.exitCode()).isEqualTo(0);
+        assertThat(nativeCache().resolve(MAC_PROGRAM)).isExecutable();
+    }
+
+    @Test
+    void aMacWithIntelGivesTheJar() throws Exception {
         publishNativeProgramWithChecksum(X64_PROGRAM);
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
         publishAsset(JAR, "jar");
 
         ScriptResult result = runScript("x86_64", Map.of("FAKE_SYSTEM", "Darwin"));
 
-        assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run");
+        assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run")
+                .doesNotContain("native run");
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
