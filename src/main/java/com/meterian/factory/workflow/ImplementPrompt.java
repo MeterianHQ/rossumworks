@@ -40,14 +40,14 @@ final class ImplementPrompt {
             return Optional.of(chooseImplement(prompts, issue));
         }
         return renderWithTheFindings(prompts, pendingPrompt, folder)
-                .map(text -> new Choice(nameOf(pendingPrompt), text));
+                .map(text -> new Choice(describePromptName(pendingPrompt), text));
     }
 
     private static Choice chooseImplement(PromptLibrary prompts, Issue issue) {
-        return new Choice(nameOf(PendingPrompt.IMPLEMENT), prompts.implement(issue));
+        return new Choice(describePromptName(PendingPrompt.IMPLEMENT), prompts.implement(issue));
     }
 
-    private static String nameOf(PendingPrompt pendingPrompt) {
+    private static String describePromptName(PendingPrompt pendingPrompt) {
         return pendingPrompt.name().toLowerCase();
     }
 
