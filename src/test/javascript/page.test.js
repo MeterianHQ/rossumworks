@@ -9,19 +9,27 @@ const { FakeDocument, ELEMENT_NODE, TEXT_NODE, CARD_HEIGHT } = require("./fake-d
 
 const PAGE_SCRIPT = path.join(__dirname, "..", "..", "main", "resources", "web", "page.js");
 
-function renderHeader(lastCheck) {
+/** The factory action is "stop" for a running factory and "start" for a stopped factory. */
+function renderHeader(lastCheck, factoryAction) {
+    const action = factoryAction || "stop";
+    const buttonText = action === "stop" ? "Stop" : "Start";
     return "<header class=\"topbar\"><div class=\"health\"><div class=\"tile\"><span class=\"tile-label\">"
             + "Last GitHub check</span><span class=\"tile-value\">" + lastCheck + "</span></div></div>"
-            + "<div class=\"factory-state state-running\"><form method=\"post\" action=\"/factory/stop\">"
-            + "<button>Stop</button></form></div></header>";
+            + "<div class=\"factory-state state-running\"><form method=\"post\" action=\"/factory/" + action
+            + "\" data-key=\"factory-" + action + "\"><button>" + buttonText + "</button></form></div></header>";
+}
+
+function renderForm(issueNumber, action) {
+    return "<form method=\"post\" action=\"/issues/" + issueNumber + "/" + action + "\" data-key=\"" + action + "\">"
+            + "<input type=\"hidden\" name=\"fingerprint\" value=\"f" + issueNumber + "\">"
+            + "<button>" + action + "</button></form>";
 }
 
 /** The parts are the optional children of a card between the title and the buttons. */
-function renderCard(issueNumber, title, parts) {
+function renderCard(issueNumber, title, parts, actions) {
+    const forms = (actions || ["approve"]).map((action) => renderForm(issueNumber, action)).join("");
     return "<article class=\"card\" data-key=\"" + issueNumber + "\"><h3>#" + issueNumber + " " + title + "</h3>"
-            + (parts || "") + "<div class=\"actions\"><form method=\"post\" action=\"/issues/" + issueNumber + "/approve\">"
-            + "<input type=\"hidden\" name=\"fingerprint\" value=\"f" + issueNumber + "\">"
-            + "<button>Approve</button></form></div></article>";
+            + (parts || "") + "<div class=\"actions\">" + forms + "</div></article>";
 }
 
 function renderColumn(column, cards) {
@@ -32,8 +40,9 @@ function renderColumn(column, cards) {
 }
 
 /** The warnings are the paragraphs between the header and the columns, for example the old check. */
-function renderBoard(lastCheck, columns, warnings) {
-    return renderHeader(lastCheck) + (warnings || "") + "<main class=\"columns\">" + columns.join("") + "</main>";
+function renderBoard(lastCheck, columns, warnings, factoryAction) {
+    return renderHeader(lastCheck, factoryAction) + (warnings || "") + "<main class=\"columns\">" + columns.join("")
+            + "</main>";
 }
 
 const OLD_CHECK_WARNING = "<p class=\"warning\">The last GitHub check is old.</p>";
@@ -209,6 +218,42 @@ test("an optional part of a card that comes keeps the buttons and the focus", as
     assert.ok(card.querySelector("div.live-box") !== null);
     assertSameNode(card.querySelector("div.actions"), actions, "The actions");
     assertSameNode(page.document.activeElement, button, "The focus");
+});
+
+test("a button that goes away does not move the focus to the button of a different action", async () => {
+    const page = openPage(renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", "", ["approve", "block", "start-again"])])]));
+    findCard(page, 1).querySelector("button").focus();
+
+    await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", "", ["block", "start-again"])])]));
+
+    assertSameNode(page.document.activeElement, page.document.body, "The focus");
+});
+
+test("the button of an action that stays keeps the focus when an earlier action goes away", async () => {
+    const page = openPage(renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", "", ["approve", "block", "start-again"])])]));
+    const blockForm = findCard(page, 1).querySelectorAll("form")[1];
+    const blockButton = blockForm.querySelector("button");
+    blockButton.focus();
+
+    await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", "", ["block", "start-again"])])]));
+
+    assertSameNode(page.document.activeElement, blockButton, "The focus");
+    assert.strictEqual(blockForm.getAttribute("action"), "/issues/1/block");
+});
+
+test("the Stop button that becomes Start does not keep the focus", async () => {
+    const columns = [renderColumn("queued", renderCards([1]))];
+    const page = openPage(renderBoard("10:00", columns, "", "stop"));
+    page.board.querySelector("header.topbar").querySelector("button").focus();
+
+    await sendBoardEvent(page, renderBoard("10:00", columns, "", "start"));
+
+    assert.match(page.board.querySelector("header.topbar").textContent, /Start/);
+    assertSameNode(page.document.activeElement, page.document.body, "The focus");
 });
 
 test("a change of one card keeps the other cards, the scroll position, and the focus", async () => {

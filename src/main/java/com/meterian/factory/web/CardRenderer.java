@@ -289,10 +289,13 @@ final class CardRenderer {
                 .append(suspended ? " disabled>" : ">").append(action.buttonText()).append("</button></form>");
     }
 
-    /** The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it. */
+    /**
+     * The form of Enter in Browser opens the wait page in a new tab, so that the browser does not block it.
+     * The key lets page.js remove the form of an action that goes away, so the focus does not go to another action.
+     */
     private void appendFormStart(StringBuilder html, int issueNumber, PageAction action, String fingerprint) {
         html.append("<form method=\"post\" action=\"/issues/").append(issueNumber).append('/')
-                .append(action.pathName()).append('"');
+                .append(action.pathName()).append("\" data-key=\"").append(action.pathName()).append('"');
         if (action == PageAction.BLOCK) {
             html.append(" class=\"confirm-block\" data-issue=\"").append(issueNumber).append('"');
         }

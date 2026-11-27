@@ -279,7 +279,8 @@ class BoardPageTest {
         String html = page.renderBoard(model(List.of(card(record))));
 
         assertThat(html).contains("<div class=\"enter-group\">");
-        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" target=\"_blank\">");
+        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" data-key=\"enter-browser\""
+                + " target=\"_blank\">");
         assertThat(html).contains("data-tip=\"" + PageAction.ENTER_TERMINAL.tooltip() + "\"",
                 "data-tip=\"" + PageAction.ENTER_BROWSER.tooltip() + "\"");
         assertThat(html).contains("aria-label=\"Browser. " + PageAction.ENTER_BROWSER.tooltip() + "\"");
@@ -463,6 +464,14 @@ class BoardPageTest {
     }
 
     @Test
+    void eachFormHasTheKeyOfItsAction() {
+        String html = page.renderBoard(model(List.of(card(waitsForApproval(12)))));
+
+        assertThat(html).contains("action=\"/issues/12/approve\" data-key=\"approve\"",
+                "action=\"/issues/12/block\" data-key=\"block\"", "action=\"/factory/stop\" data-key=\"factory-stop\"");
+    }
+
+    @Test
     void sortsTheCardsByNumberAndTheDoneCardsNewestFirst() {
         IssueCard olderDone = new IssueCard(20, "Older", Set.of(), record(20, "done"),
                 Optional.of(NOW.minus(Duration.ofDays(2))));
@@ -554,9 +563,10 @@ class BoardPageTest {
 
         String state = "<input type=\"hidden\" name=\"state\" value=\"" + CardFingerprint.of(card(record)) + "\">";
         assertThat(html).contains(
-                "<form method=\"post\" action=\"/issues/12/approve\">" + state + "<button>Approve</button></form>");
-        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" target=\"_blank\">"
-                + state + "<button");
+                "<form method=\"post\" action=\"/issues/12/approve\" data-key=\"approve\">" + state
+                        + "<button>Approve</button></form>");
+        assertThat(html).contains("<form method=\"post\" action=\"/issues/12/enter-browser\" data-key=\"enter-browser\""
+                + " target=\"_blank\">" + state + "<button");
         assertThat(html).contains("action=\"/issues/12/block\"").contains("<button>Block</button>");
         assertThat(html).doesNotContain("/issues/12/continue").doesNotContain("<button>Continue</button>");
     }
@@ -659,7 +669,8 @@ class BoardPageTest {
 
         assertThat(html).contains("<div class=\"factory-state state-running\">"
                         + "<span class=\"factory-state-value\">Running</span>"
-                        + "<form method=\"post\" action=\"/factory/stop\"><button>Stop</button></form></div>"
+                        + "<form method=\"post\" action=\"/factory/stop\" data-key=\"factory-stop\">"
+                        + "<button>Stop</button></form></div>"
                         + "</header>");
         assertThat(html).doesNotContain("/factory/start").doesNotContain("The factory is");
     }
@@ -670,7 +681,8 @@ class BoardPageTest {
 
         assertThat(html).contains("<span class=\"factory-state-value\">Stopping</span>")
                 .contains("<div class=\"factory-state state-stopping\">")
-                .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
+                .contains("<form method=\"post\" action=\"/factory/start\" data-key=\"factory-start\">"
+                        + "<button>Start</button></form>")
                 .contains("<p class=\"notice\">The factory is stopping. Each issue in work ends its current action, "
                         + "moves to the next state, and stops. No issue starts. "
                         + "New issues stay free for other factories.</p>");
@@ -683,7 +695,8 @@ class BoardPageTest {
 
         assertThat(html).contains("<span class=\"factory-state-value\">Stopped</span>")
                 .contains("<div class=\"factory-state state-stopped\">")
-                .contains("<form method=\"post\" action=\"/factory/start\"><button>Start</button></form>")
+                .contains("<form method=\"post\" action=\"/factory/start\" data-key=\"factory-start\">"
+                        + "<button>Start</button></form>")
                 .contains("<p class=\"notice\">The factory is stopped. No issue starts or continues. "
                         + "New issues stay free for other factories.</p>");
     }
@@ -693,7 +706,8 @@ class BoardPageTest {
         String html = page.renderBoard(model(List.of(card(record(12, "blocked")))));
 
         assertThat(html).contains(
-                "<form method=\"post\" action=\"/issues/12/start-again\" class=\"confirm-start-again\" data-issue=\"12\">")
+                "<form method=\"post\" action=\"/issues/12/start-again\" data-key=\"start-again\""
+                        + " class=\"confirm-start-again\" data-issue=\"12\">")
                 .contains("<button>Start again</button>");
     }
 
@@ -789,7 +803,8 @@ class BoardPageTest {
         String html = page.renderBoard(model(List.of(card(record(12, "implement")))));
 
         assertThat(html).contains(
-                "<form method=\"post\" action=\"/issues/12/block\" class=\"confirm-block\" data-issue=\"12\">");
+                "<form method=\"post\" action=\"/issues/12/block\" data-key=\"block\" class=\"confirm-block\""
+                        + " data-issue=\"12\">");
         assertThat(html).doesNotContain("onsubmit").doesNotContain("onclick");
     }
 
