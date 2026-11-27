@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 public final class Worker {
 
     private static final System.Logger LOGGER = System.getLogger(Worker.class.getName());
-    private static final String FACTORY_LABEL = "factory";
+    private static final String FACTORY_LABEL = RequestLabels.FACTORY;
     private static final String HUMAN_LABEL = "human";
     private static final String APPROVE_LABEL = RequestLabels.APPROVE;
     private static final String BLOCK_LABEL = RequestLabels.BLOCK;
