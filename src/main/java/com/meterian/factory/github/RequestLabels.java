@@ -1,6 +1,6 @@
 package com.meterian.factory.github;
 
-/** The names of the request labels. The page adds them, and the worker reads them, so both use these names. */
+/** The names of the four labels that the buttons of the page add. The page and the worker use these names. */
 public final class RequestLabels {
 
     public static final String ENTER = "factory:enter";
