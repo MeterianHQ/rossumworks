@@ -23,6 +23,7 @@ When a new document needs a new term, add the term to this page first.
 | event | The result of an action, for example `passed` or `failed`. The workflow uses the event to select the next state. |
 | factory | All the parts together: the worker, the board, the gatekeeper, the definition, and the `claude` sessions. |
 | gatekeeper | A local git repository. Each push of the worker goes through it, and it forwards the push to GitHub only when the push is safe. See [More than one factory](multiple-factories.md). |
+| hidden entry | A file or a folder whose name starts with a dot, for example `.git`. The worker skips the hidden entries of the definition folder. |
 | live conversation | A conversation between you and the agent of an issue, through Remote Control. |
 | live files | The files of the live mode in the live folder of the machine. See [Live mode](live-mode.md). |
 | live mode | The mode where you talk to the agent in a live conversation. Only the subscription has it. See [Live mode](live-mode.md). |
