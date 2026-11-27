@@ -37,7 +37,7 @@ public final class DefinitionCommits {
     public static String mainFileFor(String buildCommand) {
         return builtInMainFile()
                 .replace("command: ./mvnw verify", "command: " + quoteForYaml(buildCommand))
-                .replace("environment: { LANG: C.utf8 }", "environment: {}");
+                .replace("environment: { LANG: C.UTF-8 }", "environment: {}");
     }
 
     /** The built-in definition with the build command of a test and no build variables. */

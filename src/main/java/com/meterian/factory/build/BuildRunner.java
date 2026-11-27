@@ -2,6 +2,7 @@ package com.meterian.factory.build;
 
 import com.meterian.factory.agent.ClaudeCommand;
 import com.meterian.factory.process.ProcessGroup;
+import com.meterian.factory.process.ProcessGroupLauncher;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -24,6 +26,7 @@ public final class BuildRunner {
     private static final String OUTPUT_NOT_ENDED = "The build output did not end.";
 
     private final Map<String, String> parentEnvironment;
+    private final ProcessGroupLauncher processGroupLauncher = ProcessGroupLauncher.createForThisSystem();
     private final RunningBuilds runningBuilds = new RunningBuilds();
 
     public BuildRunner() {
@@ -95,12 +98,11 @@ public final class BuildRunner {
     }
 
     private Process startProcess(Path worktree, BuildSettings settings) throws IOException {
-        ProcessBuilder builder = new ProcessBuilder("setsid", "--wait", "sh", "-c", settings.command());
-        builder.directory(worktree.toFile());
-        builder.environment().clear();
         Map<String, String> environment = new LinkedHashMap<>(parentEnvironment);
         environment.putAll(settings.environment());
-        builder.environment().putAll(ClaudeCommand.environment(environment));
+        ProcessBuilder builder = processGroupLauncher.prepare(List.of("sh", "-c", settings.command()),
+                ClaudeCommand.environment(environment));
+        builder.directory(worktree.toFile());
         builder.redirectErrorStream(true);
         builder.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
         return builder.start();

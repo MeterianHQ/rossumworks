@@ -310,8 +310,7 @@ public final class Main {
     }
 
     private static void verifyCommands(FactoryConfiguration configuration, String path) throws StartupException {
-        StartChecks.verifyCommandsOnPath(
-                List.of(configuration.claude().command(), "git", "setsid", "kill", "tmux", "jq"), path);
+        StartChecks.verifyCommandsOnPath(StartChecks.listRequiredCommands(configuration.claude().command()), path);
     }
 
     static HttpClient createHttpClient() {
@@ -527,7 +526,7 @@ public final class Main {
         return cause == null ? exception.getMessage() : exception.getMessage() + ": " + cause.getMessage();
     }
 
-    /** On Ctrl-C or a kill, the hook ends the claude process groups. They run under setsid and get no signal. */
+    /** On Ctrl-C or a kill, the hook ends the claude process groups. They lead their own sessions and get no signal. */
     static Thread createShutdownHook(Worker worker, Optional<WebServer> webServer) {
         return new Thread(() -> {
             webServer.ifPresent(WebServer::stop);

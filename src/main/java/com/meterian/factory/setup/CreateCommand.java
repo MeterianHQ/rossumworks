@@ -21,7 +21,7 @@ import java.util.Optional;
 /** The command create: it asks the questions, writes worker.yaml, and opens the PR factory/setup. */
 public final class CreateCommand {
 
-    static final List<String> REQUIRED_PROGRAMS = List.of("claude", "git", "setsid", "kill", "tmux", "jq");
+    private static final String CLAUDE_PROGRAM = "claude";
     private static final String JAVA_HOME_VARIABLE = "JAVA_HOME";
     private static final String CLONE_FOLDER = "repository";
     private static final String RUN_SCRIPT = ".factory/run.sh";
@@ -80,7 +80,7 @@ public final class CreateCommand {
     }
 
     private int create(CreateOptions options) throws SetupException, StartupException {
-        StartChecks.verifyCommandsOnPath(REQUIRED_PROGRAMS, path());
+        StartChecks.verifyCommandsOnPath(StartChecks.listRequiredCommands(CLAUDE_PROGRAM), path());
         String token = StartChecks.readToken(environment, ghToken);
         SetupQuestions questions = new SetupQuestions(console, environment, this::isOnPath, home);
         RepositoryName repository = questions.askRepository(options, OriginRemote.readRepository(currentFolder));

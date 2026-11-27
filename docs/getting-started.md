@@ -64,7 +64,8 @@ from the source. See [Contributing](../CONTRIBUTING.md).
 
 `create` does these steps in this order:
 
-1. It checks that `claude`, `git`, `setsid`, `kill`, `tmux`, and `jq` are on the `PATH`.
+1. It checks that `claude`, `git`, `kill`, `tmux`, and `jq` are on the `PATH`. It also checks `setsid` on Linux,
+   and `perl` on macOS.
 2. It asks for the name of your GitHub repository and for the work folder. The **work folder** is the folder of the worker. The
    default is `~/.rossumworks/<owner>-<name>`.
 3. It asks for the address of the board, the terminal command of the live mode, and the provider. Then it
@@ -151,7 +152,8 @@ The default `.factory` holds the script `run.sh`. `create` commits it with the e
 When the download fails, the script uses the newest native program of the machine in `~/.rossumworks/native`.
 When that folder has no program that starts, it uses the newest jar in `~/.rossumworks/jars`. A cached native
 program comes before a cached jar, also when the jar has a newer version. When both folders are
-empty, the script stops with the exit code 1. The script needs `bash`, `curl`, `jq`, and `sha256sum`.
+empty, the script stops with the exit code 1. The script needs `bash`, `curl`, and `jq`. On Linux, it also
+needs `sha256sum`.
 
 `create` copies its own program into the folder of `run.sh`: a native program into `~/.rossumworks/native`,
 and a jar into `~/.rossumworks/jars`. The copy has the same file name. Thus the first run of the script needs

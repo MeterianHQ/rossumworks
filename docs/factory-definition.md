@@ -535,7 +535,7 @@ reason `MERGE_NEEDS_APPROVAL` becomes the state `waits-for-approval`.
 ```yaml
 build:
   command: ./mvnw verify
-  environment: { LANG: C.utf8 }
+  environment: { LANG: C.UTF-8 }
 ```
 
 | Key | Required | Description |
@@ -708,7 +708,7 @@ workflow:
       action: { type: finish }
 build:
   command: ./mvnw verify
-  environment: { LANG: C.utf8 }
+  environment: { LANG: C.UTF-8 }
 claude:
   allowed-tools: [Read, Edit, Write, Glob, Grep, "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)",
                   "Bash(git show*)", "Bash(./mvnw *)", "Bash(mvn *)"]
