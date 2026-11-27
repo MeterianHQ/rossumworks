@@ -178,9 +178,8 @@ The script asks for a confirmation in each lesson. Read the titles. Type `y`.
 
 **Purpose.** You stop the work on an issue. Then you continue the work, or you start again.
 
-**Warning: the buttons move.** A new card shows only "Block". A few seconds later, "Terminal" comes to the place of
-"Block". The buttons "Terminal" and "Browser" open a conversation with the agent. With an API key, the card has no such
-buttons.
+**Note.** A new card shows only "Block". A few seconds later, "Terminal" and "Browser" come below "Block". These
+buttons open a conversation with the agent. With an API key, the card has no such buttons.
 
 **Steps.** Create the issue:
 
@@ -189,7 +188,7 @@ tutorial/create-issues.sh block
 ```
 
 1. Add the label `factory` to the issue.
-2. Wait until the card is in "In progress". With the subscription, wait also until it shows "Browser".
+2. Wait until the card is in "In progress".
 3. Push "Block" on the card. Confirm.
 4. Wait until the card is in "Blocked".
 5. Push "Continue". The agent continues its work.
