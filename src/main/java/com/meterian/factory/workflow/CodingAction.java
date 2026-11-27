@@ -10,7 +10,9 @@ import com.meterian.factory.prompt.Finding;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.PendingPrompt;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 final class CodingAction implements Action {
@@ -39,15 +41,32 @@ final class CodingAction implements Action {
             return ActionResult.stay(record);
         }
         FactoryFolder factoryFolder = new FactoryFolder(worktree);
-        Optional<String> prompt = ImplementPrompt.choose(version.prompts(), issue, record, factoryFolder);
+        Optional<ImplementPrompt.Choice> prompt =
+                ImplementPrompt.choose(version.prompts(), issue, record, factoryFolder);
         if (prompt.isEmpty()) {
             return ActionResult.block(record.withPendingPrompt(PendingPrompt.IMPLEMENT), MISSING_FINDINGS_NOTE);
         }
+        ActionResult result = runAgentSession(issue, record, worktree, factoryFolder, prompt.get().text());
+        return addPromptName(result, prompt.get().name());
+    }
+
+    /** Only an action that runs an agent session gives the name of its prompt to the event action-end. */
+    private static ActionResult addPromptName(ActionResult result, String promptName) {
+        if (!(result instanceof ActionResult.Event event)) {
+            return result;
+        }
+        Map<String, Object> actionFields = new LinkedHashMap<>(event.actionFields());
+        actionFields.put("prompt", promptName);
+        return event.withActionFields(actionFields);
+    }
+
+    private ActionResult runAgentSession(Issue issue, IssueRecord record, Path worktree, FactoryFolder factoryFolder,
+            String prompt) throws AgentException, CredentialMismatchException {
         IssueRecord started = markSessionStarted(issue, record);
         SessionReport report;
         try {
             report = services.phaseRunner().runPhase(new PhaseRequest(record.issueNumber(), started.sessionId(),
-                    !record.agentSessionStarted(), worktree, prompt.get(), version.allowedTools()));
+                    !record.agentSessionStarted(), worktree, prompt, version.allowedTools()));
         } catch (PhaseRefusedException refused) {
             undoSessionStart(issue, started, record);
             throw refused;

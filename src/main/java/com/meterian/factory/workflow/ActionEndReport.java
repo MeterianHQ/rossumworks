@@ -64,7 +64,7 @@ final class ActionEndReport {
         }
         ActionType type = record.action().get();
         events.writeActionEnd(record.issueNumber(), record.state(), type.yamlName(), resultName.get(),
-                Duration.between(startTime, clock.instant()), ActionEndFields.describe(type, record, result));
+                Duration.between(startTime, clock.instant()), ActionEndFields.describe(type, result));
     }
 
     private void reportError(IssueRecord record, Instant startTime) {
