@@ -774,3 +774,68 @@ of a workflow:
       limit: { entries: 10, then: blocked }
       on: { approved: merge, rejected: code }
 ```
+
+## 17. A definition outside the repository
+
+You can keep the definition in a definition folder outside the repository. Give the folder with the option
+`--definition` of `run`:
+
+```
+java -jar rossumworks.jar run --definition <folder>
+```
+
+The definition folder has the same content as `.factory`: `factory.yaml` and the prompt files. It does not need
+git. Without `--definition`, the worker reads `.factory` of the default branch. The worker refuses a value of
+`--definition` that is empty or that starts with `--`.
+
+### 17.1 The versions
+
+At the start of each poll, the worker reads the definition folder. When the content changes, the worker makes a
+new version. The version is `local:` and the SHA-256 hash of the content, for example `local:8be41d0`.
+
+The worker keeps each version that loads as a definition copy in `<work folder>/definitions/<hash>/`. The
+status comment of an issue keeps its version. The issue reads its definition from its copy, never from the
+definition folder. So an edit of the folder reaches only the new issues. To give an edit to an issue in the block
+state, use Start again (section 10.6).
+
+The worker never deletes a definition copy.
+
+### 17.2 When the definition folder does not load
+
+- The worker keeps the last version that loads, and the board shows the reason at the top.
+- After a restart, the worker takes the newest definition copy that loads.
+- When no version loads, the worker takes no new issue.
+
+A file that is not valid UTF-8 is an error of the definition. The definition then does not load.
+
+A symbolic link below the definition folder is an error. The worker cannot read the folder, so it keeps the
+current version. At the start, it then takes the newest definition copy that loads. The worker reads the folder
+again at each poll. When you remove the link, the worker loads the folder again.
+
+The worker skips each hidden entry, for example `.git`, at each level. So you can keep the definition folder in a
+git repository: a commit does not make a new version, and the copies do not contain `.git`. A prompt file cannot
+be a hidden entry.
+
+### 17.3 An edit that is not complete
+
+The worker can read the folder while your edit is not complete. When the half-done content loads, new issues
+can start with it. To prevent this, edit a copy of the folder. When the copy is complete, rename it to the
+name of the definition folder.
+
+### 17.4 The checks of the status comment
+
+A person with write access to the repository can edit the status comment. So the worker checks the version of
+each record:
+
+| Mode of the worker | Version in the record | What the worker does |
+|---|---|---|
+| Without `--definition` | A commit | It uses the commit when the commit is on the default branch. |
+| Without `--definition` | A `local:` version | It blocks the issue. |
+| With `--definition` | A `local:` version | It uses the version when its definition copy exists. |
+| With `--definition` | A commit | It blocks the issue. |
+
+When another person takes over the issue with their own factory, their machine has no definition copy. Their
+worker then blocks the issue.
+
+With `--definition`, the merge gate still has the event `factory-changed`. The worker does not read the
+`.factory` of the repository.

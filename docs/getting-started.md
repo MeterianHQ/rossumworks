@@ -71,6 +71,12 @@ files later. See [Factory definition](factory-definition.md).
 When `JAVA_HOME` is set and your repository has `mvnw`, `gradlew`, or `pom.xml`, `create` adds
 `build.environment.JAVA_HOME` to `worker.yaml`.
 
+### Create with a definition folder
+
+With `--definition`, `create` checks the definition folder before it clones the repository. It asks "Write the
+files? [y/n]" before it writes. It writes the default definition to the definition folder, and it opens no pull
+request. When the write of the folder fails, `create` deletes `worker.yaml` again.
+
 ### Special situations of `create`
 
 | Situation | What `create` does |
@@ -81,6 +87,9 @@ When `JAVA_HOME` is set and your repository has `mvnw`, `gradlew`, or `pom.xml`,
 | Your default branch has a folder `.factory` without `factory.yaml` | It stops. Correct the folder, and run `create` again. |
 | Your default branch has `.factory/factory.yaml` | It writes only `worker.yaml`, and opens no pull request. It shows the `java -jar` command to start the worker, because the repository has no `run.sh` of `create`. |
 | The assignment of the pull request fails | It shows the problem, keeps `worker.yaml`, and ends with success. Assign the pull request yourself. |
+| With `--definition`, the folder has `factory.yaml` | It keeps the folder, and writes only `worker.yaml`. |
+| With `--definition`, the folder has other files, but no `factory.yaml` | It stops, and writes no file. Hidden entries, for example `.git`, do not count. |
+| With `--definition`, the path is a file | It stops, and writes no file. |
 
 ### The parameters of `create`
 
@@ -96,6 +105,7 @@ A parameter gives the answer to a question, so `create` does not ask it:
 | `--build-command "<command>"` | The build command of `.factory`. | `./mvnw verify` with `mvnw`, `./gradlew build` with `gradlew`, `npm test` with `package.json`. Else, no default. |
 | `--provider <name>` | `subscription` or `anthropic-api-key`. See [Providers](providers.md). | `subscription` |
 | `--daily-budget-usd <amount>` | The daily budget in US dollars, from 0.01 to 1000000. Only for `anthropic-api-key`. | No default |
+| `--definition <folder>` | The definition folder. `create` writes the default definition there, and opens no pull request. See [Factory definition](factory-definition.md), section 17. | No folder: `create` opens the pull request `factory/setup`. |
 | `--yes` | The confirmation. | No |
 
 Without a terminal, `create` asks no question. It uses the parameters and the defaults. It then needs these
@@ -135,6 +145,10 @@ repository of the clone, for example `octocat/hello-world`. Then it reads
 When this file does not exist, the worker does not start, and the message tells you to run `create`. For a work
 folder that is not the default, give the file: `run --config <work folder>/worker.yaml`. For
 such a work folder, `create` shows the command with `--config`.
+
+With a definition folder, give it with `--definition`, for example
+`java -jar <path of the jar> run --config <work folder>/worker.yaml --definition <folder>`. The order of the
+options has no effect.
 
 ### When the worker starts
 
