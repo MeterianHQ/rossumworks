@@ -4,8 +4,126 @@
 (function () {
     var RECONNECT_DELAY_MILLISECONDS = 5000;
 
-    function replaceBoard(html) {
-        document.getElementById("board").innerHTML = html;
+    // Only the nodes that differ from the server HTML change, so the other nodes keep their scroll and focus.
+    function updateBoard(html) {
+        var board = document.getElementById("board");
+        var cardsInView = findCardsInView(board);
+        updateChildren(board, parseHtml(html));
+        cardsInView.forEach(keepCardInView);
+    }
+
+    function parseHtml(html) {
+        var template = document.createElement("template");
+        template.innerHTML = html;
+        return template.content;
+    }
+
+    function updateChildren(current, wanted) {
+        removeKeyedChildrenNotWanted(current, wanted);
+        var currentByKey = mapKeyedChildren(current);
+        var wantedChildren = Array.from(wanted.childNodes);
+        wantedChildren.forEach(function (wantedChild, index) {
+            var reference = current.childNodes[index] || null;
+            var match = findMatchingChild(wantedChild, reference, currentByKey);
+            if (match === null) {
+                current.insertBefore(wantedChild, reference);
+                return;
+            }
+            if (match !== reference) {
+                current.insertBefore(match, reference);
+            }
+            updateNode(match, wantedChild);
+        });
+        while (current.childNodes.length > wantedChildren.length) {
+            current.removeChild(current.lastChild);
+        }
+    }
+
+    // A column and a card have the attribute data-key. Without a key, the node at the same place is the match.
+    function readKey(node) {
+        return node.nodeType === Node.ELEMENT_NODE ? node.getAttribute("data-key") : null;
+    }
+
+    // A removal before the loop keeps the other children in place, so that they do not move.
+    function removeKeyedChildrenNotWanted(current, wanted) {
+        var wantedKeys = Array.from(wanted.childNodes).map(readKey).filter(function (key) {
+            return key !== null;
+        });
+        Array.from(current.childNodes).forEach(function (child) {
+            var key = readKey(child);
+            if (key !== null && wantedKeys.indexOf(key) < 0) {
+                current.removeChild(child);
+            }
+        });
+    }
+
+    function mapKeyedChildren(parent) {
+        var childrenByKey = new Map();
+        Array.from(parent.childNodes).forEach(function (child) {
+            var key = readKey(child);
+            if (key !== null) {
+                childrenByKey.set(key, child);
+            }
+        });
+        return childrenByKey;
+    }
+
+    function findMatchingChild(wantedChild, reference, currentByKey) {
+        var key = readKey(wantedChild);
+        var candidate = key === null ? reference : currentByKey.get(key) || null;
+        if (candidate === null || candidate.nodeName !== wantedChild.nodeName || readKey(candidate) !== key) {
+            return null;
+        }
+        return candidate;
+    }
+
+    function updateNode(current, wanted) {
+        if (current.nodeType !== Node.ELEMENT_NODE) {
+            if (current.nodeValue !== wanted.nodeValue) {
+                current.nodeValue = wanted.nodeValue;
+            }
+            return;
+        }
+        updateAttributes(current, wanted);
+        updateChildren(current, wanted);
+    }
+
+    // The server never sends the class "busy", so this also removes the busy state that showBusyButton adds.
+    function updateAttributes(current, wanted) {
+        Array.from(current.attributes).forEach(function (attribute) {
+            if (!wanted.hasAttribute(attribute.name)) {
+                current.removeAttribute(attribute.name);
+            }
+        });
+        Array.from(wanted.attributes).forEach(function (attribute) {
+            if (current.getAttribute(attribute.name) !== attribute.value) {
+                current.setAttribute(attribute.name, attribute.value);
+            }
+        });
+    }
+
+    // For each list of cards that the user scrolled, the first card in view and its distance to the top.
+    function findCardsInView(board) {
+        return Array.from(board.querySelectorAll(".cards")).filter(function (list) {
+            return list.scrollTop > 0;
+        }).map(function (list) {
+            var listTop = list.getBoundingClientRect().top;
+            var card = Array.from(list.children).find(function (child) {
+                return child.getBoundingClientRect().bottom > listTop;
+            });
+            return card ? { list: list, card: card, distance: card.getBoundingClientRect().top - listTop } : null;
+        }).filter(function (cardInView) {
+            return cardInView !== null;
+        });
+    }
+
+    // When a card comes or goes above the view, the scroll position changes by the same height.
+    function keepCardInView(cardInView) {
+        if (!cardInView.list.isConnected || cardInView.card.parentNode !== cardInView.list) {
+            return;
+        }
+        var distance = cardInView.card.getBoundingClientRect().top - cardInView.list.getBoundingClientRect().top;
+        cardInView.list.scrollTop += distance - cardInView.distance;
     }
 
     // A 401 reloads the page, so that the browser shows the login.
@@ -20,7 +138,7 @@
             })
             .then(function (html) {
                 if (html !== null) {
-                    replaceBoard(html);
+                    updateBoard(html);
                 }
             })
             .catch(function () {

@@ -42,7 +42,8 @@ final class CardRenderer {
         List<String> requestLines = findPendingRequestLines(card, model);
         boolean suspended = !requestLines.isEmpty();
         StringBuilder html = new StringBuilder();
-        html.append("<article class=\"").append(describeCardClass(waits, suspended)).append("\">");
+        html.append("<article class=\"").append(describeCardClass(waits, suspended)).append("\" data-key=\"")
+                .append(card.issueNumber()).append("\">");
         html.append("<div class=\"card-head\"><span class=\"phase\">").append(Html.escape(record.state()))
                 .append("</span></div>");
         appendTitle(html, card, model.repositoryFullName());

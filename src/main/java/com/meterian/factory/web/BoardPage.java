@@ -154,9 +154,11 @@ public final class BoardPage {
         return columns;
     }
 
+    /** The key lets page.js find the same column in the next board, so that the column keeps its scroll position. */
     private void appendColumn(StringBuilder html, String column, PageModel model) {
         List<IssueCard> cards = findCardsOfColumn(column, model.board());
-        html.append("<section class=\"column status-").append(Html.escape(column)).append("\"><h2>")
+        html.append("<section class=\"column status-").append(Html.escape(column)).append("\" data-key=\"")
+                .append(Html.escape(column)).append("\"><h2>")
                 .append("<span class=\"column-name\">").append(Html.escape(ColumnNames.displayName(column)))
                 .append("</span>")
                 .append("<span class=\"count\">").append(cards.size()).append("</span></h2>")

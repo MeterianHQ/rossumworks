@@ -344,6 +344,8 @@ button {
     min-height: 0;
     padding: 0.7rem;
     overflow-y: auto;
+    /* page.js keeps the cards in view after an update, so the browser must not move the scroll position also. */
+    overflow-anchor: none;
 }
 
 .empty {

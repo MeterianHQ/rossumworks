@@ -398,8 +398,8 @@ class BoardPageTest {
 
         assertThat(html.split("class=\"card waits\"", -1)).hasSize(3);
         assertThat(html).containsSubsequence("class=\"card waits\"", "#3 ", "class=\"card waits\"", "#4 ");
-        assertThat(html).containsSubsequence("<article class=\"card\">", "#5 ");
-        assertThat(html).containsSubsequence("<article class=\"card\">", "#6 ");
+        assertThat(html).containsSubsequence("<article class=\"card\" data-key=\"5\">", "#5 ");
+        assertThat(html).containsSubsequence("<article class=\"card\" data-key=\"6\">", "#6 ");
     }
 
     @Test
@@ -445,10 +445,21 @@ class BoardPageTest {
 
         String html = page.renderBoard(model(cards));
 
-        assertThat(html).contains("<section class=\"column status-queued\"><h2>" + columnName("Queued")
-                + "<span class=\"count\">2</span></h2>");
-        assertThat(html).contains("<section class=\"column status-waits-for-you\"><h2>" + columnName("Waits for you")
+        assertThat(html).contains("<section class=\"column status-queued\" data-key=\"queued\"><h2>"
+                + columnName("Queued") + "<span class=\"count\">2</span></h2>");
+        assertThat(html).contains("<section class=\"column status-waits-for-you\" data-key=\"waits-for-you\"><h2>"
+                + columnName("Waits for you")
                 + "<span class=\"count\">0</span></h2><div class=\"cards\"><p class=\"empty\">No issues</p></div>");
+    }
+
+    @Test
+    void eachColumnAndEachCardHasAKeyForTheUpdatesOfThePage() {
+        PageModel model = withColumns(model(List.of(card(record(5, "prepare")))), List.of("queued", "a&b"));
+
+        String html = page.renderBoard(model);
+
+        assertThat(html).contains("<section class=\"column status-queued\" data-key=\"queued\">",
+                "data-key=\"a&amp;b\"", "<article class=\"card\" data-key=\"5\">");
     }
 
     @Test
@@ -579,7 +590,7 @@ class BoardPageTest {
                 Map.of(12, Set.of("factory:approve"))));
 
         String cardHtml = html.substring(html.indexOf("<article"), html.indexOf("</article>"));
-        assertThat(cardHtml).startsWith("<article class=\"card waits pending\">")
+        assertThat(cardHtml).startsWith("<article class=\"card waits pending\" data-key=\"12\">")
                 .contains("<button disabled>Block</button>", "action=\"/issues/12/enter-terminal\"")
                 .doesNotContainPattern("<button(?![^>]*disabled)[^>]*>");
     }
@@ -588,7 +599,7 @@ class BoardPageTest {
     void aCardWithoutASentRequestHasActiveButtons() {
         String html = page.renderBoard(model(List.of(card(waitsForApproval(12)))));
 
-        assertThat(html).contains("<article class=\"card waits\">", "<button>Approve</button>")
+        assertThat(html).contains("<article class=\"card waits\" data-key=\"12\">", "<button>Approve</button>")
                 .doesNotContain("pending", "disabled");
     }
 
