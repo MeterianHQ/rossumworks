@@ -107,7 +107,7 @@ When `JAVA_HOME` is set and your repository has `mvnw`, `gradlew`, or `pom.xml`,
 
 With `--definition`, `create` checks the definition folder before it clones the repository. It asks "Write the
 files? [y/n]" before it writes. It writes the default definition to the definition folder, and it opens no pull
-request. When the write of the folder fails, `create` deletes `worker.yaml` again.
+request. When the write of the folder fails, `create` then deletes `worker.yaml`.
 
 ### Special situations of `create`
 

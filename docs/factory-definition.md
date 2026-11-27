@@ -581,6 +581,8 @@ pushes to the default branch or to a tag directly. It merges a pull request into
 
 ## 13. How the worker reads `.factory`
 
+With `--definition`, the worker reads a definition folder in place of `.factory`. See section 17.
+
 - At the start of each poll, the worker fetches the default branch in its clone. It reads `.factory` of the
   newest commit with git, never from the worktree of an issue.
 - A new issue gets the newest version that loads. Its status comment keeps the commit of that version.
@@ -793,7 +795,8 @@ git. Without `--definition`, the worker reads `.factory` of the default branch. 
 ### 17.1 The versions
 
 At the start of each poll, the worker reads the definition folder. When the content changes, the worker makes a
-new version. The version is `local:` and the SHA-256 hash of the content, for example `local:8be41d0`.
+new version: a local version. A local version is `local:` and the 64 characters of the SHA-256 hash of the
+content. The board shows a short form, for example `local:8be41d0`.
 
 The worker keeps each version that loads as a definition copy in `<work folder>/definitions/<hash>/`. The
 status comment of an issue keeps its version. The issue reads its definition from its copy, never from the
@@ -805,7 +808,9 @@ The worker never deletes a definition copy.
 ### 17.2 When the definition folder does not load
 
 - The worker keeps the last version that loads, and the board shows the reason at the top.
-- After a restart, the worker takes the newest definition copy that loads.
+- After a restart, the worker takes the newest definition copy that loads. The newest copy is the copy with the
+  newest modification time. A copy keeps the time of its first write, also when the same content comes back
+  later.
 - When no version loads, the worker takes no new issue.
 
 A file that is not valid UTF-8 is an error of the definition. The definition then does not load.
@@ -820,7 +825,7 @@ be a hidden entry.
 
 ### 17.3 An edit that is not complete
 
-The worker can read the folder while your edit is not complete. When the half-done content loads, new issues
+The worker can read the folder while your edit is not complete. When the content that is not complete loads, new issues
 can start with it. To prevent this, edit a copy of the folder. When the copy is complete, rename it to the
 name of the definition folder.
 
@@ -835,9 +840,12 @@ each record:
 | Without `--definition` | A `local:` version | It blocks the issue. |
 | With `--definition` | A `local:` version | It uses the version when its definition copy exists. |
 | With `--definition` | A commit | It blocks the issue. |
+| Both | No version | It uses the built-in definition. |
 
-When another person takes over the issue with their own factory, their machine has no definition copy. Their
-worker then blocks the issue.
+When another person takes over the issue, their factory writes a new record with its own current version. See
+[More than one factory](multiple-factories.md). When the same account runs the worker on a machine without the
+definition copy, the worker blocks the issue.
 
-With `--definition`, the merge gate still has the event `factory-changed`. The worker does not read the
-`.factory` of the repository.
+With `--definition`, a pull request that changes `.factory` still ends with the event `factory-changed`, and the
+merge needs your approval. The worker does not use that `.factory`. A change of the definition folder never gives
+`factory-changed`, because the folder is not in the repository.

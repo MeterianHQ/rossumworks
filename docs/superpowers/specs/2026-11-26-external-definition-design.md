@@ -43,7 +43,8 @@ with a definition that does not load is not a reason to stop: section 5 applies.
 The worker reads all the regular files of the definition folder and of its subfolders. It skips each **hidden
 entry**: a file or a folder whose name starts with a dot, for example `.git`, at each level. So you can keep the
 definition folder in a git repository. A prompt file cannot be a hidden entry. The worker sorts the files by their
-relative path. The hash is the SHA-256 of each relative path and each content, in that order. A file of zero
+relative path. The hash is the SHA-256 of each relative path and each content, in that order. The length of each
+path and of each content comes before it, so two different folders never give the same bytes. A file of zero
 bytes counts. Another type of entry, for example a symbolic link, makes the read fail with a message that names
 the entry.
 
@@ -94,8 +95,9 @@ The worker checks the value of the record before it uses it:
 | With `--definition` | A commit | Refused. |
 | Both | No value | The built-in definition, the same as now. |
 
-A refused value or a missing copy blocks the issue, with a note that gives the reason. This also applies after a
-takeover by the factory of another person who has no copy. A person who edits the status comment can thus select
+A refused value or a missing copy blocks the issue, with a note that gives the reason. This applies when the
+same account runs the worker on a machine without the copy. A takeover by the factory of another person writes a
+new record with the current version of that factory, so it does not block the issue. A person who edits the status comment can thus select
 only a version that came from your definition folder.
 
 Start again gives the issue the current version, the same as now.
