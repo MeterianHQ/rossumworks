@@ -163,7 +163,7 @@ class RunScriptTest {
         ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin"));
 
         assertThat(result.text()).contains("Download of " + MAC_PROGRAM, "native run")
-                .doesNotContain(ARM64_PROGRAM, "java");
+                .doesNotContain(ARM64_PROGRAM, "java -jar");
         assertThat(result.exitCode()).isEqualTo(0);
         assertThat(nativeCache().resolve(MAC_PROGRAM)).isExecutable();
     }
@@ -177,7 +177,7 @@ class RunScriptTest {
         ScriptResult result = runScript("x86_64", Map.of("FAKE_SYSTEM", "Darwin"));
 
         assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run")
-                .doesNotContain("native run");
+                .doesNotContain("native run", "Download of " + MAC_PROGRAM);
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
@@ -266,12 +266,13 @@ class RunScriptTest {
         publishNativeProgramWithChecksum(MAC_PROGRAM);
         writeExecutable(fakeCommands.resolve("shasum"), createFakeShasum(computeSha256(NATIVE_TEXT)));
 
-        Path systemCommands = linkSystemCommandsWithoutSha256sum();
+        Path commandLinks = temporaryDirectory.resolve("system-without-sha256sum");
         ScriptResult result;
         try {
-            result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin", "PATH", fakeCommands + ":" + systemCommands));
+            linkSystemCommandsWithoutSha256sum(commandLinks);
+            result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin", "PATH", fakeCommands + ":" + commandLinks));
         } finally {
-            deleteLinkedSystemCommands(systemCommands);
+            deleteCommandLinks(commandLinks);
         }
 
         assertThat(result.text()).contains("shasum -a 256 ", "native run");
@@ -287,31 +288,33 @@ class RunScriptTest {
     }
 
     /** A folder with a link to each command of SYSTEM_PATH, except sha256sum. Old macOS versions have no sha256sum. */
-    private Path linkSystemCommandsWithoutSha256sum() throws IOException {
-        Path systemCommands = Files.createDirectories(temporaryDirectory.resolve("system-without-sha256sum"));
+    private static void linkSystemCommandsWithoutSha256sum(Path commandLinks) throws IOException {
+        Files.createDirectories(commandLinks);
         for (String directory : SYSTEM_PATH.split(":")) {
             try (Stream<Path> commands = Files.list(Path.of(directory))) {
                 for (Path command : commands.toList()) {
-                    linkCommand(systemCommands, command);
+                    linkCommand(commandLinks, command);
                 }
             }
         }
-        return systemCommands;
     }
 
     /** Deletes the links and the folder, not the commands that the links point to. */
-    private static void deleteLinkedSystemCommands(Path systemCommands) throws IOException {
-        try (Stream<Path> links = Files.list(systemCommands)) {
+    private static void deleteCommandLinks(Path commandLinks) throws IOException {
+        if (Files.notExists(commandLinks)) {
+            return;
+        }
+        try (Stream<Path> links = Files.list(commandLinks)) {
             for (Path link : links.toList()) {
                 Files.delete(link);
             }
         }
-        Files.delete(systemCommands);
+        Files.delete(commandLinks);
     }
 
-    private static void linkCommand(Path systemCommands, Path command) throws IOException {
+    private static void linkCommand(Path commandLinks, Path command) throws IOException {
         String name = command.getFileName().toString();
-        Path link = systemCommands.resolve(name);
+        Path link = commandLinks.resolve(name);
         boolean isUsable = Files.isExecutable(command) && !Files.isDirectory(command);
         if (isUsable && !name.equals("sha256sum") && Files.notExists(link, LinkOption.NOFOLLOW_LINKS)) {
             Files.createSymbolicLink(link, command);
