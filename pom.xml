@@ -6,7 +6,7 @@
 
     <groupId>com.meterian</groupId>
     <artifactId>rossumworks</artifactId>
-    <version>0.6.0-SNAPSHOT</version>
+    <version>0.6.0</version>
     <packaging>jar</packaging>
     <name>RossumWorks</name>
 
