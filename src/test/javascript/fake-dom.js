@@ -66,10 +66,26 @@ class FakeNode {
         if (index < 0) {
             throw new Error("The node is not a child of this node");
         }
+        this.blurIfFocusIsIn(child);
         this.childNodes.splice(index, 1);
         child.parentNode = null;
         this.countChangeInDocument();
         return child;
+    }
+
+    // As in a browser, a node that leaves the document loses the focus, also when insertBefore only moves it.
+    blurIfFocusIsIn(child) {
+        const focused = this.ownerDocument.focusedElement;
+        if (focused !== null && this.isConnected && child.contains(focused)) {
+            this.ownerDocument.focusedElement = null;
+        }
+    }
+
+    contains(node) {
+        while (node !== null && node !== this) {
+            node = node.parentNode;
+        }
+        return node === this;
     }
 
     // A change of a node outside the document, for example in a parsed fragment, does not count.

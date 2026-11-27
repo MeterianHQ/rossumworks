@@ -104,6 +104,11 @@ function findCard(page, issueNumber) {
             .find((card) => card.getAttribute("data-key") === String(issueNumber));
 }
 
+/** A strictEqual on two nodes writes a diff of the full tree, which takes minutes. This check writes no diff. */
+function assertSameNode(actual, expected, description) {
+    assert.ok(actual === expected, description + " is not the same node");
+}
+
 test("an event without a change touches nothing and keeps the scroll positions", async () => {
     const html = renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 3, 4, 5])),
         renderColumn("done", renderCards([6, 7, 8, 9]))]);
@@ -132,10 +137,10 @@ test("a change of only the header keeps the columns and the focus", async () => 
     await sendBoardEvent(page, renderBoard("10:01", columns));
 
     assert.match(page.board.querySelector("header.topbar").textContent, /10:01/);
-    assert.strictEqual(page.board.querySelector("main.columns"), main);
-    assert.strictEqual(findColumn(page, "queued"), queued);
+    assertSameNode(page.board.querySelector("main.columns"), main, "The columns");
+    assertSameNode(findColumn(page, "queued"), queued, "The column");
     assert.strictEqual(findCardList(page, "queued").scrollTop, 120);
-    assert.strictEqual(page.document.activeElement, findCard(page, 2).querySelector("button"));
+    assertSameNode(page.document.activeElement, findCard(page, 2).querySelector("button"), "The focus");
 });
 
 test("a warning that goes away keeps the columns and the scroll positions", async () => {
@@ -149,13 +154,13 @@ test("a warning that goes away keeps the columns and the scroll positions", asyn
 
     await sendBoardEvent(page, renderBoard("10:01", columns));
 
-    assert.strictEqual(page.board.querySelector("p.warning"), null);
-    assert.strictEqual(page.board.querySelector("p.notice"), null);
-    assert.strictEqual(page.board.querySelector("main.columns"), main);
-    assert.strictEqual(findCardList(page, "queued"), list);
+    assertSameNode(page.board.querySelector("p.warning"), null, "The warning");
+    assertSameNode(page.board.querySelector("p.notice"), null, "The notice");
+    assertSameNode(page.board.querySelector("main.columns"), main, "The columns");
+    assertSameNode(findCardList(page, "queued"), list, "The list of cards");
     assert.strictEqual(list.scrollTop, 150);
     assert.strictEqual(main.scrollLeft, 40);
-    assert.strictEqual(page.document.activeElement, findCard(page, 3).querySelector("button"));
+    assertSameNode(page.document.activeElement, findCard(page, 3).querySelector("button"), "The focus");
 });
 
 test("a warning that comes keeps the columns and the scroll positions", async () => {
@@ -167,7 +172,7 @@ test("a warning that comes keeps the columns and the scroll positions", async ()
     await sendBoardEvent(page, renderBoard("10:01", columns, OLD_CHECK_WARNING));
 
     assert.ok(page.board.querySelector("p.warning") !== null);
-    assert.strictEqual(page.board.querySelector("main.columns"), main);
+    assertSameNode(page.board.querySelector("main.columns"), main, "The columns");
     assert.strictEqual(findCardList(page, "queued").scrollTop, 150);
 });
 
@@ -183,12 +188,12 @@ test("an optional part of a card that goes away keeps the buttons and the focus"
     await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued",
             [renderCard(1, "Title", REVIEWS + ENTRIES)])]));
 
-    assert.strictEqual(card.querySelector("p.reason"), null);
-    assert.strictEqual(card.querySelector("div.live-box"), null);
-    assert.strictEqual(card.querySelector("ul.reviews"), reviews);
-    assert.strictEqual(card.querySelector("div.actions"), actions);
-    assert.strictEqual(actions.querySelector("button"), button);
-    assert.strictEqual(page.document.activeElement, button);
+    assertSameNode(card.querySelector("p.reason"), null, "The reason");
+    assertSameNode(card.querySelector("div.live-box"), null, "The live box");
+    assertSameNode(card.querySelector("ul.reviews"), reviews, "The reviews");
+    assertSameNode(card.querySelector("div.actions"), actions, "The actions");
+    assertSameNode(actions.querySelector("button"), button, "The button");
+    assertSameNode(page.document.activeElement, button, "The focus");
 });
 
 test("an optional part of a card that comes keeps the buttons and the focus", async () => {
@@ -202,26 +207,29 @@ test("an optional part of a card that comes keeps the buttons and the focus", as
             [renderCard(1, "Title", REASON + LIVE_BOX + REVIEWS + ENTRIES)])]));
 
     assert.ok(card.querySelector("div.live-box") !== null);
-    assert.strictEqual(card.querySelector("div.actions"), actions);
-    assert.strictEqual(page.document.activeElement, button);
+    assertSameNode(card.querySelector("div.actions"), actions, "The actions");
+    assertSameNode(page.document.activeElement, button, "The focus");
 });
 
-test("a change of one card keeps the other cards and the scroll position", async () => {
+test("a change of one card keeps the other cards, the scroll position, and the focus", async () => {
     const page = openPage(renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 3, 4]))]));
     const firstCard = findCard(page, 1);
     const changedCard = findCard(page, 2);
     const lastCard = findCard(page, 4);
+    const focusedButton = findCard(page, 3).querySelector("button");
     findCardList(page, "queued").scrollTop = 130;
+    focusedButton.focus();
     const changedCards = [renderCard(1, "Title"), renderCard(2, "New title"), renderCard(3, "Title"),
         renderCard(4, "Title")];
 
     await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued", changedCards)]));
 
-    assert.strictEqual(findCard(page, 1), firstCard);
-    assert.strictEqual(findCard(page, 2), changedCard);
-    assert.strictEqual(findCard(page, 4), lastCard);
+    assertSameNode(findCard(page, 1), firstCard, "The first card");
+    assertSameNode(findCard(page, 2), changedCard, "The changed card");
+    assertSameNode(findCard(page, 4), lastCard, "The last card");
     assert.match(findCard(page, 2).textContent, /#2 New title/);
     assert.strictEqual(findCardList(page, "queued").scrollTop, 130);
+    assertSameNode(page.document.activeElement, focusedButton, "The focus");
 });
 
 test("a card that comes above the view keeps the cards in view", async () => {
@@ -242,7 +250,7 @@ test("a card that goes above the view keeps the cards in view", async () => {
     await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued", renderCards([2, 3, 4, 5, 6]))]));
 
     assert.strictEqual(findCardList(page, "queued").scrollTop, 250 - CARD_HEIGHT);
-    assert.strictEqual(findCard(page, 3), cardInView);
+    assertSameNode(findCard(page, 3), cardInView, "The card in view");
     assert.strictEqual(cardInView.getBoundingClientRect().top, -50);
 });
 
@@ -257,7 +265,7 @@ test("when the card at the top of the view goes, the next card stays in view", a
         renderColumn("done", renderCards([3]))]));
 
     assert.strictEqual(findCardList(page, "queued").scrollTop, 250 - CARD_HEIGHT);
-    assert.strictEqual(findCard(page, 4), nextCard);
+    assertSameNode(findCard(page, 4), nextCard, "The next card");
     assert.strictEqual(nextCard.getBoundingClientRect().top, 50);
 });
 
@@ -277,7 +285,7 @@ test("a card that moves to another column leaves the first column and shows in t
     await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued", renderCards([])),
         renderColumn("done", renderCards([1]))]));
 
-    assert.strictEqual(findCardList(page, "queued").querySelector("article.card"), null);
+    assertSameNode(findCardList(page, "queued").querySelector("article.card"), null, "The card in Queued");
     assert.match(findCardList(page, "queued").textContent, /No issues/);
     assert.strictEqual(findCardList(page, "done").querySelector("article.card").getAttribute("data-key"), "1");
 });
@@ -292,7 +300,7 @@ test("a busy button becomes usable after an update", async () => {
 
     await sendBoardEvent(page, html);
 
-    assert.strictEqual(form.querySelector("button"), button);
+    assertSameNode(form.querySelector("button"), button, "The button");
     assert.ok(!button.classList.contains("busy"));
     assert.ok(!button.disabled);
 });
