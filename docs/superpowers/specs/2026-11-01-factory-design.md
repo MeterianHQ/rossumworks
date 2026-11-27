@@ -486,8 +486,10 @@ The owner decided on the page as follows. The mock of 2026-11-02 shows it.
 
 - **The Enter buttons.** The single Enter button becomes three buttons,
   "Terminal", "Browser", and "Phone". They are one joined row of three
-  parts with no icons, because a card is 240 px wide. Approve and Block go
-  on the next row. After one Enter, the card shows only the request line
+  parts with no icons, because a card is 240 px wide. Approve and Block are
+  on the first row, and the Enter buttons are one joined row below them.
+  Thus the other buttons do not move when the Enter buttons come (issue
+  #71). After one Enter, the card shows only the request line
   of the chosen place.
 - **Tooltips.** Each button has a tooltip that tells what happens. The
   tooltip uses only CSS and a `data-tip` attribute, so the CSP does not

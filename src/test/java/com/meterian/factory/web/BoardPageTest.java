@@ -283,8 +283,8 @@ class BoardPageTest {
         assertThat(html).contains("data-tip=\"" + PageAction.ENTER_TERMINAL.tooltip() + "\"",
                 "data-tip=\"" + PageAction.ENTER_BROWSER.tooltip() + "\"");
         assertThat(html).contains("aria-label=\"Browser. " + PageAction.ENTER_BROWSER.tooltip() + "\"");
-        assertThat(html).containsSubsequence("class=\"enter-group\"", "/enter-terminal", "/enter-browser",
-                "/approve", "/block");
+        assertThat(html).containsSubsequence("/approve", "/block", "class=\"enter-group\"", "/enter-terminal",
+                "/enter-browser");
         assertThat(html).doesNotContain("/enter-phone").doesNotContain("Phone");
         assertThat(html).doesNotContain("\u2197").doesNotContain("class=\"icon\"");
     }
@@ -298,6 +298,24 @@ class BoardPageTest {
         assertThat(html).contains("/issues/12/approve", "/issues/12/block");
         assertThat(html).doesNotContain("/enter-terminal").doesNotContain("/enter-browser")
                 .doesNotContain("enter-group").doesNotContain(">Terminal<").doesNotContain(">Browser<");
+    }
+
+    @Test
+    void theOtherButtonsKeepTheirPlaceWhenTheEnterButtonsCome() {
+        IssueCard card = card(waitsForApproval(12));
+        String htmlWithoutEnter = page.renderBoard(withoutTheLiveMode(model(List.of(card))));
+        String htmlWithEnter = page.renderBoard(model(List.of(card)));
+
+        String otherButtons = findActionsContent(htmlWithoutEnter);
+
+        assertThat(otherButtons).contains("/issues/12/block");
+        assertThat(htmlWithEnter).contains("<div class=\"actions\">" + otherButtons + "<div class=\"enter-group\">");
+    }
+
+    private static String findActionsContent(String html) {
+        String actionsStart = "<div class=\"actions\">";
+        int contentStart = html.indexOf(actionsStart) + actionsStart.length();
+        return html.substring(contentStart, html.indexOf("</div>", contentStart));
     }
 
     @Test

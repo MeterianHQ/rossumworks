@@ -142,7 +142,8 @@ an old page gets "This action is not possible now." when the card changed. Load 
 
 The buttons Terminal and Browser are side by side in one row. Each one has a tooltip. A phone shows no tooltip, so
 the names are clear without it. A card is narrow, so the buttons have no icons. Terminal shows only in a browser on
-the machine of the worker. Approve and Block are on the next row.
+the machine of the worker. Terminal and Browser are on a row below Approve and Block, so that Approve and Block keep
+their place when the Enter buttons come.
 
 After a click on one of them, the card shows only the blue line of the chosen place:
 

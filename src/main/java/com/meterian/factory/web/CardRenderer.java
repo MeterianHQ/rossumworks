@@ -249,7 +249,7 @@ final class CardRenderer {
     /**
      * The forms work without JavaScript. page.js finds the forms of Block and Start again by their class and asks for a confirm.
      * Each form sends the fingerprint of the card, so that the server refuses a form from an old page.
-     * The Enter buttons are one group before the other forms.
+     * The Enter buttons are one group after the other forms. When an Enter becomes possible, the other buttons do not move.
      */
     private void appendActions(StringBuilder html, IssueCard card, PageModel model, boolean suspended) {
         String fingerprint = CardFingerprint.of(card);
@@ -257,19 +257,19 @@ final class CardRenderer {
                 .filter(action -> isPossible(action, card, model))
                 .toList();
         html.append("<div class=\"actions\">");
-        if (!enterActions.isEmpty()) {
-            html.append("<div class=\"enter-group\">");
-            for (PageAction action : enterActions) {
-                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint, suspended);
-            }
-            html.append("</div><span class=\"separator\"></span>");
-        }
         for (PageAction action : OTHER_ACTIONS) {
             if (isPossible(action, card, model)) {
                 appendFormStart(html, card.issueNumber(), action, fingerprint);
                 html.append(suspended ? "<button disabled>" : "<button>").append(action.buttonText())
                         .append("</button></form>");
             }
+        }
+        if (!enterActions.isEmpty()) {
+            html.append("<div class=\"enter-group\">");
+            for (PageAction action : enterActions) {
+                appendPlaceForm(html, card.issueNumber(), action, false, fingerprint, suspended);
+            }
+            html.append("</div>");
         }
         html.append("</div>");
     }
