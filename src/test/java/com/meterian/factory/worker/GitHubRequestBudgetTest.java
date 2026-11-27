@@ -266,6 +266,7 @@ class GitHubRequestBudgetTest {
     private static void assertStaysInTheEnterBudget(List<Map<String, Integer>> countsByPoll) {
         assertThat(countsByPoll).allSatisfy(counts -> {
             assertThat(sumCounted(counts)).isLessThanOrEqualTo(MAXIMUM_REQUESTS_OF_A_POLL_WITH_AN_ENTER_LABEL);
+            // The fake server counts each request with each answer status, also a 404, so this check finds a read.
             assertThat(counts).doesNotContainKey(EVENTS_REQUEST);
         });
     }
