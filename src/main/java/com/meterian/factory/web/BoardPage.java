@@ -91,13 +91,18 @@ public final class BoardPage {
                 .append("</span><span class=\"tile-value\">").append(Html.escape(value)).append("</span></div>");
     }
 
-    /** The state is the last item of the header, so it shows in the top right corner. */
+    /**
+     * The state is the last item of the header, so it shows in the top right corner. The key of the form lets
+     * page.js replace Stop with Start, so that the focus does not go from one action to the other.
+     */
     private void appendFactoryState(StringBuilder html, FactoryState state) {
         boolean running = state == FactoryState.RUNNING;
+        String action = running ? "stop" : "start";
         html.append("<div class=\"factory-state state-").append(toClassName(state)).append("\">")
                 .append("<span class=\"factory-state-value\">").append(state.displayName()).append("</span>")
-                .append("<form method=\"post\" action=\"/factory/").append(running ? "stop" : "start")
-                .append("\"><button>").append(running ? "Stop" : "Start").append("</button></form></div>");
+                .append("<form method=\"post\" action=\"/factory/").append(action)
+                .append("\" data-key=\"factory-").append(action).append("\"><button>")
+                .append(running ? "Stop" : "Start").append("</button></form></div>");
     }
 
     private Optional<String> describeFactoryState(FactoryState state) {
@@ -154,9 +159,11 @@ public final class BoardPage {
         return columns;
     }
 
+    /** The key lets page.js find the same column in the next board, so that the column keeps its scroll position. */
     private void appendColumn(StringBuilder html, String column, PageModel model) {
         List<IssueCard> cards = findCardsOfColumn(column, model.board());
-        html.append("<section class=\"column status-").append(Html.escape(column)).append("\"><h2>")
+        html.append("<section class=\"column status-").append(Html.escape(column)).append("\" data-key=\"")
+                .append(Html.escape(column)).append("\"><h2>")
                 .append("<span class=\"column-name\">").append(Html.escape(ColumnNames.displayName(column)))
                 .append("</span>")
                 .append("<span class=\"count\">").append(cards.size()).append("</span></h2>")

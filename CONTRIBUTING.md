@@ -19,6 +19,14 @@ The build writes the jar to `target/rossumworks-$VERSION.jar`. Some tests show a
 The tests never use a real `claude`, a real GitHub repository, or the Anthropic API. They use fake programs
 and local git repositories.
 
+The tests of `page.js` need Node, and `PageScriptTest` runs them in `./mvnw verify`. Node is optional on a
+local machine: a build without Node skips these tests. When the variable `CI` exists, Node is necessary. Thus
+the workflow Build always runs these tests. To run the tests of `page.js` alone, use this command:
+
+```
+node --test src/test/javascript/page.test.js
+```
+
 The workflow [Build](.github/workflows/build.yml) runs the same build for each pull request and for each push
 to `main`. It also checks the workflow files with `actionlint`.
 
