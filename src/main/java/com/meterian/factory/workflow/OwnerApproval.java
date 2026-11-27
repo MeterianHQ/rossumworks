@@ -2,11 +2,12 @@ package com.meterian.factory.workflow;
 
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.RequestLabels;
 
 /** The label factory:approve and its removal. The factory does not check who added the label. */
 final class OwnerApproval {
 
-    private static final String APPROVE_LABEL = "factory:approve";
+    private static final String APPROVE_LABEL = RequestLabels.APPROVE;
 
     private final GitHubClient gitHub;
 

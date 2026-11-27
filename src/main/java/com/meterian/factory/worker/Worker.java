@@ -17,6 +17,7 @@ import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.ownership.IssueClaim;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.Ownership;
@@ -56,8 +57,8 @@ public final class Worker {
     private static final System.Logger LOGGER = System.getLogger(Worker.class.getName());
     private static final String FACTORY_LABEL = "factory";
     private static final String HUMAN_LABEL = "human";
-    private static final String APPROVE_LABEL = "factory:approve";
-    private static final String BLOCK_LABEL = "factory:block";
+    private static final String APPROVE_LABEL = RequestLabels.APPROVE;
+    private static final String BLOCK_LABEL = RequestLabels.BLOCK;
     private static final String BROKEN_RECORD_NOTE =
             "The status record of the factory is broken. The factory does not work on this issue.";
     private static final String DONE_BLOCK_NOTE = "The issue is already done; the block has no effect.";

@@ -2,13 +2,14 @@ package com.meterian.factory.worker;
 
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.workflow.IssueWorkflow;
 
 /** The label factory:enter, and the enter that removes it. */
 final class EnterRequests {
 
-    static final String ENTER_LABEL = "factory:enter";
+    static final String ENTER_LABEL = RequestLabels.ENTER;
 
     private final GitHubClient gitHub;
     private final IssueWorkflow workflow;

@@ -1,5 +1,6 @@
 package com.meterian.factory.workflow;
 
+import com.meterian.factory.github.RequestLabels;
 import com.meterian.factory.state.LivePlace;
 import java.time.Clock;
 import java.time.Duration;
@@ -12,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PageRequests {
 
     static final Duration REQUEST_LIFETIME = Duration.ofHours(24);
-    private static final String ENTER_LABEL = "factory:enter";
+    private static final String ENTER_LABEL = RequestLabels.ENTER;
 
     private final Clock clock;
     private final Map<String, Instant> expiryByRequest = new ConcurrentHashMap<>();
