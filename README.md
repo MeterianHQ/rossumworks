@@ -131,6 +131,7 @@ the same time, and the others wait in Queued. See [Configuration](docs/configura
 | [Issues and labels](docs/issues-and-labels.md) | give work to the factory, and control an issue with the labels |
 | [Live mode](docs/live-mode.md) | talk to the agent of an issue |
 | [Web page](docs/web-page.md) | use the board, its buttons, and Stop and Start |
+| [A worker on a cloud VM](docs/cloud-worker.md) | run the worker on a Linux VM in the cloud, and use it from your computer |
 | [More than one factory](docs/multiple-factories.md) | run more than one factory on one repository |
 | [Events](docs/events.md) | watch the worker from a script or a monitoring agent |
 | [Factory definition](docs/factory-definition.md) | change the workflow, the prompts, the build, or the target branch of the merges |
