@@ -69,7 +69,7 @@ You can change the workflow. See [Factory definition](docs/factory-definition.md
 - A Linux machine or a Mac. The factory does not work on Windows. It can probably work in WSL 2 on Windows, but nobody tested it.
 - For the jar only: a JDK 21 or later. The native programs need no JDK. The native programs for Linux x64 and
   Linux arm64 need glibc 2.34 or later, for example Ubuntu 22.04, Debian 12, or RHEL 9. The native program for
-  macOS arm64 needs macOS 26 or later. Another Mac uses the jar.
+  macOS arm64 needs macOS 26 or later. A Mac with an Intel processor, or with a macOS older than 26, uses the jar.
 - `claude`, `git`, `kill`, `tmux`, `jq`, and `curl` on the `PATH`. Linux also needs `setsid`. macOS also needs
   `perl`, and macOS includes it. On macOS, Homebrew installs a missing command, for example `brew install tmux`.
 - A provider: a `claude` login with your Claude subscription, or an Anthropic API key. See

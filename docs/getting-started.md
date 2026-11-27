@@ -47,14 +47,14 @@ Each release has these programs. Each program has a `.sha256` file.
 | `rossumworks-$VERSION-macos-arm64` | macOS on arm64 (Apple silicon), version 26 or later | No |
 | `rossumworks-$VERSION.jar` | Any machine of the requirements | Yes, 21 or later |
 
-The native program and the jar do the same work. To use a native program, do these steps:
+The native program and the jar do the same work. In these steps, `<program>` is the file name of the program,
+for example `rossumworks-$VERSION-linux-x64`. To use a native program, do these steps:
 
 1. Download the program and its `.sha256` file into the same folder.
-2. Run `sha256sum -c rossumworks-$VERSION-linux-x64.sha256`. On a Mac, run
-   `shasum -a 256 -c rossumworks-$VERSION-macos-arm64.sha256`.
-3. Run `chmod +x rossumworks-$VERSION-linux-x64`.
-4. On a Mac, run `xattr -d com.apple.quarantine rossumworks-$VERSION-macos-arm64`. See the note below.
-5. Run `./rossumworks-$VERSION-linux-x64 self-check`.
+2. Run `sha256sum -c <program>.sha256`. On a Mac, run `shasum -a 256 -c <program>.sha256`.
+3. Run `chmod +x <program>`.
+4. On a Mac, run `xattr -d com.apple.quarantine <program>`. See the note below.
+5. Run `./<program> self-check`.
 
 **The quarantine flag on macOS.** A browser puts the quarantine flag on each file that it downloads. The program
 has no Apple signature, so macOS blocks a program with this flag. The command of step 4 removes the flag. A

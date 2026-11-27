@@ -90,9 +90,9 @@ the new name.
 `RunScriptTest` uses a fake `uname`. These tests change or come in:
 
 - `anotherSystemThanLinuxGivesTheJar` changes to `aMacWithIntelGivesTheJar`: `Darwin` and `x86_64` give the jar.
-- The new test `aMacWithArm64GivesTheMacProgram`: `Darwin` and `arm64` give the native program
+- The new test `startsTheNativeProgramOfAMacWithArm64`: `Darwin` and `arm64` give the native program
   `rossumworks-<version>-macos-arm64`.
-- The new test `aMachineWithoutSha256sumUsesShasum`: without `sha256sum` on the `PATH`, the script checks the
+- The new test `aMachineWithoutSha256sumChecksTheProgramWithShasum`: without `sha256sum` on the `PATH`, the script checks the
   program with a fake `shasum`.
 
 `aMachineWithoutATokenDownloadsTheJar` uses `Darwin` and `arm64` and publishes no native program. It still
@@ -115,7 +115,7 @@ gives the jar, so it does not change.
 - A failed macOS build or test stops the release, as for Linux.
 - A missing macOS artifact stops `collect-native-programs.sh`, so the release has no missing program.
 - On a Mac where the program does not start, `run.sh` uses the jar, as on an old Linux.
-- A wrong SHA-256 stops `run.sh` with the code `CHECKSUM_FAILURE`, as before.
+- A wrong SHA-256 stops `run.sh` with the exit code 1, as before.
 
 ## 10. The checks before the merge
 

@@ -54,10 +54,19 @@ jobs:
       - name: Build the native program and run the native tests
         run: ./mvnw -B -ntp -Pnative verify
 
-      # The documents give this minimum macOS version. See the table of programs in docs/getting-started.md.
-      - name: Show the minimum macOS version of the native program
+      # A new macos-latest image can change minos. Then update the documents, for example docs/getting-started.md.
+      - name: Check the minimum macOS version and the processor of the native program
         if: runner.os == 'macOS'
-        run: vtool -show-build target/rossumworks
+        run: |
+          vtool -show-build target/rossumworks
+          if ! vtool -show-build target/rossumworks | grep -q -E '^ *minos 26\.0$'; then
+            echo "::error::The minimum macOS version is not 26.0. Update the documents and this check."
+            exit 1
+          fi
+          if [ "$(lipo -archs target/rossumworks)" != "arm64" ]; then
+            echo "::error::The native program is not for arm64."
+            exit 1
+          fi
 
       # overwrite permits "Re-run failed jobs": the rerun uploads this artifact a second time.
       - name: Keep the native program
