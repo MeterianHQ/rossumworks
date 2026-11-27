@@ -44,6 +44,12 @@ You can do either. The worker runs on one Linux machine with a clone of the repo
 for a team. Each developer can also run a worker on their own machine, with their own GitHub token. The
 assignee of an issue decides which factory works on it. See [More than one factory](multiple-factories.md).
 
+### Can I run the worker on a VM in the cloud?
+
+Yes. Use a Linux VM, and start the worker as a `systemd` service. Keep the board on `127.0.0.1`, and open it
+from your computer through an SSH tunnel. Use the button Browser for the live mode, because the VM has no
+desktop. See [A worker on a cloud VM](cloud-worker.md).
+
 ### Must I define the build and test pipeline in git, or can I use my local pipeline?
 
 You must define the build command in git, in `.factory/factory.yaml`. But the command runs locally, on the
