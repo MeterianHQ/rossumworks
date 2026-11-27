@@ -114,4 +114,35 @@ class DefinitionFolderSetupTest {
 
         assertThat(DefinitionLoader.load(new FolderDefinitionFiles(folder)).mergeTargetBranch()).isEqualTo("main");
     }
+
+    @Test
+    void needsADefinitionWhenTheFolderHasOnlyAHiddenEntry() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Files.createDirectories(folder.resolve(".git"));
+        Files.writeString(folder.resolve(".git/HEAD"), "ref");
+
+        assertThat(new DefinitionFolderSetup(folder).needsDefinition()).isTrue();
+    }
+
+    @Test
+    void refusesAFolderWithAHiddenEntryAndOtherFilesAndNoMainFile() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Files.createDirectories(folder.resolve(".git"));
+        Files.writeString(folder.resolve("notes.md"), "notes");
+
+        assertThatThrownBy(() -> new DefinitionFolderSetup(folder).needsDefinition())
+                .isInstanceOf(SetupException.class)
+                .hasMessageStartingWith("The definition folder " + folder + " has files, but no factory.yaml.");
+    }
+
+    @Test
+    void writesTheFilesIntoAFolderWithAHiddenEntry() throws Exception {
+        Path folder = Files.createDirectories(temporaryDirectory.resolve("definition"));
+        Files.createDirectories(folder.resolve(".git"));
+
+        new DefinitionFolderSetup(folder).write(FILES);
+
+        assertThat(folder.resolve("factory.yaml")).hasContent("version: 1");
+        assertThat(folder.resolve(".git")).isDirectory();
+    }
 }

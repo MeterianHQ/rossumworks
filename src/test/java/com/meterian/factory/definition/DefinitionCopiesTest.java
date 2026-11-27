@@ -121,4 +121,19 @@ class DefinitionCopiesTest {
                     .filter(name -> name.startsWith(".partial-")).toList();
         }
     }
+
+    @Test
+    void doesNotCopyTheHiddenEntries() throws IOException {
+        Files.createDirectories(source.resolve(".git"));
+        Files.writeString(source.resolve(".git/HEAD"), "ref");
+        Files.writeString(source.resolve(".hidden.md"), "Hidden.\n");
+        Files.writeString(source.resolve("prompts/.hidden.md"), "Hidden.\n");
+
+        Path temporaryCopy = copies.copyToTemporaryFolder(source);
+
+        assertThat(temporaryCopy.resolve(".git")).doesNotExist();
+        assertThat(temporaryCopy.resolve(".hidden.md")).doesNotExist();
+        assertThat(temporaryCopy.resolve("prompts/.hidden.md")).doesNotExist();
+        assertThat(temporaryCopy.resolve("prompts/implement.md")).exists();
+    }
 }

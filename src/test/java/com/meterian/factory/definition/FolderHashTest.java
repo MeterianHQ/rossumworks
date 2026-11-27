@@ -95,4 +95,38 @@ class FolderHashTest {
                 .hasMessage("The definition folder " + folder + " has the entry linked, "
                         + "which is not a file or a folder.");
     }
+
+    @Test
+    void ignoresTheHiddenEntries() throws IOException {
+        Path folder = writeFolder("first", "version: 1\n", "Implement.\n");
+        String before = FolderHash.calculate(folder);
+
+        Files.createDirectories(folder.resolve(".git"));
+        Files.writeString(folder.resolve(".git/HEAD"), "ref: one");
+        Files.writeString(folder.resolve(".hidden.md"), "One");
+        Files.writeString(folder.resolve("prompts/.hidden.md"), "One");
+        assertThat(FolderHash.calculate(folder)).isEqualTo(before);
+
+        Files.writeString(folder.resolve(".git/HEAD"), "ref: two");
+        Files.writeString(folder.resolve(".hidden.md"), "Two");
+        assertThat(FolderHash.calculate(folder)).isEqualTo(before);
+    }
+
+    @Test
+    void ignoresASymbolicLinkInAHiddenFolder() throws IOException {
+        Path folder = writeFolder("first", "version: 1\n", "Implement.\n");
+        String before = FolderHash.calculate(folder);
+        Files.createDirectories(folder.resolve(".git"));
+        Files.createSymbolicLink(folder.resolve(".git/link"), folder.resolve("factory.yaml"));
+
+        assertThat(FolderHash.calculate(folder)).isEqualTo(before);
+    }
+
+    @Test
+    void givesTheHashOfARootFolderWhoseNameStartsWithADot() throws IOException {
+        Path first = writeFolder(".first", "version: 1\n", "Implement.\n");
+        Path second = writeFolder("second", "version: 1\n", "Implement.\n");
+
+        assertThat(FolderHash.calculate(first)).isEqualTo(FolderHash.calculate(second));
+    }
 }

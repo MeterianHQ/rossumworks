@@ -24,6 +24,8 @@ public final class DefinitionFolderSetup {
     }
 
     /**
+     * A hidden entry, which has a name that starts with a dot, does not count.
+     *
      * @return true when the folder is missing or empty, false when it has factory.yaml
      * @throws SetupException when the path is a file, or when the folder has other files but no factory.yaml
      */
@@ -37,16 +39,16 @@ public final class DefinitionFolderSetup {
         if (Files.isRegularFile(folder.resolve(MAIN_FILE))) {
             return false;
         }
-        if (!isEmpty()) {
+        if (!hasOnlyHiddenEntries()) {
             throw new SetupException("The definition folder " + folder + " has files, but no factory.yaml. "
                     + "Correct the folder, or give an empty folder, and run create again.");
         }
         return true;
     }
 
-    private boolean isEmpty() throws SetupException {
+    private boolean hasOnlyHiddenEntries() throws SetupException {
         try (Stream<Path> entries = Files.list(folder)) {
-            return entries.findAny().isEmpty();
+            return entries.allMatch(entry -> entry.getFileName().toString().startsWith("."));
         } catch (IOException exception) {
             throw new SetupException("Cannot read the definition folder " + folder + ": " + exception.getMessage());
         }

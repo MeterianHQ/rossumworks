@@ -357,4 +357,21 @@ class FolderDefinitionVersionsTest {
             return entries.toList();
         }
     }
+
+    @Test
+    void takesNoNewVersionAfterAChangeInAHiddenFile() throws IOException {
+        writeDefinitionFolder(folder, builtInMainFile());
+        FolderDefinitionVersions versions = createVersions();
+        versions.refresh();
+        String first = currentVersion(versions);
+        Files.createDirectories(folder.resolve(".git"));
+        Files.writeString(folder.resolve(".git/HEAD"), "ref: one");
+        versions.refresh();
+        Files.writeString(folder.resolve(".git/HEAD"), "ref: two");
+
+        versions.refresh();
+
+        assertThat(currentVersion(versions)).isEqualTo(first);
+        assertThat(copies.listNewestFirst()).hasSize(1);
+    }
 }
