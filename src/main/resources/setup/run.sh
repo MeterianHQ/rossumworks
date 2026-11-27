@@ -72,13 +72,23 @@ download_latest_jar() {
     echo "${jar}"
 }
 
+# Old macOS versions have no sha256sum, but they have shasum.
+compute_sha256() {
+    local file="$1"
+    if command -v sha256sum > /dev/null; then
+        sha256sum "${file}"
+    else
+        shasum -a 256 "${file}"
+    fi
+}
+
 # Compares the SHA-256 of the file with the first word of the checksum file.
 verify_checksum() {
     local file="$1"
     local checksum_file="$2"
     local expected actual
     expected=$(cut -d ' ' -f 1 "${checksum_file}")
-    actual=$(sha256sum "${file}" | cut -d ' ' -f 1)
+    actual=$(compute_sha256 "${file}" | cut -d ' ' -f 1)
     [[ -n "${expected}" && "${expected}" == "${actual}" ]]
 }
 

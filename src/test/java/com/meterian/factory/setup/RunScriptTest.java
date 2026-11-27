@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
@@ -15,6 +16,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -259,12 +261,51 @@ class RunScriptTest {
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
+    @Test
+    void aMachineWithoutSha256sumChecksTheProgramWithShasum() throws Exception {
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
+        writeExecutable(fakeCommands.resolve("shasum"), createFakeShasum(computeSha256(NATIVE_TEXT)));
+
+        ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin",
+                "PATH", fakeCommands + ":" + linkSystemCommandsWithoutSha256sum()));
+
+        assertThat(result.text()).contains("shasum -a 256 ", "native run");
+        assertThat(result.exitCode()).isEqualTo(0);
+    }
+
     private Path nativeCache() {
         return home.resolve(".rossumworks/native");
     }
 
     private Path jarCache() {
         return home.resolve(".rossumworks/jars");
+    }
+
+    /** A folder with a link to each command of SYSTEM_PATH, except sha256sum. Old macOS versions have no sha256sum. */
+    private Path linkSystemCommandsWithoutSha256sum() throws IOException {
+        Path systemCommands = Files.createDirectories(temporaryDirectory.resolve("system-without-sha256sum"));
+        for (String directory : SYSTEM_PATH.split(":")) {
+            try (Stream<Path> commands = Files.list(Path.of(directory))) {
+                for (Path command : commands.toList()) {
+                    linkCommand(systemCommands, command);
+                }
+            }
+        }
+        return systemCommands;
+    }
+
+    private static void linkCommand(Path systemCommands, Path command) throws IOException {
+        String name = command.getFileName().toString();
+        Path link = systemCommands.resolve(name);
+        boolean isUsable = Files.isExecutable(command) && !Files.isDirectory(command);
+        if (isUsable && !name.equals("sha256sum") && Files.notExists(link, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createSymbolicLink(link, command);
+        }
+    }
+
+    /** A fake shasum shows its arguments, and prints the SHA-256 in the format of shasum. */
+    private static String createFakeShasum(String sha256) {
+        return "#!/bin/sh\necho \"shasum $*\" >&2\necho \"" + sha256 + "  $3\"\n";
     }
 
     private void publishNativeProgramWithChecksum(String name) throws IOException, NoSuchAlgorithmException {
