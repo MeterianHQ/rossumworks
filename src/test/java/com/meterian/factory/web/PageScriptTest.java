@@ -20,7 +20,7 @@ class PageScriptTest {
     void theTestsOfThePageScriptPass() throws IOException, InterruptedException {
         assumeTrue(isNodeAvailable() || System.getenv("CI") != null, "Node is not available");
 
-        Process node = new ProcessBuilder("node", "--test", SCRIPT_TESTS).redirectErrorStream(true).start();
+        Process node = new ProcessBuilder("node", "--test", "--test-reporter=tap", SCRIPT_TESTS).redirectErrorStream(true).start();
         String output = new String(node.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 
         assertThat(node.waitFor(1, TimeUnit.MINUTES)).isTrue();
