@@ -16,9 +16,10 @@ function renderHeader(lastCheck) {
             + "<button>Stop</button></form></div></header>";
 }
 
-function renderCard(issueNumber, title) {
+/** The parts are the optional children of a card between the title and the buttons. */
+function renderCard(issueNumber, title, parts) {
     return "<article class=\"card\" data-key=\"" + issueNumber + "\"><h3>#" + issueNumber + " " + title + "</h3>"
-            + "<div class=\"actions\"><form method=\"post\" action=\"/issues/" + issueNumber + "/approve\">"
+            + (parts || "") + "<div class=\"actions\"><form method=\"post\" action=\"/issues/" + issueNumber + "/approve\">"
             + "<input type=\"hidden\" name=\"fingerprint\" value=\"f" + issueNumber + "\">"
             + "<button>Approve</button></form></div></article>";
 }
@@ -30,9 +31,17 @@ function renderColumn(column, cards) {
             + "</div></section>";
 }
 
-function renderBoard(lastCheck, columns) {
-    return renderHeader(lastCheck) + "<main class=\"columns\">" + columns.join("") + "</main>";
+/** The warnings are the paragraphs between the header and the columns, for example the old check. */
+function renderBoard(lastCheck, columns, warnings) {
+    return renderHeader(lastCheck) + (warnings || "") + "<main class=\"columns\">" + columns.join("") + "</main>";
 }
+
+const OLD_CHECK_WARNING = "<p class=\"warning\">The last GitHub check is old.</p>";
+const STOPPED_NOTICE = "<p class=\"notice\">The factory is stopped.</p>";
+const REASON = "<p class=\"reason\">Waits for an approval.</p>";
+const LIVE_BOX = "<div class=\"live-box\"><p class=\"live-title\">Live conversation open</p></div>";
+const REVIEWS = "<ul class=\"reviews\"><li class=\"review none\">Code</li></ul>";
+const ENTRIES = "<p class=\"entries\">implement 1/3</p>";
 
 function renderCards(issueNumbers, title) {
     return issueNumbers.map((issueNumber) => renderCard(issueNumber, title || "Title"));
@@ -129,6 +138,74 @@ test("a change of only the header keeps the columns and the focus", async () => 
     assert.strictEqual(page.document.activeElement, findCard(page, 2).querySelector("button"));
 });
 
+test("a warning that goes away keeps the columns and the scroll positions", async () => {
+    const columns = [renderColumn("queued", renderCards([1, 2, 3, 4, 5]))];
+    const page = openPage(renderBoard("10:00", columns, OLD_CHECK_WARNING + STOPPED_NOTICE));
+    const main = page.board.querySelector("main.columns");
+    const list = findCardList(page, "queued");
+    list.scrollTop = 150;
+    main.scrollLeft = 40;
+    findCard(page, 3).querySelector("button").focus();
+
+    await sendBoardEvent(page, renderBoard("10:01", columns));
+
+    assert.strictEqual(page.board.querySelector("p.warning"), null);
+    assert.strictEqual(page.board.querySelector("p.notice"), null);
+    assert.strictEqual(page.board.querySelector("main.columns"), main);
+    assert.strictEqual(findCardList(page, "queued"), list);
+    assert.strictEqual(list.scrollTop, 150);
+    assert.strictEqual(main.scrollLeft, 40);
+    assert.strictEqual(page.document.activeElement, findCard(page, 3).querySelector("button"));
+});
+
+test("a warning that comes keeps the columns and the scroll positions", async () => {
+    const columns = [renderColumn("queued", renderCards([1, 2, 3, 4, 5]))];
+    const page = openPage(renderBoard("10:00", columns));
+    const main = page.board.querySelector("main.columns");
+    findCardList(page, "queued").scrollTop = 150;
+
+    await sendBoardEvent(page, renderBoard("10:01", columns, OLD_CHECK_WARNING));
+
+    assert.ok(page.board.querySelector("p.warning") !== null);
+    assert.strictEqual(page.board.querySelector("main.columns"), main);
+    assert.strictEqual(findCardList(page, "queued").scrollTop, 150);
+});
+
+test("an optional part of a card that goes away keeps the buttons and the focus", async () => {
+    const page = openPage(renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", REASON + LIVE_BOX + REVIEWS + ENTRIES)])]));
+    const card = findCard(page, 1);
+    const actions = card.querySelector("div.actions");
+    const button = actions.querySelector("button");
+    const reviews = card.querySelector("ul.reviews");
+    button.focus();
+
+    await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", REVIEWS + ENTRIES)])]));
+
+    assert.strictEqual(card.querySelector("p.reason"), null);
+    assert.strictEqual(card.querySelector("div.live-box"), null);
+    assert.strictEqual(card.querySelector("ul.reviews"), reviews);
+    assert.strictEqual(card.querySelector("div.actions"), actions);
+    assert.strictEqual(actions.querySelector("button"), button);
+    assert.strictEqual(page.document.activeElement, button);
+});
+
+test("an optional part of a card that comes keeps the buttons and the focus", async () => {
+    const page = openPage(renderBoard("10:00", [renderColumn("queued", [renderCard(1, "Title", REVIEWS + ENTRIES)])]));
+    const card = findCard(page, 1);
+    const actions = card.querySelector("div.actions");
+    const button = actions.querySelector("button");
+    button.focus();
+
+    await sendBoardEvent(page, renderBoard("10:00", [renderColumn("queued",
+            [renderCard(1, "Title", REASON + LIVE_BOX + REVIEWS + ENTRIES)])]));
+
+    assert.ok(card.querySelector("div.live-box") !== null);
+    assert.strictEqual(card.querySelector("div.actions"), actions);
+    assert.strictEqual(page.document.activeElement, button);
+});
+
 test("a change of one card keeps the other cards and the scroll position", async () => {
     const page = openPage(renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 3, 4]))]));
     const firstCard = findCard(page, 1);
@@ -222,9 +299,10 @@ test("a busy button becomes usable after an update", async () => {
 
 test("the board after the update has the HTML of the server", async () => {
     const page = openPage(renderBoard("10:00", [renderColumn("queued", renderCards([1, 2, 3])),
-        renderColumn("done", renderCards([4]))]));
+        renderColumn("done", [renderCard(4, "Title", REASON + LIVE_BOX + ENTRIES)])], OLD_CHECK_WARNING));
     const newHtml = renderBoard("10:05", [renderColumn("in-progress", renderCards([3])),
-        renderColumn("queued", renderCards([2, 1], "Other")), renderColumn("done", renderCards([]))]);
+        renderColumn("queued", renderCards([2, 1], "Other")),
+        renderColumn("done", [renderCard(4, "Title", LIVE_BOX + REVIEWS)])], STOPPED_NOTICE);
 
     await sendBoardEvent(page, newHtml);
 

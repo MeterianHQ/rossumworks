@@ -23,14 +23,16 @@
         var currentByKey = mapKeyedChildren(current);
         var wantedChildren = Array.from(wanted.childNodes);
         wantedChildren.forEach(function (wantedChild, index) {
-            var reference = current.childNodes[index] || null;
-            var match = findMatchingChild(wantedChild, reference, currentByKey);
+            var match = findMatchingChild(current, wantedChild, index, currentByKey);
             if (match === null) {
-                current.insertBefore(wantedChild, reference);
+                current.insertBefore(wantedChild, current.childNodes[index] || null);
                 return;
             }
-            if (match !== reference) {
-                current.insertBefore(match, reference);
+            if (readKey(match) === null) {
+                removeUnkeyedChildrenBefore(current, index, match);
+            }
+            if (match !== current.childNodes[index]) {
+                current.insertBefore(match, current.childNodes[index]);
             }
             updateNode(match, wantedChild);
         });
@@ -39,9 +41,13 @@
         }
     }
 
-    // A column and a card have the attribute data-key. Without a key, the node at the same place is the match.
+    // A column and a card have the attribute data-key. A node without a key matches by its tag.
     function readKey(node) {
         return node.nodeType === Node.ELEMENT_NODE ? node.getAttribute("data-key") : null;
+    }
+
+    function readClass(node) {
+        return node.nodeType === Node.ELEMENT_NODE ? node.getAttribute("class") : null;
     }
 
     // A removal before the loop keeps the other children in place, so that they do not move.
@@ -68,13 +74,35 @@
         return childrenByKey;
     }
 
-    function findMatchingChild(wantedChild, reference, currentByKey) {
+    function findMatchingChild(current, wantedChild, index, currentByKey) {
         var key = readKey(wantedChild);
-        var candidate = key === null ? reference : currentByKey.get(key) || null;
-        if (candidate === null || candidate.nodeName !== wantedChild.nodeName || readKey(candidate) !== key) {
-            return null;
+        if (key !== null) {
+            var keyedChild = currentByKey.get(key) || null;
+            return keyedChild !== null && keyedChild.nodeName === wantedChild.nodeName ? keyedChild : null;
         }
-        return candidate;
+        var reference = current.childNodes[index] || null;
+        if (reference !== null && readKey(reference) === null && reference.nodeName === wantedChild.nodeName) {
+            return reference;
+        }
+        return findSameChildLater(current, wantedChild, index);
+    }
+
+    // When a warning or a part of a card goes away, the later nodes with the same tag and class stay.
+    function findSameChildLater(current, wantedChild, index) {
+        return Array.from(current.childNodes).slice(index + 1).find(function (child) {
+            return readKey(child) === null && child.nodeName === wantedChild.nodeName
+                    && readClass(child) === readClass(wantedChild);
+        }) || null;
+    }
+
+    // The nodes before the match have no place in the new board, so the match does not move.
+    function removeUnkeyedChildrenBefore(current, index, match) {
+        var children = Array.from(current.childNodes);
+        children.slice(index, children.indexOf(match)).filter(function (child) {
+            return readKey(child) === null;
+        }).forEach(function (child) {
+            current.removeChild(child);
+        });
     }
 
     function updateNode(current, wanted) {
