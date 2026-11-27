@@ -40,7 +40,9 @@ with a definition that does not load is not a reason to stop: section 5 applies.
 
 ### 4.1 The hash
 
-The worker reads all the regular files of the definition folder and of its subfolders. It sorts them by their
+The worker reads all the regular files of the definition folder and of its subfolders. It skips each **hidden
+entry**: a file or a folder whose name starts with a dot, for example `.git`, at each level. So you can keep the
+definition folder in a git repository. A prompt file cannot be a hidden entry. The worker sorts the files by their
 relative path. The hash is the SHA-256 of each relative path and each content, in that order. A file of zero
 bytes counts. Another type of entry, for example a symbolic link, makes the read fail with a message that names
 the entry.
@@ -120,7 +122,7 @@ repository, so this check protects nothing. But it costs nothing, and it keeps o
 | Situation | What `create` does |
 |---|---|
 | The definition folder has `factory.yaml` | It keeps the folder, and writes nothing in it. It does not ask for the build command. |
-| The definition folder has other files, but no `factory.yaml` | It stops before the summary, and writes nothing. |
+| The definition folder has other files, but no `factory.yaml` | It stops before the summary, and writes nothing. Hidden entries do not count, so a folder with only `.git` gets the default definition. |
 | The path exists and is not a folder | It stops before the summary, and writes nothing. |
 
 `create` never overwrites a file. The parameter is valid also without a terminal.
