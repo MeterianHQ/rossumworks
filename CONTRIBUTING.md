@@ -42,8 +42,9 @@ configuration is in `src/main/resources/META-INF/native-image/com.meterian/rossu
 resource folder, add it to `resource-config.json`. When Jackson binds a new class, add the class to
 `reflect-config.json`, and add a step to the self-check. A missing entry makes a step of `self-check` fail.
 
-The workflow [Native program](.github/workflows/native.yml) builds and tests the native program on Linux x64
-and Linux arm64. You can start it by hand on a branch.
+The workflow [Native program](.github/workflows/native.yml) builds and tests the native program on Linux x64,
+Linux arm64, and macOS arm64. You can start it by hand on a branch. GitHub counts each macOS minute 10 times,
+so the workflow runs only by hand and at a release.
 
 ## Release
 
@@ -69,13 +70,14 @@ To make a release, do these steps:
 
 The workflow does these steps:
 
-- It builds and tests the native program on Linux x64 and Linux arm64 with the workflow `native.yml`. A
-  failure creates no release.
+- It builds and tests the native program on Linux x64, Linux arm64, and macOS arm64 with the workflow
+  `native.yml`. A failure creates no release.
 - It runs `./mvnw verify`. A failed build creates no release.
 - It reads the version from `factory-version.properties`. If the tag is not `v` + this version, the workflow
   fails and creates no release. A `-SNAPSHOT` version also fails the workflow.
-- It publishes `rossumworks-<version>.jar`, `rossumworks-<version>-linux-x64`, and
-  `rossumworks-<version>-linux-arm64`, and a `.sha256` file for each file.
+- It publishes `rossumworks-<version>.jar`, `rossumworks-<version>-linux-x64`,
+  `rossumworks-<version>-linux-arm64`, and `rossumworks-<version>-macos-arm64`, and a `.sha256` file for each
+  file.
 - A version with a suffix, for example `0.6.0-rc.1`, gives a pre-release. A version without a suffix gives a
   normal release. `run.sh` uses only the latest normal release.
 - GitHub writes the first release notes from the pull requests that merged after the previous tag.

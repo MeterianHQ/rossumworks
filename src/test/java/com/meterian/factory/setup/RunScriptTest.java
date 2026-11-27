@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
@@ -15,6 +16,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,6 +31,7 @@ class RunScriptTest {
     private static final String JAR = "rossumworks-" + VERSION + ".jar";
     private static final String X64_PROGRAM = "rossumworks-" + VERSION + "-linux-x64";
     private static final String ARM64_PROGRAM = "rossumworks-" + VERSION + "-linux-arm64";
+    private static final String MAC_PROGRAM = "rossumworks-" + VERSION + "-macos-arm64";
     private static final String NATIVE_TEXT = "#!/bin/sh\necho \"native $*\"\n";
     private static final String OLD_GLIBC_TEXT = "#!/bin/sh\necho \"GLIBC_2.34 not found\" >&2\nexit 1\n";
     private static final long TIMEOUT_SECONDS = 30;
@@ -152,13 +155,29 @@ class RunScriptTest {
     }
 
     @Test
-    void anotherSystemThanLinuxGivesTheJar() throws Exception {
+    void startsTheNativeProgramOfAMacWithArm64() throws Exception {
+        publishNativeProgramWithChecksum(ARM64_PROGRAM);
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
+        publishAsset(JAR, "jar");
+
+        ScriptResult result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin"));
+
+        assertThat(result.text()).contains("Download of " + MAC_PROGRAM, "native run")
+                .doesNotContain(ARM64_PROGRAM, "java -jar");
+        assertThat(result.exitCode()).isEqualTo(0);
+        assertThat(nativeCache().resolve(MAC_PROGRAM)).isExecutable();
+    }
+
+    @Test
+    void aMacWithIntelGivesTheJar() throws Exception {
         publishNativeProgramWithChecksum(X64_PROGRAM);
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
         publishAsset(JAR, "jar");
 
         ScriptResult result = runScript("x86_64", Map.of("FAKE_SYSTEM", "Darwin"));
 
-        assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run");
+        assertThat(result.text()).contains("java -jar " + jarCache().resolve(JAR) + " run")
+                .doesNotContain("native run", "Download of " + MAC_PROGRAM);
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
@@ -242,12 +261,69 @@ class RunScriptTest {
         assertThat(result.exitCode()).isEqualTo(0);
     }
 
+    @Test
+    void aMachineWithoutSha256sumChecksTheProgramWithShasum() throws Exception {
+        publishNativeProgramWithChecksum(MAC_PROGRAM);
+        writeExecutable(fakeCommands.resolve("shasum"), createFakeShasum(computeSha256(NATIVE_TEXT)));
+
+        Path commandLinks = temporaryDirectory.resolve("system-without-sha256sum");
+        ScriptResult result;
+        try {
+            linkSystemCommandsWithoutSha256sum(commandLinks);
+            result = runScript("arm64", Map.of("FAKE_SYSTEM", "Darwin", "PATH", fakeCommands + ":" + commandLinks));
+        } finally {
+            deleteCommandLinks(commandLinks);
+        }
+
+        assertThat(result.text()).contains("shasum -a 256 ", "native run");
+        assertThat(result.exitCode()).isEqualTo(0);
+    }
+
     private Path nativeCache() {
         return home.resolve(".rossumworks/native");
     }
 
     private Path jarCache() {
         return home.resolve(".rossumworks/jars");
+    }
+
+    /** A folder with a link to each command of SYSTEM_PATH, except sha256sum. Old macOS versions have no sha256sum. */
+    private static void linkSystemCommandsWithoutSha256sum(Path commandLinks) throws IOException {
+        Files.createDirectories(commandLinks);
+        for (String directory : SYSTEM_PATH.split(":")) {
+            try (Stream<Path> commands = Files.list(Path.of(directory))) {
+                for (Path command : commands.toList()) {
+                    linkCommand(commandLinks, command);
+                }
+            }
+        }
+    }
+
+    /** Deletes the links and the folder, not the commands that the links point to. */
+    private static void deleteCommandLinks(Path commandLinks) throws IOException {
+        if (Files.notExists(commandLinks)) {
+            return;
+        }
+        try (Stream<Path> links = Files.list(commandLinks)) {
+            for (Path link : links.toList()) {
+                Files.delete(link);
+            }
+        }
+        Files.delete(commandLinks);
+    }
+
+    private static void linkCommand(Path commandLinks, Path command) throws IOException {
+        String name = command.getFileName().toString();
+        Path link = commandLinks.resolve(name);
+        boolean isUsable = Files.isExecutable(command) && !Files.isDirectory(command);
+        if (isUsable && !name.equals("sha256sum") && Files.notExists(link, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createSymbolicLink(link, command);
+        }
+    }
+
+    /** A fake shasum shows its arguments, and prints the SHA-256 in the format of shasum. */
+    private static String createFakeShasum(String sha256) {
+        return "#!/bin/sh\necho \"shasum $*\" >&2\necho \"" + sha256 + "  $3\"\n";
     }
 
     private void publishNativeProgramWithChecksum(String name) throws IOException, NoSuchAlgorithmException {

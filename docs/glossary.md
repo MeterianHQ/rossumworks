@@ -31,6 +31,7 @@ When a new document needs a new term, add the term to this page first.
 | note | A short text that the worker writes in the status comment. The card shows the newest note. |
 | previous | The last state with an action that does not wait for you. See [Factory definition](factory-definition.md). |
 | provider | The source of the access to Claude for the `claude` sessions, and of the payment: your Claude subscription, or an Anthropic API key. See [Providers](providers.md). |
+| quarantine flag | The mark `com.apple.quarantine` that a browser puts on a downloaded file on macOS. macOS blocks a program with this mark and no Apple signature. `xattr -d com.apple.quarantine <program>` removes the mark. See [Getting started](getting-started.md). |
 | record | The data of an issue that the worker keeps in the status comment, for example the state. |
 | Remote Control | The function of Claude Code that opens a session on claude.ai. |
 | request label | A label that tells the factory what to do: `factory`, `factory:approve`, `factory:block`, `factory:enter`, or `factory:start-again`. See [Issues and labels](issues-and-labels.md). |

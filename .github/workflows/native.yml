@@ -22,6 +22,8 @@ jobs:
             runner: ubuntu-latest
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-latest
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,9 +45,28 @@ jobs:
           java-version: '21'
           distribution: graalvm-community
 
+      # The Ubuntu runners have tmux, but the macOS runner does not. The tests of the live mode need it.
+      - name: Install tmux
+        if: runner.os == 'macOS'
+        run: brew install tmux
+
       # The native tests start target/rossumworks, and run its self-check.
       - name: Build the native program and run the native tests
         run: ./mvnw -B -ntp -Pnative verify
+
+      # A new macos-latest image can change minos. Then update the documents, for example docs/getting-started.md.
+      - name: Check the minimum macOS version and the processor of the native program
+        if: runner.os == 'macOS'
+        run: |
+          vtool -show-build target/rossumworks
+          if ! vtool -show-build target/rossumworks | grep -q -E '^ *minos 26\.0$'; then
+            echo "::error::The minimum macOS version is not 26.0. Update the documents and this check."
+            exit 1
+          fi
+          if [ "$(lipo -archs target/rossumworks)" != "arm64" ]; then
+            echo "::error::The native program is not for arm64."
+            exit 1
+          fi
 
       # overwrite permits "Re-run failed jobs": the rerun uploads this artifact a second time.
       - name: Keep the native program

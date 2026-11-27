@@ -32,6 +32,8 @@ class RunningProgramTest {
     void onlyTheFileNamesOfAReleaseAreCacheFileNames() {
         assertThat(nativeProgram("rossumworks-0.6.0-linux-x64").hasCacheFileName()).isTrue();
         assertThat(nativeProgram("rossumworks-0.6.0-linux-arm64").hasCacheFileName()).isTrue();
+        assertThat(nativeProgram("rossumworks-0.6.0-macos-arm64").hasCacheFileName()).isTrue();
+        assertThat(nativeProgram("rossumworks-0.6.0-macos-x64").hasCacheFileName()).isFalse();
         assertThat(nativeProgram("rossumworks").hasCacheFileName()).isFalse();
         assertThat(nativeProgram("rossumworks-0.6.0-linux-x64.partial").hasCacheFileName()).isFalse();
         assertThat(new RunningProgram(Path.of("/opt/rossumworks-0.6.0-SNAPSHOT.jar"), RunningProgram.Kind.JAR)

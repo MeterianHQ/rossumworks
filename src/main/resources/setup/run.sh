@@ -32,12 +32,10 @@ call_github() {
 
 # Prints the platform name of the native programs, for example linux-x64. A machine without a program gives nothing.
 find_platform() {
-    if [[ "$(uname -s)" != "Linux" ]]; then
-        return 1
-    fi
-    case "$(uname -m)" in
-        x86_64) echo "linux-x64" ;;
-        aarch64 | arm64) echo "linux-arm64" ;;
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64) echo "linux-x64" ;;
+        Linux-aarch64 | Linux-arm64) echo "linux-arm64" ;;
+        Darwin-arm64) echo "macos-arm64" ;;
         *) return 1 ;;
     esac
 }
@@ -74,13 +72,23 @@ download_latest_jar() {
     echo "${jar}"
 }
 
+# Old macOS versions have no sha256sum, but they have shasum.
+compute_sha256() {
+    local file="$1"
+    if command -v sha256sum > /dev/null; then
+        sha256sum "${file}"
+    else
+        shasum -a 256 "${file}"
+    fi
+}
+
 # Compares the SHA-256 of the file with the first word of the checksum file.
 verify_checksum() {
     local file="$1"
     local checksum_file="$2"
     local expected actual
     expected=$(cut -d ' ' -f 1 "${checksum_file}")
-    actual=$(sha256sum "${file}" | cut -d ' ' -f 1)
+    actual=$(compute_sha256 "${file}" | cut -d ' ' -f 1)
     [[ -n "${expected}" && "${expected}" == "${actual}" ]]
 }
 
@@ -124,7 +132,7 @@ find_newest_cached_file() {
         | sort --version-sort | tail -n 1 | sed "s#^#${directory}/#" | grep .
 }
 
-# A native program needs glibc 2.34 or later. On an older Linux, it does not start, and the script uses the jar.
+# A native program does not start on an older system: Linux before glibc 2.34, or an older macOS. Then the script uses the jar.
 verify_native_program_starts() {
     local program="$1"
     if "${program}" --version > /dev/null 2>&1; then

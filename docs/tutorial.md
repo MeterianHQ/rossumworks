@@ -76,8 +76,9 @@ board is the web page of the factory.
 
 1. Download the native program of your machine from the
    [releases](https://github.com/MeterianHQ/rossumworks/releases), for example
-   `rossumworks-<version>-linux-x64`, and make it executable. On another machine, download
-   `rossumworks-<version>.jar`.
+   `rossumworks-<version>-linux-x64` or `rossumworks-<version>-macos-arm64`, and make it executable. On a Mac,
+   also remove the quarantine flag. See [The programs of a release](getting-started.md#the-programs-of-a-release).
+   On another machine, download `rossumworks-<version>.jar`.
 2. Run `<path of the native program> create` in the clone. With the jar, run `java -jar <path of the jar> create`.
 3. Push Enter at each question to take the default answer. For an API key, do steps 4 and 5 also.
 4. For an API key, type `anthropic-api-key` at the question about the provider.
