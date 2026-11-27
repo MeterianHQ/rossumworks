@@ -45,6 +45,11 @@ jobs:
           java-version: '21'
           distribution: graalvm-community
 
+      # The Ubuntu runners have tmux, but the macOS runner does not. The tests of the live mode need it.
+      - name: Install tmux
+        if: runner.os == 'macOS'
+        run: brew install tmux
+
       # The native tests start target/rossumworks, and run its self-check.
       - name: Build the native program and run the native tests
         run: ./mvnw -B -ntp -Pnative verify
