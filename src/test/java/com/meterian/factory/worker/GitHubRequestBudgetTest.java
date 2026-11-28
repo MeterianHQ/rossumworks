@@ -345,7 +345,7 @@ class GitHubRequestBudgetTest {
         FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile()
                 .thenApproveReviewAnd(request -> server.resetRequestCounts()).thenApproveReview()
                 .thenWaitForStop().thatFails();
-        worker = createWorker(agent, mainFileWithTwoReviews());
+        worker = createWorker(agent, createMainFileWithTwoReviews());
 
         worker.pollOnce();
         waitUntil(() -> agent.waitingPhaseCount() == 1);
@@ -356,7 +356,7 @@ class GitHubRequestBudgetTest {
         assertThat(record.reviews()).isEqualTo(Map.of("correctness", Verdict.APPROVE, "security", Verdict.APPROVE));
     }
 
-    private static String mainFileWithTwoReviews() {
+    private static String createMainFileWithTwoReviews() {
         return mainFileFor(BUILD_COMMAND).replace("""
                           architecture: prompts/review-architecture.md
                           quality: prompts/review-quality.md
