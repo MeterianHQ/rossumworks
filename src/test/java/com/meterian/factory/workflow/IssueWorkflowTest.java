@@ -351,6 +351,71 @@ class IssueWorkflowTest {
                 line.path("first_line").asText()).isEqualTo("Which greeting do you want?"));
     }
 
+    @Test
+    void writesTheResultErrorOfAFailedAction() throws CredentialMismatchException {
+        agent.then(request -> {
+            throw new IOException("The disk is full.");
+        });
+
+        advanceUntilWaiting(createWorkflow("true"), queuedRecord());
+
+        JsonNode failedCoding = findActionEnd("coding");
+        assertThat(failedCoding.path("state").asText()).isEqualTo("implement");
+        assertThat(failedCoding.path("result").asText()).isEqualTo("error");
+        assertThat(failedCoding.path("duration_s").isNumber()).isTrue();
+        assertThat(failedCoding.has("prompt")).isFalse();
+    }
+
+    @Test
+    void writesTheBlockOfAnIssueWhoseDefinitionDoesNotLoad() throws Exception {
+        String commit = "0123456789abcdef0123456789abcdef01234567";
+        DefinitionLookup definitions = record -> {
+            if (record.definitionVersion().isPresent()) {
+                throw new IllegalStateException("factory.yaml: unknown key workflow.x");
+            }
+            return BuiltInDefinition.load();
+        };
+
+        createWorkflow("true", definitions).advance(queuedRecord().withDefinitionVersion(commit));
+
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> {
+            assertThat(line.path("issue").asInt()).isEqualTo(ISSUE);
+            assertThat(line.path("reason").asText()).isEqualTo(
+                    "The definition 0123456 of the issue does not load: factory.yaml: unknown key workflow.x.");
+        });
+    }
+
+    @Test
+    void writesTheBlockOfAMergeGateThatRefuses() throws CredentialMismatchException, IOException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
+        Files.createDirectories(worktree().resolve(".factory-work"));
+        Files.writeString(worktree().resolve(".factory-work/question.md"), "Which greeting do you want?");
+
+        workflow.advance(beforeMerge);
+
+        assertThat(findActionEnd("merge-gate").path("result").asText()).isEqualTo("blocked");
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason")
+                .asText()).isEqualTo("The merge gate refuses: an open question waits."));
+    }
+
+    @Test
+    void writesThePromptContinueAfterALiveConversation() throws CredentialMismatchException {
+        agent.thenAskQuestion("Which greeting do you want?").thenChangeFile();
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord live = advanceUntilWaiting(workflow, queuedRecord());
+        liveSessions.requestContinue(ISSUE);
+        IssueRecord continued = workflow.advance(live);
+
+        workflow.advance(continued);
+
+        JsonNode continuedCoding = events.ofType("action-end").getLast();
+        assertThat(continuedCoding.path("action").asText()).isEqualTo("coding");
+        assertThat(continuedCoding.path("result").asText()).isEqualTo("changed");
+        assertThat(continuedCoding.path("prompt").asText()).isEqualTo("continue");
+    }
+
     private JsonNode findMoveTo(String stateName) {
         return events.ofType("move").stream().filter(line -> line.path("to").asText().equals(stateName))
                 .findFirst().orElseThrow();
