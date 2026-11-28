@@ -26,6 +26,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.state.StatusComment;
+import com.meterian.factory.state.Verdict;
 import com.meterian.factory.testing.CollectedEvents;
 import com.meterian.factory.testing.FakeAgentRunner;
 import com.meterian.factory.testing.FakeGitHubClient;
@@ -84,6 +85,7 @@ class GitHubRequestBudgetTest {
     private static final String EVENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/events";
     private static final String ISSUE_REQUEST = "GET /repos/{o}/{r}/issues/{n}";
     private static final String COMMENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/comments";
+    private static final String COMMENT_EDIT_REQUEST = "PATCH /repos/{o}/{r}/issues/comments/{n}";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
     private static final Logger WORKER_LOGGER = Logger.getLogger(Worker.class.getName());
@@ -161,6 +163,10 @@ class GitHubRequestBudgetTest {
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
+        return createWorker(agent, mainFileFor(BUILD_COMMAND));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, String mainFile) {
         BoardState board = new BoardState(clock);
         FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
@@ -169,7 +175,7 @@ class GitHubRequestBudgetTest {
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
-        commitDefinition(clone, mainFileFor(BUILD_COMMAND));
+        commitDefinition(clone, mainFile);
         GitDefinitionVersions versions = new GitDefinitionVersions(git, clone, "main",
                 builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
@@ -331,6 +337,30 @@ class GitHubRequestBudgetTest {
 
     private List<String> rateLimitLines() {
         return workerLog.stream().filter(line -> line.startsWith("The GitHub rate limit")).toList();
+    }
+
+    /** One write for the verdict of the first review, and one write for the move to the next state. */
+    @Test
+    void aReviewRoundWithTwoReviewsWritesTheStatusCommentTwice() throws InterruptedException {
+        FakeAgentRunner agent = new FakeAgentRunner().thenChangeFile()
+                .thenApproveReviewAnd(request -> server.resetRequestCounts()).thenApproveReview()
+                .thenWaitForStop().thatFails();
+        worker = createWorker(agent, mainFileWithTwoReviews());
+
+        worker.pollOnce();
+        waitUntil(() -> agent.waitingPhaseCount() == 1);
+
+        assertThat(server.requestCounts().get(COMMENT_EDIT_REQUEST)).isEqualTo(2);
+        IssueRecord record = readRecord().orElseThrow();
+        assertThat(record.state()).isEqualTo("risk");
+        assertThat(record.reviews()).isEqualTo(Map.of("correctness", Verdict.APPROVE, "security", Verdict.APPROVE));
+    }
+
+    private static String mainFileWithTwoReviews() {
+        return mainFileFor(BUILD_COMMAND).replace("""
+                          architecture: prompts/review-architecture.md
+                          quality: prompts/review-quality.md
+                """, "");
     }
 
     @Test

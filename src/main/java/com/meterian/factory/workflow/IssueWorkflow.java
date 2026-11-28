@@ -65,6 +65,7 @@ public final class IssueWorkflow {
     private final ActionServices services;
     /** The notes of the review round of the current action, by issue number. Each issue thread uses its own entry. */
     private final Map<Integer, List<ReviewNote>> reviewNotesToPublish = new ConcurrentHashMap<>();
+    private final PublishedRecords publishedRecords = new PublishedRecords();
     /** The actions of each definition version, by version. Several issue threads read and fill this map. */
     private final Map<String, ActionSet> actionSets = new ConcurrentHashMap<>();
 
@@ -102,17 +103,23 @@ public final class IssueWorkflow {
                 new ForwardCheckFailure(statusPublisher, retrySettings.forwardChecks(), ownershipGuard);
         this.services = new ActionServices(configuration, gitHub, git, buildRunner, mergeRetryDelay, ownerApproval,
                 statusPublisher, forwardCheckFailure, phaseRunner, liveMode, liveSessions, reviewNotesToPublish,
-                retrySettings, ownershipGuard, events);
+                publishedRecords, retrySettings, ownershipGuard, events);
     }
 
     /** The review notes go to the pull request only after the record of their round is on GitHub. */
     public IssueRecord advance(IssueRecord record) throws CredentialMismatchException {
         reviewNotesToPublish.remove(record.issueNumber());
+        publishedRecords.forget(record.issueNumber());
         Issue issue = gitHub.issue(record.issueNumber());
         IssueRecord next = runCurrentAction(issue, record);
-        IssueRecord published = livePublisher.publish(issue, record, next);
+        IssueRecord published = livePublisher.publish(issue, recordOnGitHub(record, next), next);
         publishReviewNotes(issue, record);
         return published;
+    }
+
+    /** An action that stops after its own write of the next record leaves nothing new to write. */
+    private IssueRecord recordOnGitHub(IssueRecord record, IssueRecord next) {
+        return publishedRecords.take(record.issueNumber()).filter(next::equals).orElse(record);
     }
 
     /**
