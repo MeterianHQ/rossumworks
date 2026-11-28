@@ -262,22 +262,50 @@ Each new risk result replaces the reasons.
 
 | Mode | Checks | Then |
 |------|--------|------|
-| `risk` | The four checks below. | An automatic merge when the risk is `low` and the change is small. Else, the event is `needs-approval`. Without a `risk` state, the event is always `needs-approval`. |
-| `always-ask` | The four checks below. | The event is `needs-approval`, until you approve. |
-| `auto-merge` | Only the check of an open question. | An automatic merge. |
+| `risk` | The five checks below. | An automatic merge when the risk is `low` and the change is small. Else, the event is `needs-approval`. Without a `risk` state, the event is always `needs-approval`. |
+| `always-ask` | The five checks below. | The event is `needs-approval`, until you approve. |
+| `auto-merge` | Only the checks 1 and 5. | An automatic merge. |
 
-The four checks:
+The five checks:
 
 1. No question of the agent is open.
 2. Each review approves.
 3. The reviews are for the current files.
 4. The build is for the current files.
+5. The required check runs of the head commit of the pull request passed. This check applies only when
+   `merge.required-checks` gives a list (section 12.3).
 
 The checks 2 and 3 apply only when the workflow has a `reviews` state. A workflow with `merge-gate` always has
 a `build` state (section 14, rule 2). Only the action `build` pushes the branch and opens the pull request.
 
 A failed check refuses the merge. The issue goes to the block state, with the reason in a note, for
 example "the files changed after the reviews".
+
+The merge gate makes the check 5 immediately before the squash merge, with one request to GitHub. It reads the
+check runs of the commit that the squash merge takes. Only a check run with a name of the list counts:
+
+- A required check run that does not exist yet, or is not complete, stops the merge. The issue stays in the
+  merge state, and the merge gate tries again at the next poll. The card shows the note "The merge waits for
+  the required check runs:" with the names.
+- When the merge waits for more than 6 hours on the same commit, the merge gate refuses the merge. The reason
+  names the required check runs that are missing or not complete. 6 hours is the maximum time of a job of
+  GitHub Actions. A check run that never comes has a cause, for example a wrong name in the list, or a workflow
+  of GitHub that does not run on the branches `factory/issue-*`.
+- A failed required check run refuses the merge. The reason names each failed check run and its link.
+- A check run with the conclusion `success`, `skipped`, or `neutral` passed.
+- When all the required check runs passed, the merge continues.
+- GitHub gives 100 check runs or less in one answer. When a required check run is not in that answer, and the
+  commit has more check runs, the merge gate refuses the merge.
+- When GitHub refuses the request because of the rate limit, the worker waits for the reset. The issue does not
+  go to the block state.
+
+When the target branch moved, the merge gate rebases the branch, builds it, and pushes the new commit. GitHub
+creates the check runs of a new commit some time after the push, so this attempt does not read them. The
+status comment keeps the new commit. The next attempts read the check runs of that commit. They do not rebase,
+build, or push again, while the target branch does not move.
+
+Each move of the target branch starts a new rebase, a new local build, and a new wait for the check runs. When
+the target branch moves more often than the build of GitHub takes, the merge can wait for a long time.
 
 The events:
 
@@ -574,10 +602,15 @@ when `allowed-tools` names them.
 ```yaml
 merge:
   target-branch: main
+  required-checks: ["Build and test"]
 ```
 
 `target-branch` (required) is the branch that the pull requests of the factory go to. The worker never
 pushes to the default branch or to a tag directly. It merges a pull request into the target branch.
+
+`required-checks` (optional) is a list of check run names, for example the name of a job of GitHub Actions.
+Before the merge, these check runs must pass on the head commit of the pull request (section 6.6, check 5). A
+check run that is not in the list does not count. Without the key, the merge gate reads no check run.
 
 ## 13. How the worker reads `.factory`
 
@@ -628,6 +661,8 @@ The loader also refuses these values:
 - An unknown `mode` of `merge-gate`: `factory.yaml: the state merge has the unknown mode yolo`.
 - A column name or a review name with characters other than small letters, digits, and hyphens.
 - A column name with more than 39 characters.
+- A `merge.required-checks` that is not a list of texts, has an empty name, or has the same name two times:
+  `factory.yaml: key merge.required-checks has the name build two times`.
 - The state name `previous`: `factory.yaml: the state name previous is reserved`.
 
 ## 15. The default workflow

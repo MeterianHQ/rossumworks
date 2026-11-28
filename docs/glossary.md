@@ -14,6 +14,7 @@ When a new document needs a new term, add the term to this page first.
 | board | The web page of the worker. It shows each issue as a card. See [Web page](web-page.md). |
 | build command | The command that compiles and tests each change, in `build.command` of the definition. The exit code 0 means that the build passed. See [Factory definition](factory-definition.md). |
 | card | One issue on the board. |
+| check run | A result of GitHub on a commit, for example a job of GitHub Actions. The merge gate reads the check runs that `merge.required-checks` names. Do not mix it up with the tile "Last GitHub check" of the board, which gives the time of the last poll. See [Factory definition](factory-definition.md). |
 | daily budget | With an API key, the maximum cost of one day, in `limits.daily-budget-usd`. See [Providers](providers.md). |
 | definition | The folder `.factory` of your repository, or the definition folder. It holds the workflow, the prompts, the build command, the target branch, and the allowed tools. See [Factory definition](factory-definition.md). |
 | definition copy | A copy of one version of the definition folder, in `<work folder>/definitions/<hash>/`. The worker writes it, and an issue reads its definition from it. |

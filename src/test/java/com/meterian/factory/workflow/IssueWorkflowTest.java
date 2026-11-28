@@ -22,7 +22,10 @@ import com.meterian.factory.configuration.WorkerLimits;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.github.CheckRun;
+import com.meterian.factory.github.CheckRunPage;
 import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
 import com.meterian.factory.definition.BuiltInDefinition;
@@ -37,6 +40,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
+import com.meterian.factory.state.CheckRunWait;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.CollectedEvents;
@@ -1407,6 +1411,268 @@ class IssueWorkflowTest {
 
         assertThat(record.state()).isEqualTo("done");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    private IssueRecord advanceToTheMergeWithLowRisk(IssueWorkflow workflow) throws CredentialMismatchException {
+        agent.thenChangeFile().thenApproveAllReviews().thenAssessRisk("low", true);
+        IssueRecord beforeMerge = advanceUntilState(workflow, queuedRecord(), "merge");
+        assertThat(beforeMerge.state()).isEqualTo("merge");
+        return beforeMerge;
+    }
+
+    private String pullRequestHead(IssueRecord record) {
+        return gitHub.pullRequestHead(record.pullRequestNumber().orElseThrow());
+    }
+
+    private static CheckRun completedCheckRun(String name, String conclusion) {
+        return new CheckRun(name, "completed", Optional.of(conclusion), "https://github.com/checks/" + name);
+    }
+
+    private static CheckRun runningCheckRun(String name) {
+        return new CheckRun(name, "in_progress", Optional.empty(), "https://github.com/checks/" + name);
+    }
+
+    private IssueWorkflow createWorkflowWithRequiredChecks(String buildCommand, String... requiredChecks) {
+        return createWorkflow(buildCommand,
+                DefinitionLookup.builtInOnly(DefinitionCommits.builtInWithRequiredChecks(requiredChecks)));
+    }
+
+    @Test
+    void aRequiredCheckRunThatDoesNotExistYetKeepsTheIssueInTheMergeState() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("lint", "success"));
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record.state()).isEqualTo("merge");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(gitHub.checkRunReads()).containsExactly(pullRequestHead(beforeMerge));
+        assertThat(record.notes()).last().isEqualTo("The merge waits for the required check runs: build.");
+    }
+
+    @Test
+    void aRequiredCheckRunThatStaysMissingBlocksTheIssueAfterTheLimit() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "Build and test");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headCommit = pullRequestHead(beforeMerge);
+        IssueRecord waitingSinceSevenHours = beforeMerge.withCheckRunWait(headCommit,
+                Instant.now().minus(Duration.ofHours(7)));
+
+        IssueRecord record = workflow.advance(waitingSinceSevenHours);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.checkRunWait()).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the required check runs Build and test of the commit "
+                        + headCommit + " are missing or not complete after 6 hours."));
+    }
+
+    @Test
+    void aWaitShorterThanTheLimitKeepsTheIssueInTheMergeState() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headCommit = pullRequestHead(beforeMerge);
+        Instant fiveHoursAgo = Instant.now().minus(Duration.ofHours(5));
+
+        IssueRecord record = workflow.advance(beforeMerge.withCheckRunWait(headCommit, fiveHoursAgo));
+
+        assertThat(record.state()).isEqualTo("merge");
+        assertThat(record.checkRunWait()).contains(CheckRunWait.startNow(headCommit, fiveHoursAgo));
+    }
+
+    @Test
+    void anApprovalInTheAlwaysAskModeStaysValidForTheRebasedCommit() throws CredentialMismatchException {
+        String mainFile = DefinitionCommits.mainFileWithRequiredChecks("true", "build")
+                .replace("mode: risk", "mode: always-ask");
+        IssueWorkflow workflow = createWorkflow("true",
+                DefinitionLookup.builtInOnly(DefinitionCommits.loadMainFile(mainFile)));
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        String approvedTree = run(worktree(), "rev-parse", "HEAD^{tree}");
+        IssueRecord atTheGate = RecordStates.move(waiting, "merge").withApprovedTree(approvedTree);
+        moveTheBase("c.txt", "base\n");
+
+        IssueRecord afterThePush = workflow.advance(atTheGate);
+        String rebasedCommit = pullRequestHead(atTheGate);
+        String rebasedTree = run(worktree(), "rev-parse", "HEAD^{tree}");
+
+        assertThat(afterThePush.state()).isEqualTo("merge");
+        assertThat(rebasedTree).isNotEqualTo(approvedTree);
+        assertThat(afterThePush.approvedTree()).contains(rebasedTree);
+
+        gitHub.setCheckRuns(rebasedCommit, completedCheckRun("build", "success"));
+        IssueRecord record = advanceUntilWaiting(workflow, afterThePush);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeShas()).containsExactly(rebasedCommit);
+    }
+
+    @Test
+    void aRequiredCheckRunInProgressKeepsTheIssueInTheMergeState() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), runningCheckRun("build"));
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record.state()).isEqualTo("merge");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(gitHub.checkRunReads()).containsExactly(pullRequestHead(beforeMerge));
+    }
+
+    @Test
+    void mergesAtTheNextPollWhenTheRequiredCheckRunsAreComplete() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headCommit = pullRequestHead(beforeMerge);
+        gitHub.setCheckRuns(headCommit, new CheckRun("build", "queued", Optional.empty(), "https://github.com/b"));
+        IssueRecord waiting = workflow.advance(beforeMerge);
+        gitHub.setCheckRuns(headCommit, completedCheckRun("build", "success"));
+
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeShas()).containsExactly(headCommit);
+    }
+
+    @Test
+    void aFailedRequiredCheckRunBlocksTheIssueWithTheNameAndTheLinkOfEachFailedCheckRun()
+            throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build", "security", "docs");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("lint", "failure"),
+                completedCheckRun("build", "failure"), completedCheckRun("security", "timed_out"),
+                runningCheckRun("docs"));
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the check run build failed (https://github.com/checks/build),"
+                        + " the check run security failed (https://github.com/checks/security)."));
+    }
+
+    @Test
+    void mergesWhenTheRequiredCheckRunsPassedAndACheckRunOutsideTheListFailed() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build", "deploy", "advice");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("build", "success"),
+                completedCheckRun("deploy", "skipped"), completedCheckRun("advice", "neutral"),
+                completedCheckRun("lint", "failure"));
+
+        IssueRecord record = advanceUntilWaiting(workflow, beforeMerge);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    @Test
+    void withoutRequiredChecksTheMergeGateReadsNoCheckRun() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("build", "failure"));
+
+        IssueRecord record = advanceUntilWaiting(workflow, beforeMerge);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.checkRunReads()).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    /** The build appends a line to the file at each run, so that the test counts the builds. */
+    private String countingBuild() {
+        return "echo build >> " + temporaryDirectory.resolve("builds.txt");
+    }
+
+    private long countBuilds() throws IOException {
+        return Files.readAllLines(temporaryDirectory.resolve("builds.txt")).size();
+    }
+
+    @Test
+    void aRebasedCommitWaitsForItsRequiredCheckRunsWithoutANewRebaseOrBuild() throws Exception {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks(countingBuild(), "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headBeforeTheRebase = pullRequestHead(beforeMerge);
+        moveTheBase("c.txt", "base\n");
+        long buildsBeforeTheMerge = countBuilds();
+
+        IssueRecord afterThePush = workflow.advance(beforeMerge);
+        String rebasedCommit = pullRequestHead(beforeMerge);
+
+        assertThat(rebasedCommit).isNotEqualTo(headBeforeTheRebase);
+        assertThat(afterThePush.state()).isEqualTo("merge");
+        assertThat(afterThePush.reviewedHeadCommit()).contains(rebasedCommit);
+        assertThat(gitHub.checkRunReads()).as("GitHub creates the check runs later").isEmpty();
+        assertThat(countBuilds()).isEqualTo(buildsBeforeTheMerge + 1);
+
+        IssueRecord waiting = workflow.advance(afterThePush);
+
+        assertThat(waiting.state()).isEqualTo("merge");
+        assertThat(gitHub.checkRunReads()).containsExactly(rebasedCommit);
+        assertThat(git.headCommit(worktree())).isEqualTo(rebasedCommit);
+        assertThat(pullRequestHead(beforeMerge)).isEqualTo(rebasedCommit);
+        assertThat(countBuilds()).isEqualTo(buildsBeforeTheMerge + 1);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+
+        gitHub.setCheckRuns(rebasedCommit, completedCheckRun("build", "success"));
+        IssueRecord record = advanceUntilWaiting(workflow, waiting);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeShas()).containsExactly(rebasedCommit);
+        assertThat(countBuilds()).isEqualTo(buildsBeforeTheMerge + 1);
+    }
+
+    @Test
+    void aFailedCheckRunOfTheRebasedCommitBlocksTheIssue() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        moveTheBase("c.txt", "base\n");
+        IssueRecord afterThePush = workflow.advance(beforeMerge);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("build", "failure"));
+
+        IssueRecord record = workflow.advance(afterThePush);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the check run build failed (https://github.com/checks/build)."));
+    }
+
+    @Test
+    void aRequiredCheckRunAfterTheFirstPageBlocksTheIssue() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        List<CheckRun> firstPage = new ArrayList<>();
+        for (int index = 0; index < 100; index++) {
+            firstPage.add(completedCheckRun("job-" + index, "success"));
+        }
+        gitHub.setCheckRunPage(pullRequestHead(beforeMerge), new CheckRunPage(101, firstPage));
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the commit has 101 check runs, and the merge gate can"
+                        + " read only 100."));
+    }
+
+    @Test
+    void aRateLimitInTheReadOfTheCheckRunsLeavesTheActionAndDoesNotBlock() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        gitHub.setCheckRunsOfEachCommit(completedCheckRun("build", "success"));
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.refuseTheNextCheckRunsReadWithTheRateLimit(Instant.parse("2026-11-01T10:20:00Z"));
+
+        assertThatThrownBy(() -> workflow.advance(beforeMerge)).isInstanceOf(GitHubRateLimitException.class);
+
+        assertThat(readRecordFromGitHub().state()).isEqualTo("merge");
+        assertThat(events.ofType("blocked")).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        IssueRecord record = advanceUntilWaiting(workflow, readRecordFromGitHub());
+        assertThat(record.state()).isEqualTo("done");
     }
 
     @Test

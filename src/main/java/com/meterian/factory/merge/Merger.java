@@ -14,13 +14,19 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, and squash merges. Only
- * one issue of a target merges at a time, and the base must not move between the rebase and the squash merge.
- * A failure of GitHub is transient: it leaves as a GitHubException, and the next poll runs the merge again.
+ * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, reads the required check
+ * runs of the pushed commit, and squash merges. Only one issue of a target merges at a time, and the base must
+ * not move between the rebase and the squash merge. A failure of GitHub is transient: it leaves as a
+ * GitHubException, and the next poll runs the merge again.
+ *
+ * <p>The merger reads the check runs one time in each attempt. When a required check run is missing or not
+ * complete, the result is not final, and the next poll tries again. A push that gives a new head ends the attempt
+ * before the read, because GitHub creates the check runs of a new commit some time after the push.
  */
 public final class Merger {
 
@@ -39,17 +45,24 @@ public final class Merger {
     private final PushedCommitCheck pushedCommitCheck;
     private final ReviewedCommit reviewedCommit;
     private final OwnershipGuard ownershipGuard;
+    private final List<String> requiredChecks;
+
+    /** The push of the attempt gave a new head to the pull request, or the head stayed the same. */
+    private enum PushedHead { NEW, UNCHANGED }
 
     /**
      * @param clone             the clone of the repository, whose lock the merges share
      * @param mergeTargetBranch the merge target of the definition of the issues
      * @param build             the build of the definition of the issues, with the variables of the machine
      * @param ownershipGuard    the check that this factory still owns the issue before the push and the merge
+     * @param requiredChecks    the names of the check runs that must pass. With no name, the merger reads no
+     *                          check run.
      */
     public Merger(Git git, GitHubClient gitHub, BuildRunner buildRunner, Path clone, String mergeTargetBranch,
                   BuildSettings build, Path gatekeeperDirectory, Duration retryDelay,
-                  OwnershipGuard ownershipGuard) {
+                  OwnershipGuard ownershipGuard, List<String> requiredChecks) {
         this.ownershipGuard = ownershipGuard;
+        this.requiredChecks = List.copyOf(requiredChecks);
         this.git = git;
         this.gitHub = gitHub;
         this.buildRunner = buildRunner;
@@ -79,7 +92,8 @@ public final class Merger {
         }
         try {
             MergeResult result = mergeOnAStableBase(worktree, record, pullRequestNumber);
-            if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded) {
+            if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded
+                    || result instanceof MergeResult.ChecksNotComplete) {
                 reviewedCommit.restore(worktree, record, commitBeforeTheMerge);
             }
             return result;
@@ -151,7 +165,8 @@ public final class Merger {
         if (!perform("The read of the head commit", () -> git.headCommit(worktree)).equals(headCommit)) {
             return new MergeResult.Failed("The build changed the files.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, treeHash, upstreamCommit);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, treeHash, upstreamCommit,
+                PushedHead.NEW);
     }
 
     private MergeResult mergeUnchangedBranch(Path worktree, IssueRecord record, int pullRequestNumber,
@@ -166,7 +181,8 @@ public final class Merger {
         if (!treeHash.equals(builtTreeHash) || !isReviewed) {
             return new MergeResult.Failed("The files differ from the built and reviewed tree.");
         }
-        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, builtTreeHash, upstreamCommit);
+        return pushAndSquashMerge(worktree, record, pullRequestNumber, headCommit, builtTreeHash, upstreamCommit,
+                PushedHead.UNCHANGED);
     }
 
     private Optional<MergeResult> refuseUncommittedChanges(Path worktree) {
@@ -182,7 +198,8 @@ public final class Merger {
     }
 
     private MergeResult pushAndSquashMerge(Path worktree, IssueRecord record, int pullRequestNumber,
-                                           String headCommit, String builtTreeHash, String upstreamCommit) {
+                                           String headCommit, String builtTreeHash, String upstreamCommit,
+                                           PushedHead pushedHead) {
         String branch = "factory/issue-" + record.issueNumber();
         ownershipGuard.verifyStillOwner(record.issueNumber());
         perform("The push to the gatekeeper", () -> {
@@ -191,6 +208,13 @@ public final class Merger {
         });
         if (!pushedCommitCheck.isOnGitHub(pullRequestNumber, headCommit, branch)) {
             return new MergeResult.NotForwarded(headCommit, builtTreeHash);
+        }
+        if (!requiredChecks.isEmpty() && pushedHead == PushedHead.NEW) {
+            return new MergeResult.AwaitsCheckRuns(headCommit, builtTreeHash);
+        }
+        Optional<MergeResult> refusal = findRefusalOfRequiredChecks(headCommit);
+        if (refusal.isPresent()) {
+            return refusal.get();
         }
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);
@@ -207,6 +231,21 @@ public final class Merger {
             }
         }
         throw new GitHubException("GitHub refuses the merge of the pull request #" + pullRequestNumber + ".");
+    }
+
+    /** Reads the check runs of the commit that the squash merge takes. With no required check, it reads nothing. */
+    private Optional<MergeResult> findRefusalOfRequiredChecks(String headCommit) {
+        if (requiredChecks.isEmpty()) {
+            return Optional.empty();
+        }
+        GitHubChecks checks = GitHubChecks.evaluate(gitHub.checkRuns(headCommit), requiredChecks);
+        return switch (checks) {
+            case GitHubChecks.Passed passed -> Optional.empty();
+            case GitHubChecks.NotComplete notComplete ->
+                    Optional.of(new MergeResult.ChecksNotComplete(headCommit, notComplete.waitingNames()));
+            case GitHubChecks.Failed failed -> Optional.of(new MergeResult.ChecksFailed(failed.describe()));
+            case GitHubChecks.TooMany tooMany -> Optional.of(new MergeResult.ChecksFailed(tooMany.describe()));
+        };
     }
 
     private void verifyBaseDidNotMove(Path worktree, String upstreamCommit) {

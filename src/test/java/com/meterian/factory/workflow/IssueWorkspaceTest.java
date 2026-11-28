@@ -62,7 +62,7 @@ class IssueWorkspaceTest {
         workspace.create(2, mergeWorktree);
         Merger merger = new Merger(git, new FakeGitHubClient(), new BuildRunner(), clone, "main",
                 new BuildSettings("true", Map.of()),
-                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO, OwnershipGuard.none());
+                temporaryDirectory.resolve("gatekeeper.git"), Duration.ZERO, OwnershipGuard.none(), List.of());
         IssueRecord record = RecordStates.queued(2).withPullRequest(500);
         List<MergeResult> mergeResults = new CopyOnWriteArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(2);

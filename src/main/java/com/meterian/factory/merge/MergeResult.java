@@ -1,5 +1,6 @@
 package com.meterian.factory.merge;
 
+import java.util.List;
 import java.util.Optional;
 
 /** The result of the merge steps. */
@@ -30,6 +31,30 @@ public sealed interface MergeResult {
 
     /** GitHub does not show the pushed commit, also after a new forward from the gatekeeper. */
     record NotForwarded(String pushedCommit, String pushedTree) implements MergeResult {
+    }
+
+    /** The required check runs of the pushed commit refuse the merge, for example a failed check run. */
+    record ChecksFailed(String reason) implements MergeResult {
+    }
+
+    /**
+     * One or more required check runs of the commit are missing or not complete. The next poll reads them again.
+     *
+     * @param commit       the commit that the squash merge takes
+     * @param waitingNames the required names that are missing or not complete
+     */
+    record ChecksNotComplete(String commit, List<String> waitingNames) implements MergeResult {
+
+        public ChecksNotComplete {
+            waitingNames = List.copyOf(waitingNames);
+        }
+    }
+
+    /**
+     * The merger pushed a new head after a rebase and a passed build. GitHub creates its check runs later, so the
+     * next poll reads them. The worktree stays on the pushed commit.
+     */
+    record AwaitsCheckRuns(String pushedCommit, String builtTreeHash) implements MergeResult {
     }
 
     /** A step failed. The change does not merge. */

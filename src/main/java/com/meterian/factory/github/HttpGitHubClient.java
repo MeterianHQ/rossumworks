@@ -269,6 +269,20 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
+    public CheckRunPage checkRuns(String commit) {
+        JsonNode answer = send("GET", repositoryPath + "/commits/" + encode(commit) + "/check-runs?per_page="
+                + PAGE_SIZE, null);
+        List<CheckRun> checkRuns = new ArrayList<>();
+        for (JsonNode item : answer.path("check_runs")) {
+            JsonNode conclusion = item.path("conclusion");
+            checkRuns.add(new CheckRun(item.path("name").asText(), item.path("status").asText(),
+                    conclusion.isTextual() ? Optional.of(conclusion.asText()) : Optional.empty(),
+                    item.path("html_url").asText()));
+        }
+        return new CheckRunPage(answer.path("total_count").asInt(checkRuns.size()), checkRuns);
+    }
+
+    @Override
     public MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha) {
         String path = repositoryPath + "/pulls/" + pullRequestNumber + "/merge";
         HttpResponse<String> response = sendRaw("PUT", path, Map.of("merge_method", "squash", "sha", expectedHeadSha));

@@ -12,8 +12,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** Writes a folder .factory into a test repository, and makes definitions with the build command of a test. */
 public final class DefinitionCommits {
@@ -48,8 +50,8 @@ public final class DefinitionCommits {
     /** The definition with the build command of a test and no build variables. */
     public static FactoryDefinition withBuild(FactoryDefinition definition, String buildCommand) {
         return new FactoryDefinition(definition.workflow(), new BuildDefinition(buildCommand, Map.of()),
-                definition.allowedTools(), definition.mergeTargetBranch(), definition.repositories(),
-                definition.prompts());
+                definition.allowedTools(), definition.mergeTargetBranch(), definition.requiredChecks(),
+                definition.repositories(), definition.prompts());
     }
 
     /** Loads a definition from the main file and the built-in prompts. */
@@ -61,6 +63,19 @@ public final class DefinitionCommits {
         } catch (DefinitionException exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    /** The built-in main file with the key merge.required-checks. */
+    public static String mainFileWithRequiredChecks(String buildCommand, String... requiredChecks) {
+        String names = Arrays.stream(requiredChecks).map(name -> "\"" + name + "\"")
+                .collect(Collectors.joining(", "));
+        return mainFileFor(buildCommand).replace("  target-branch: main\n",
+                "  target-branch: main\n  required-checks: [" + names + "]\n");
+    }
+
+    /** The built-in definition with the key merge.required-checks. */
+    public static FactoryDefinition builtInWithRequiredChecks(String... requiredChecks) {
+        return loadMainFile(mainFileWithRequiredChecks("./mvnw verify", requiredChecks));
     }
 
     /** The built-in definition with another limit of the entries into the state implement. */

@@ -183,7 +183,9 @@ public final class ProcessGit implements Git {
             return RebaseOutcome.UP_TO_DATE;
         }
         String headBefore = run(worktree, "rev-parse", "HEAD").trim();
-        GitProcess.Result result = execute(worktree, withIdentity("rebase", upstream));
+        // The same commits on the same upstream then give the same commit hash at each rebase.
+        GitProcess.Result result = execute(worktree, withIdentity("rebase", "--committer-date-is-author-date",
+                upstream));
         if (result.exitCode() == 0) {
             String headAfter = run(worktree, "rev-parse", "HEAD").trim();
             return headBefore.equals(headAfter) ? RebaseOutcome.UP_TO_DATE : RebaseOutcome.REBASED;
@@ -192,7 +194,7 @@ public final class ProcessGit implements Git {
             run(worktree, "rebase", "--abort");
             return RebaseOutcome.CONFLICT;
         }
-        throw createFailure(List.of("rebase", upstream), result);
+        throw createFailure(List.of("rebase", "--committer-date-is-author-date", upstream), result);
     }
 
     @Override

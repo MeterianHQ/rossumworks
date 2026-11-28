@@ -1,6 +1,7 @@
 package com.meterian.factory.state;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -54,7 +55,8 @@ public record IssueRecord(
         boolean afterConversation,
         @JsonProperty("definitionCommit") Optional<String> definitionVersion,
         Optional<String> approvedTree,
-        Optional<HandOver> handOver) {
+        Optional<HandOver> handOver,
+        Optional<CheckRunWait> checkRunWait) {
 
     private static final String QUEUED_COLUMN = "queued";
 
@@ -75,6 +77,7 @@ public record IssueRecord(
         definitionVersion = definitionVersion == null ? Optional.empty() : definitionVersion;
         approvedTree = approvedTree == null ? Optional.empty() : approvedTree;
         handOver = handOver == null ? Optional.empty() : handOver;
+        checkRunWait = checkRunWait == null ? Optional.empty() : checkRunWait;
     }
 
     /** A new issue in the start state, whose action is always prepare. previous is the start state. */
@@ -83,7 +86,8 @@ public record IssueRecord(
                 QUEUED_COLUMN, Optional.of(startState), Map.of(), Optional.empty(), false, Map.of(),
                 Optional.empty(), false, List.of(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), List.of(), false, 0, List.of(), Optional.empty(), Optional.empty(), 0,
-                Optional.empty(), Optional.empty(), false, Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), false, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty());
     }
 
     /** The count of the entries into the state, 0 when the issue did not enter it yet. */
@@ -237,6 +241,35 @@ public record IssueRecord(
     }
 
     /**
+     * The merger rebased the reviewed commit with the same patch id, built it, and pushed it. The reviews and an
+     * approval of the reviewed tree stay valid for the rebased tree, so the next merge attempt continues on the
+     * rebased commit and does not rebase or build again.
+     */
+    public IssueRecord withRebasedCommit(String commit, String treeHash) {
+        boolean isApprovedForTheReviewedTree = approvedTree.isPresent() && approvedTree.equals(reviewedTreeHash);
+        return copy(fields -> {
+            fields.reviewedHeadCommit = Optional.of(commit);
+            fields.reviewedTreeHash = Optional.of(treeHash);
+            fields.builtTreeHash = Optional.of(treeHash);
+            if (isApprovedForTheReviewedTree) {
+                fields.approvedTree = Optional.of(treeHash);
+            }
+        });
+    }
+
+    /** The merge waits for the required check runs of the commit. A wait on the same commit keeps its start. */
+    public IssueRecord withCheckRunWait(String commit, Instant now) {
+        if (checkRunWait.filter(wait -> wait.commit().equals(commit)).isPresent()) {
+            return this;
+        }
+        return copy(fields -> fields.checkRunWait = Optional.of(CheckRunWait.startNow(commit, now)));
+    }
+
+    public IssueRecord withoutCheckRunWait() {
+        return copy(fields -> fields.checkRunWait = Optional.empty());
+    }
+
+    /**
      * Counts a check that did not find the pushed commit on GitHub. The key is the tree, because each rebase
      * makes a new commit of the same change. A new tree starts the count again.
      */
@@ -345,6 +378,7 @@ public record IssueRecord(
         private Optional<String> definitionVersion;
         private Optional<String> approvedTree;
         private Optional<HandOver> handOver;
+        private Optional<CheckRunWait> checkRunWait;
 
         private Fields(IssueRecord record) {
             issueNumber = record.issueNumber;
@@ -378,6 +412,7 @@ public record IssueRecord(
             definitionVersion = record.definitionVersion;
             approvedTree = record.approvedTree;
             handOver = record.handOver;
+            checkRunWait = record.checkRunWait;
         }
 
         private IssueRecord toRecord() {
@@ -385,7 +420,8 @@ public record IssueRecord(
                     pendingPrompt, actionStarted, reviews, risk, small, riskReasons, reviewedTreeHash, reviewedPatchId,
                     builtTreeHash, pullRequestNumber, statusCommentId, notes, agentSessionStarted,
                     failedReviewRounds, conflictedPaths, issueTextHash, reviewedHeadCommit, failedForwardChecks,
-                    failedForwardTree, live, afterConversation, definitionVersion, approvedTree, handOver);
+                    failedForwardTree, live, afterConversation, definitionVersion, approvedTree, handOver,
+                    checkRunWait);
         }
     }
 }

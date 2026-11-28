@@ -559,6 +559,7 @@ class MergerTest {
     private Merger createMerger(String buildCommand, Map<String, String> buildEnvironment,
                                 OwnershipGuard ownershipGuard) {
         return new Merger(git, gitHub, new BuildRunner(), clone, "main",
-                new BuildSettings(buildCommand, buildEnvironment), gatekeeper, Duration.ZERO, ownershipGuard);
+                new BuildSettings(buildCommand, buildEnvironment), gatekeeper, Duration.ZERO, ownershipGuard,
+                List.of());
     }
 }

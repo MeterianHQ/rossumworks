@@ -3,6 +3,7 @@ package com.meterian.factory.worker;
 import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
 import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
 import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileWithRequiredChecks;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -20,6 +21,7 @@ import com.meterian.factory.definition.GitDefinitionVersions;
 import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
+import com.meterian.factory.github.CheckRun;
 import com.meterian.factory.github.HttpGitHubClient;
 import com.meterian.factory.ownership.LostIssues;
 import com.meterian.factory.ownership.OwnershipGuard;
@@ -84,6 +86,7 @@ class GitHubRequestBudgetTest {
     private static final String EVENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/events";
     private static final String ISSUE_REQUEST = "GET /repos/{o}/{r}/issues/{n}";
     private static final String COMMENTS_REQUEST = "GET /repos/{o}/{r}/issues/{n}/comments";
+    private static final String CHECK_RUNS_REQUEST = "GET /repos/{o}/{r}/commits/{sha}/check-runs";
     private static final Duration TIME_BOUND = Duration.ofSeconds(30);
     /** A static reference: the logging framework keeps only a weak reference to a logger. */
     private static final Logger WORKER_LOGGER = Logger.getLogger(Worker.class.getName());
@@ -161,6 +164,10 @@ class GitHubRequestBudgetTest {
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
+        return createWorker(agent, mainFileFor(BUILD_COMMAND));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, String mainFile) {
         BoardState board = new BoardState(clock);
         FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
@@ -169,7 +176,7 @@ class GitHubRequestBudgetTest {
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
-        commitDefinition(clone, mainFileFor(BUILD_COMMAND));
+        commitDefinition(clone, mainFile);
         GitDefinitionVersions versions = new GitDefinitionVersions(git, clone, "main",
                 builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
@@ -438,6 +445,74 @@ class GitHubRequestBudgetTest {
 
         assertThat(pollLines()).hasSize(1).first().asString()
                 .matches("The poll sent \\d+ GitHub requests: POST /repos/\\{o}/\\{r}/labels=7, .*");
+    }
+
+    private static CheckRun queuedCheckRun() {
+        return new CheckRun("build", "queued", Optional.empty(), "https://github.com/checks/build");
+    }
+
+    private static CheckRun passedCheckRun() {
+        return new CheckRun("build", "completed", Optional.of("success"), "https://github.com/checks/build");
+    }
+
+    /** The required check run is not complete, so the issue stays in the merge state after the first poll. */
+    private void bringTheIssueToTheMergeWithAQueuedCheckRun() throws InterruptedException {
+        fakeGitHub.setCheckRunsOfEachCommit(queuedCheckRun());
+        worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
+                .thenAssessRisk("low", true), mainFileWithRequiredChecks(BUILD_COMMAND, "build"));
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("merge");
+    }
+
+    /** Runs one poll and waits for the end of the issue thread. Gives the request counts of the poll. */
+    private Map<String, Integer> measurePollUntilTheIssueThreadEnds() throws InterruptedException {
+        server.resetRequestCounts();
+        worker.pollOnce();
+        waitUntil(() -> worker.issuesInWork().isEmpty());
+        return server.requestCounts();
+    }
+
+    @Test
+    void eachMergeAttemptCostsOneReadOfTheCheckRuns() throws InterruptedException {
+        bringTheIssueToTheMergeWithAQueuedCheckRun();
+
+        for (int poll = 0; poll < MEASURED_POLLS; poll++) {
+            Map<String, Integer> counts = measurePollUntilTheIssueThreadEnds();
+            assertThat(counts.getOrDefault(CHECK_RUNS_REQUEST, 0)).isEqualTo(1);
+        }
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("merge");
+        assertThat(fakeGitHub.squashMergeCalls()).isEmpty();
+
+        fakeGitHub.setCheckRunsOfEachCommit(passedCheckRun());
+        Map<String, Integer> counts = measurePollUntilTheIssueThreadEnds();
+
+        assertThat(counts.getOrDefault(CHECK_RUNS_REQUEST, 0)).isEqualTo(1);
+        assertThat(fakeGitHub.squashMergeCalls()).hasSize(1);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("done");
+    }
+
+    @Test
+    void aRateLimitInTheReadOfTheCheckRunsMakesTheWorkerWaitAndDoesNotBlock() throws InterruptedException {
+        bringTheIssueToTheMergeWithAQueuedCheckRun();
+        server.refuseTheCheckRunsReadsWithTheRateLimit(RESET);
+
+        measurePollUntilTheIssueThreadEnds();
+        int requestsInTheWait = server.receivedRequestCount();
+        worker.pollOnce();
+
+        assertThat(server.receivedRequestCount()).isEqualTo(requestsInTheWait);
+        assertThat(rateLimitLines()).containsExactly(RATE_LIMIT_LINE);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("merge");
+        assertThat(readRecord().orElseThrow().column()).isNotEqualTo("blocked");
+
+        server.answerNormally();
+        fakeGitHub.setCheckRunsOfEachCommit(passedCheckRun());
+        clock.set(RESET);
+        measurePollUntilTheIssueThreadEnds();
+
+        assertThat(fakeGitHub.squashMergeCalls()).hasSize(1);
+        assertThat(readRecord().orElseThrow().state()).isEqualTo("done");
     }
 
     private List<String> pollLines() {
