@@ -6,6 +6,7 @@ import com.meterian.factory.definition.MergeMode;
 import com.meterian.factory.definition.StateDefinition;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
+import com.meterian.factory.merge.GitHubChecks;
 import com.meterian.factory.merge.MergeChecks;
 import com.meterian.factory.merge.MergeDecision;
 import com.meterian.factory.merge.MergeGate;
@@ -55,8 +56,23 @@ final class MergeGateAction implements Action {
                     ActionResult.endWithReason(record, "needs-approval", NEEDS_APPROVAL_NOTE);
             case MergeDecision.Refused refused ->
                     ActionResult.block(record, "The merge gate refuses: " + refused.reason() + ".");
-            case MergeDecision.Automatic automatic -> mergePullRequest(issue, record, worktree);
-            case MergeDecision.Approved approved -> mergePullRequest(issue, record, worktree);
+            case MergeDecision.Automatic automatic -> mergeWhenGitHubChecksPass(issue, record, worktree);
+            case MergeDecision.Approved approved -> mergeWhenGitHubChecksPass(issue, record, worktree);
+        };
+    }
+
+    /**
+     * A check that is not complete keeps the issue in the merge state until the next poll. A GitHubException, also
+     * the rate limit, leaves the action, so that the worker tries again later.
+     */
+    private ActionResult mergeWhenGitHubChecksPass(Issue issue, IssueRecord record, Path worktree) {
+        String headCommit = services.git().headCommit(worktree);
+        GitHubChecks checks = GitHubChecks.evaluate(services.gitHub().checkRuns(headCommit));
+        return switch (checks) {
+            case GitHubChecks.Failed failed ->
+                    ActionResult.block(record, "The merge gate refuses: " + failed.describe() + ".");
+            case GitHubChecks.NotComplete notComplete -> ActionResult.stay(record);
+            case GitHubChecks.Passed passed -> mergePullRequest(issue, record, worktree);
         };
     }
 

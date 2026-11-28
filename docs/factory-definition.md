@@ -262,22 +262,33 @@ Each new risk result replaces the reasons.
 
 | Mode | Checks | Then |
 |------|--------|------|
-| `risk` | The four checks below. | An automatic merge when the risk is `low` and the change is small. Else, the event is `needs-approval`. Without a `risk` state, the event is always `needs-approval`. |
-| `always-ask` | The four checks below. | The event is `needs-approval`, until you approve. |
-| `auto-merge` | Only the check of an open question. | An automatic merge. |
+| `risk` | The five checks below. | An automatic merge when the risk is `low` and the change is small. Else, the event is `needs-approval`. Without a `risk` state, the event is always `needs-approval`. |
+| `always-ask` | The five checks below. | The event is `needs-approval`, until you approve. |
+| `auto-merge` | Only the checks 1 and 5. | An automatic merge. |
 
-The four checks:
+The five checks:
 
 1. No question of the agent is open.
 2. Each review approves.
 3. The reviews are for the current files.
 4. The build is for the current files.
+5. The GitHub checks of the head commit of the pull request passed.
 
 The checks 2 and 3 apply only when the workflow has a `reviews` state. A workflow with `merge-gate` always has
 a `build` state (section 14, rule 2). Only the action `build` pushes the branch and opens the pull request.
 
 A failed check refuses the merge. The issue goes to the block state, with the reason in a note, for
 example "the files changed after the reviews".
+
+The merge gate makes the check 5 immediately before the merge, with one request to GitHub:
+
+- A GitHub check that is not complete stops the merge. The issue stays in the merge state, and the merge gate
+  tries again at the next poll.
+- A failed GitHub check refuses the merge. The reason names each failed GitHub check and its link.
+- A GitHub check with the conclusion `success`, `skipped`, or `neutral` passed.
+- A commit without a GitHub check passes the check 5.
+- When GitHub refuses the request because of the rate limit, the worker waits for the reset. The issue does not
+  go to the block state.
 
 The events:
 

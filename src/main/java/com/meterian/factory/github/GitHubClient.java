@@ -67,6 +67,12 @@ public interface GitHubClient {
     /** Returns the commit hash of the merge commit of a merged pull request. Empty when GitHub has no merge commit. */
     Optional<String> mergeCommit(int pullRequestNumber);
 
+    /**
+     * Returns the checks of the commit, with one request. GitHub gives 100 checks or less in one answer, so the
+     * client reads only that first page. A commit without a check gives an empty list.
+     */
+    List<CheckRun> checkRuns(String commit);
+
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);
 

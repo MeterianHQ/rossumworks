@@ -2,8 +2,10 @@ package com.meterian.factory.testing;
 
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.AssignmentEvent;
+import com.meterian.factory.github.CheckRun;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
+import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
 import com.meterian.factory.github.MergeOutcome;
@@ -40,6 +42,10 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, String> baseBranches = new TreeMap<>();
     private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
     private final Map<String, String> branchHeads = new TreeMap<>();
+    private final Map<String, List<CheckRun>> checkRunsByCommit = new TreeMap<>();
+    private final List<String> checkRunReads = new ArrayList<>();
+    private List<CheckRun> checkRunsOfEachCommit = List.of();
+    private Instant checkRunsRateLimitReset;
     private SquashMergeSimulation squashMergeSimulation;
     private Path pullRequestRepository;
     private boolean failsTheNextSquashMergeAfterTheMerge;
@@ -205,6 +211,26 @@ public final class FakeGitHubClient implements GitHubClient {
     /** The next pullRequestHead gives an old head, as GitHub does for a short time after a push. */
     public synchronized void answerAnOldPullRequestHeadOnce() {
         answersAnOldPullRequestHead = true;
+    }
+
+    /** GitHub has these checks on the commit. A commit without checks has none. */
+    public synchronized void setCheckRuns(String commit, CheckRun... checkRuns) {
+        checkRunsByCommit.put(commit, List.of(checkRuns));
+    }
+
+    /** GitHub has these checks on each commit that has no checks of its own. */
+    public synchronized void setCheckRunsOfEachCommit(CheckRun... checkRuns) {
+        checkRunsOfEachCommit = List.of(checkRuns);
+    }
+
+    /** The commits of each read of the checks, in the order of the reads. */
+    public synchronized List<String> checkRunReads() {
+        return List.copyOf(checkRunReads);
+    }
+
+    /** The next read of the checks throws a GitHubRateLimitException with this reset time. */
+    public synchronized void refuseTheNextCheckRunsReadWithTheRateLimit(Instant resetTime) {
+        checkRunsRateLimitReset = resetTime;
     }
 
     /** The next successful squash merge merges, then throws a GitHubException, as a lost answer does. */
@@ -469,6 +495,17 @@ public final class FakeGitHubClient implements GitHubClient {
                 ? new PullRequest(pullRequestNumber, pullRequest.url(), pullRequest.headBranch(), body)
                 : pullRequest);
         editedPullRequestBodies.add(body);
+    }
+
+    @Override
+    public synchronized List<CheckRun> checkRuns(String commit) {
+        if (checkRunsRateLimitReset != null) {
+            Instant resetTime = checkRunsRateLimitReset;
+            checkRunsRateLimitReset = null;
+            throw new GitHubRateLimitException("The GitHub rate limit is reached.", resetTime);
+        }
+        checkRunReads.add(commit);
+        return checkRunsByCommit.getOrDefault(commit, checkRunsOfEachCommit);
     }
 
     @Override

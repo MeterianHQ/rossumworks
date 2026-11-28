@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.meterian.factory.github.AssignmentEvent;
+import com.meterian.factory.github.CheckRun;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -49,6 +50,8 @@ public final class FakeGitHubServer implements AutoCloseable {
     private static final Pattern BRANCH = Pattern.compile("/branches/([^/]+)");
     private static final Pattern PULL_REQUEST_MERGE = Pattern.compile("/pulls/(\\d+)/merge");
     private static final Pattern MERGE_COMMIT = Pattern.compile("/git/commits/merge-of-(\\d+)");
+    private static final Pattern CHECK_RUNS = Pattern.compile("/commits/([0-9a-f]{40})/check-runs");
+    private static final Pattern COMMIT_SEGMENT = Pattern.compile("/[0-9a-f]{40}(?=/|$)");
     private static final Pattern NUMBER_SEGMENT = Pattern.compile("/\\d+(?=/|$)");
 
     private record Answer(int status, JsonNode body) {
@@ -62,6 +65,7 @@ public final class FakeGitHubServer implements AutoCloseable {
     private final Map<String, Integer> requestCounts = new TreeMap<>();
     private volatile Map<String, String> rateLimitHeaders = Map.of();
     private volatile boolean refusesWithTheRateLimit;
+    private volatile boolean refusesTheCheckRunsReads;
 
     public FakeGitHubServer(FakeGitHubClient gitHub, String owner, String name) {
         this.gitHub = gitHub;
@@ -91,7 +95,14 @@ public final class FakeGitHubServer implements AutoCloseable {
         refusesWithTheRateLimit = true;
     }
 
+    /** Each read of the checks of a commit gets a 403 with no remaining requests. The other requests pass. */
+    public void refuseTheCheckRunsReadsWithTheRateLimit(Instant reset) {
+        sendRateLimitHeaders(0, reset);
+        refusesTheCheckRunsReads = true;
+    }
+
     public void answerNormally() {
+        refusesTheCheckRunsReads = false;
         refusesWithTheRateLimit = false;
         rateLimitHeaders = Map.of();
     }
@@ -110,8 +121,9 @@ public final class FakeGitHubServer implements AutoCloseable {
     }
 
     private synchronized void countRequest(String method, URI uri, int status) {
-        String template = NUMBER_SEGMENT.matcher(uri.getRawPath().replace(repositoryPath, "/repos/{o}/{r}"))
-                .replaceAll("/{n}");
+        String withCommitTemplate = COMMIT_SEGMENT.matcher(uri.getRawPath().replace(repositoryPath, "/repos/{o}/{r}"))
+                .replaceAll("/{sha}");
+        String template = NUMBER_SEGMENT.matcher(withCommitTemplate).replaceAll("/{n}");
         requestCounts.merge(method + " " + template + (status == 304 ? " (304)" : ""), 1, Integer::sum);
     }
 
@@ -126,7 +138,7 @@ public final class FakeGitHubServer implements AutoCloseable {
             String method = exchange.getRequestMethod();
             URI uri = exchange.getRequestURI();
             JsonNode payload = readPayload(exchange);
-            Answer answer = refusesWithTheRateLimit
+            Answer answer = refusesWithTheRateLimit || isRefusedCheckRunsRead(uri)
                     ? new Answer(403, mapper.createObjectNode().put("message", "API rate limit exceeded"))
                     : answerOrFail(method, uri, payload);
             byte[] body = mapper.writeValueAsBytes(answer.body());
@@ -145,6 +157,10 @@ public final class FakeGitHubServer implements AutoCloseable {
             exchange.sendResponseHeaders(answer.status(), body.length);
             exchange.getResponseBody().write(body);
         }
+    }
+
+    private boolean isRefusedCheckRunsRead(URI uri) {
+        return refusesTheCheckRunsReads && CHECK_RUNS.matcher(uri.getRawPath()).find();
     }
 
     private JsonNode readPayload(HttpExchange exchange) throws IOException {
@@ -209,12 +225,27 @@ public final class FakeGitHubServer implements AutoCloseable {
             return findPullRequest(number(matcher)).map(this::toFullPullRequestJson).map(this::ok)
                     .orElseGet(this::notFound);
         }
+        if ((matcher = CHECK_RUNS.matcher(route)).matches()) {
+            return ok(toCheckRunsJson(gitHub.checkRuns(matcher.group(1))));
+        }
         if ((matcher = MERGE_COMMIT.matcher(route)).matches()) {
             return gitHub.mergeCommitTree(number(matcher))
                     .map(tree -> ok(mapper.createObjectNode().set("tree", mapper.createObjectNode().put("sha", tree))))
                     .orElseGet(this::notFound);
         }
         return notFound();
+    }
+
+    private JsonNode toCheckRunsJson(List<CheckRun> checkRuns) {
+        ObjectNode answer = mapper.createObjectNode().put("total_count", checkRuns.size());
+        ArrayNode items = answer.putArray("check_runs");
+        for (CheckRun checkRun : checkRuns) {
+            ObjectNode item = items.addObject().put("name", checkRun.name()).put("status", checkRun.status())
+                    .put("html_url", checkRun.url());
+            checkRun.conclusion().ifPresentOrElse(conclusion -> item.put("conclusion", conclusion),
+                    () -> item.putNull("conclusion"));
+        }
+        return answer;
     }
 
     private JsonNode toBranchJson(String head) {
