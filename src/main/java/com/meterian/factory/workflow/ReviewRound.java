@@ -19,7 +19,9 @@ import java.util.Map;
 /**
  * Runs the reviews of the definition on one tree, each in a new session. A result for another tree is a reject. The
  * record goes to GitHub at the start of the round and after each review except the last, so the card shows each
- * verdict at once. The workflow publishes the result of the action, and this result has the last verdict.
+ * verdict at once. The workflow publishes the result of the action, and this result has the last verdict. A stop at
+ * the first review of a round still writes the record of the round start again, and issue #45 keeps this case out
+ * of scope.
  */
 final class ReviewRound {
 
