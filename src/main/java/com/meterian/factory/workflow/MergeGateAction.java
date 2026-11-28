@@ -13,6 +13,9 @@ import com.meterian.factory.merge.MergeResult;
 import com.meterian.factory.state.ActionType;
 import com.meterian.factory.state.IssueRecord;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,11 +25,15 @@ final class MergeGateAction implements Action {
     static final String MERGED_NOTE = "The pull request is merged.";
     static final String FACTORY_CHANGE_NOTE =
             "The pull request changes the folder .factory. The merge needs approval.";
+    static final String CHECK_RUN_WAIT_NOTE = "The merge waits for the required check runs: ";
+    /** The maximum time of a job of GitHub Actions, so that a real build always ends before the limit. */
+    static final Duration CHECK_RUN_WAIT_LIMIT = Duration.ofHours(6);
     private static final String DEFINITION_FOLDER = ".factory";
 
     private final ActionServices services;
     private final VersionServices version;
     private final FactoryDefinition definition;
+    private final Clock clock = Clock.systemUTC();
 
     MergeGateAction(ActionServices services, VersionServices version, FactoryDefinition definition) {
         this.services = services;
@@ -89,8 +96,9 @@ final class MergeGateAction implements Action {
             case MergeResult.NeedsNewReviews needsNewReviews ->
                     ActionResult.endWith(record.withoutReviews(), "needs-new-reviews");
             case MergeResult.NeedsFix needsFix -> openMergeForTheFix(record, worktree, needsFix);
-            case MergeResult.ChecksFailed checksFailed ->
-                    ActionResult.block(record, "The merge gate refuses: " + checksFailed.reason() + ".");
+            case MergeResult.ChecksFailed checksFailed -> ActionResult.block(record.withoutCheckRunWait(),
+                    "The merge gate refuses: " + checksFailed.reason() + ".");
+            case MergeResult.ChecksNotComplete checksNotComplete -> waitForCheckRuns(record, checksNotComplete);
             case MergeResult.Failed failed -> ActionResult.block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> ActionResult.stay(record);
             case MergeResult.AwaitsCheckRuns awaitsCheckRuns -> ActionResult.stay(
@@ -98,6 +106,22 @@ final class MergeGateAction implements Action {
             case MergeResult.NotForwarded notForwarded -> services.forwardCheckFailure().count(
                     issue, record, record, notForwarded.pushedCommit(), notForwarded.pushedTree());
         };
+    }
+
+    /**
+     * A wrong name in merge.required-checks, or a workflow of GitHub that does not run on the branch, gives a check
+     * run that never comes. So a wait on the same commit ends with a block after the limit.
+     */
+    private ActionResult waitForCheckRuns(IssueRecord record, MergeResult.ChecksNotComplete checksNotComplete) {
+        Instant now = clock.instant();
+        IssueRecord waiting = record.withCheckRunWait(checksNotComplete.commit(), now);
+        String names = String.join(", ", checksNotComplete.waitingNames());
+        if (waiting.checkRunWait().orElseThrow().isLongerThan(CHECK_RUN_WAIT_LIMIT, now)) {
+            return ActionResult.block(waiting.withoutCheckRunWait(), "The merge gate refuses: the required check runs "
+                    + names + " of the commit " + checksNotComplete.commit() + " are missing or not complete after "
+                    + CHECK_RUN_WAIT_LIMIT.toHours() + " hours.");
+        }
+        return ActionResult.stay(waiting.withNote(CHECK_RUN_WAIT_NOTE + names + "."));
     }
 
     /** A note of the merger comes after the merged note, so that the card shows the problem. */

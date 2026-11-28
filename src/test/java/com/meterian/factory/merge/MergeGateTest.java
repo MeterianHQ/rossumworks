@@ -132,7 +132,7 @@ class MergeGateTest {
                 record.failedReviewRounds(), record.conflictedPaths(), record.issueTextHash(),
                 record.reviewedHeadCommit(), record.failedForwardChecks(), record.failedForwardTree(),
                 record.live(), record.afterConversation(), record.definitionVersion(), record.approvedTree(),
-                record.handOver());
+                record.handOver(), record.checkRunWait());
 
         MergeDecision decision = MergeGate.decide(record, "a", false, false, MergeMode.RISK, checksOf(RecordStates.REVIEW_NAMES));
 

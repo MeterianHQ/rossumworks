@@ -16,8 +16,16 @@ public sealed interface GitHubChecks {
     record Passed() implements GitHubChecks {
     }
 
-    /** No required check run failed, but one or more are missing or not complete. */
-    record NotComplete() implements GitHubChecks {
+    /**
+     * No required check run failed, but one or more are missing or not complete.
+     *
+     * @param waitingNames the required names that are missing or not complete, in the order of the list
+     */
+    record NotComplete(List<String> waitingNames) implements GitHubChecks {
+
+        public NotComplete {
+            waitingNames = List.copyOf(waitingNames);
+        }
     }
 
     /** One or more required check runs failed. */
@@ -55,9 +63,14 @@ public sealed interface GitHubChecks {
         if (isARequiredCheckRunMissing && page.isIncomplete()) {
             return new TooMany(page.totalCount(), page.checkRuns().size());
         }
-        boolean isARequiredCheckRunRunning = requiredCheckRuns.stream().anyMatch(checkRun -> !checkRun.isComplete());
-        if (isARequiredCheckRunMissing || isARequiredCheckRunRunning) {
-            return new NotComplete();
+        Set<String> completeNames = requiredCheckRuns.stream().filter(CheckRun::isComplete).map(CheckRun::name)
+                .collect(Collectors.toSet());
+        Set<String> runningNames = requiredCheckRuns.stream().filter(checkRun -> !checkRun.isComplete())
+                .map(CheckRun::name).collect(Collectors.toSet());
+        List<String> waitingNames = requiredChecks.stream()
+                .filter(name -> !completeNames.contains(name) || runningNames.contains(name)).toList();
+        if (!waitingNames.isEmpty()) {
+            return new NotComplete(waitingNames);
         }
         return new Passed();
     }

@@ -1,5 +1,6 @@
 package com.meterian.factory.merge;
 
+import java.util.List;
 import java.util.Optional;
 
 /** The result of the merge steps. */
@@ -34,6 +35,19 @@ public sealed interface MergeResult {
 
     /** The required check runs of the pushed commit refuse the merge, for example a failed check run. */
     record ChecksFailed(String reason) implements MergeResult {
+    }
+
+    /**
+     * One or more required check runs of the commit are missing or not complete. The next poll reads them again.
+     *
+     * @param commit       the commit that the squash merge takes
+     * @param waitingNames the required names that are missing or not complete
+     */
+    record ChecksNotComplete(String commit, List<String> waitingNames) implements MergeResult {
+
+        public ChecksNotComplete {
+            waitingNames = List.copyOf(waitingNames);
+        }
     }
 
     /**

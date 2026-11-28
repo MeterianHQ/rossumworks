@@ -92,7 +92,8 @@ public final class Merger {
         }
         try {
             MergeResult result = mergeOnAStableBase(worktree, record, pullRequestNumber);
-            if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded) {
+            if (result instanceof MergeResult.Postponed || result instanceof MergeResult.NotForwarded
+                    || result instanceof MergeResult.ChecksNotComplete) {
                 reviewedCommit.restore(worktree, record, commitBeforeTheMerge);
             }
             return result;
@@ -240,8 +241,8 @@ public final class Merger {
         GitHubChecks checks = GitHubChecks.evaluate(gitHub.checkRuns(headCommit), requiredChecks);
         return switch (checks) {
             case GitHubChecks.Passed passed -> Optional.empty();
-            case GitHubChecks.NotComplete notComplete -> Optional.of(new MergeResult.Postponed(
-                    "The required check runs of " + headCommit + " are not complete. The next poll tries again."));
+            case GitHubChecks.NotComplete notComplete ->
+                    Optional.of(new MergeResult.ChecksNotComplete(headCommit, notComplete.waitingNames()));
             case GitHubChecks.Failed failed -> Optional.of(new MergeResult.ChecksFailed(failed.describe()));
             case GitHubChecks.TooMany tooMany -> Optional.of(new MergeResult.ChecksFailed(tooMany.describe()));
         };

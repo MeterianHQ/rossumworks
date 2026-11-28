@@ -285,7 +285,12 @@ The merge gate makes the check 5 immediately before the squash merge, with one r
 check runs of the commit that the squash merge takes. Only a check run with a name of the list counts:
 
 - A required check run that does not exist yet, or is not complete, stops the merge. The issue stays in the
-  merge state, and the merge gate tries again at the next poll.
+  merge state, and the merge gate tries again at the next poll. The card shows the note "The merge waits for
+  the required check runs:" with the names.
+- When the merge waits for more than 6 hours on the same commit, the merge gate refuses the merge. The reason
+  names the required check runs that are missing or not complete. 6 hours is the maximum time of a job of
+  GitHub Actions. A check run that never comes has a cause, for example a wrong name in the list, or a workflow
+  of GitHub that does not run on the branches `factory/issue-*`.
 - A failed required check run refuses the merge. The reason names each failed check run and its link.
 - A check run with the conclusion `success`, `skipped`, or `neutral` passed.
 - When all the required check runs passed, the merge continues.

@@ -40,6 +40,7 @@ import com.meterian.factory.ownership.OwnershipGuard;
 import com.meterian.factory.ownership.OwnershipLostException;
 import com.meterian.factory.prompt.PromptLibrary;
 import com.meterian.factory.prompt.PromptTexts;
+import com.meterian.factory.state.CheckRunWait;
 import com.meterian.factory.state.HandOver;
 import com.meterian.factory.state.IssueRecord;
 import com.meterian.factory.testing.CollectedEvents;
@@ -1382,6 +1383,64 @@ class IssueWorkflowTest {
         assertThat(record.state()).isEqualTo("merge");
         assertThat(gitHub.squashMergeCalls()).isEmpty();
         assertThat(gitHub.checkRunReads()).containsExactly(pullRequestHead(beforeMerge));
+        assertThat(record.notes()).last().isEqualTo("The merge waits for the required check runs: build.");
+    }
+
+    @Test
+    void aRequiredCheckRunThatStaysMissingBlocksTheIssueAfterTheLimit() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "Build and test");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headCommit = pullRequestHead(beforeMerge);
+        IssueRecord waitingSinceSevenHours = beforeMerge.withCheckRunWait(headCommit,
+                Instant.now().minus(Duration.ofHours(7)));
+
+        IssueRecord record = workflow.advance(waitingSinceSevenHours);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(record.checkRunWait()).isEmpty();
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the required check runs Build and test of the commit "
+                        + headCommit + " are missing or not complete after 6 hours."));
+    }
+
+    @Test
+    void aWaitShorterThanTheLimitKeepsTheIssueInTheMergeState() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflowWithRequiredChecks("true", "build");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        String headCommit = pullRequestHead(beforeMerge);
+        Instant fiveHoursAgo = Instant.now().minus(Duration.ofHours(5));
+
+        IssueRecord record = workflow.advance(beforeMerge.withCheckRunWait(headCommit, fiveHoursAgo));
+
+        assertThat(record.state()).isEqualTo("merge");
+        assertThat(record.checkRunWait()).contains(CheckRunWait.startNow(headCommit, fiveHoursAgo));
+    }
+
+    @Test
+    void anApprovalInTheAlwaysAskModeStaysValidForTheRebasedCommit() throws CredentialMismatchException {
+        String mainFile = DefinitionCommits.mainFileWithRequiredChecks("true", "build")
+                .replace("mode: risk", "mode: always-ask");
+        IssueWorkflow workflow = createWorkflow("true",
+                DefinitionLookup.builtInOnly(DefinitionCommits.loadMainFile(mainFile)));
+        IssueRecord waiting = waitForApprovalOfAMediumRisk(workflow);
+        String approvedTree = run(worktree(), "rev-parse", "HEAD^{tree}");
+        IssueRecord atTheGate = RecordStates.move(waiting, "merge").withApprovedTree(approvedTree);
+        moveTheBase("c.txt", "base\n");
+
+        IssueRecord afterThePush = workflow.advance(atTheGate);
+        String rebasedCommit = pullRequestHead(atTheGate);
+        String rebasedTree = run(worktree(), "rev-parse", "HEAD^{tree}");
+
+        assertThat(afterThePush.state()).isEqualTo("merge");
+        assertThat(rebasedTree).isNotEqualTo(approvedTree);
+        assertThat(afterThePush.approvedTree()).contains(rebasedTree);
+
+        gitHub.setCheckRuns(rebasedCommit, completedCheckRun("build", "success"));
+        IssueRecord record = advanceUntilWaiting(workflow, afterThePush);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeShas()).containsExactly(rebasedCommit);
     }
 
     @Test

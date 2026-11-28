@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.meterian.factory.testing.RecordStates;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +27,60 @@ class IssueRecordTest {
         assertThat(cleared.small()).isFalse();
         assertThat(cleared.builtTreeHash()).isEmpty();
         assertThat(cleared.pullRequestNumber()).contains(9);
+    }
+
+    @Test
+    void aRebasedCommitMovesTheApprovalOfTheReviewedTreeToTheRebasedTree() {
+        IssueRecord reviewed = queued.withReviewedTree("reviewed-tree", "patch").withBuiltTree("reviewed-tree")
+                .withReviewedHeadCommit("reviewed-commit").withApprovedTree("reviewed-tree");
+
+        IssueRecord rebased = reviewed.withRebasedCommit("rebased-commit", "rebased-tree");
+
+        assertThat(rebased.reviewedHeadCommit()).contains("rebased-commit");
+        assertThat(rebased.reviewedTreeHash()).contains("rebased-tree");
+        assertThat(rebased.reviewedPatchId()).contains("patch");
+        assertThat(rebased.builtTreeHash()).contains("rebased-tree");
+        assertThat(rebased.approvedTree()).contains("rebased-tree");
+    }
+
+    @Test
+    void aRebasedCommitKeepsAnApprovalOfAnotherTree() {
+        IssueRecord reviewed = queued.withReviewedTree("reviewed-tree", "patch").withApprovedTree("older-tree");
+
+        IssueRecord rebased = reviewed.withRebasedCommit("rebased-commit", "rebased-tree");
+
+        assertThat(rebased.approvedTree()).contains("older-tree");
+        assertThat(rebased.reviewedTreeHash()).contains("rebased-tree");
+    }
+
+    @Test
+    void aRebasedCommitWithoutAnApprovalGivesNoApproval() {
+        IssueRecord rebased = queued.withReviewedTree("reviewed-tree", "patch")
+                .withRebasedCommit("rebased-commit", "rebased-tree");
+
+        assertThat(rebased.approvedTree()).isEmpty();
+    }
+
+    @Test
+    void aCheckRunWaitOnTheSameCommitKeepsItsStart() {
+        Instant start = Instant.parse("2026-11-28T10:00:00Z");
+        IssueRecord waiting = queued.withCheckRunWait("commit", start);
+
+        IssueRecord later = waiting.withCheckRunWait("commit", start.plusSeconds(3600));
+        IssueRecord onAnotherCommit = waiting.withCheckRunWait("another", start.plusSeconds(3600));
+
+        assertThat(later).isEqualTo(waiting);
+        assertThat(onAnotherCommit.checkRunWait()).contains(new CheckRunWait("another", start.getEpochSecond() + 3600));
+        assertThat(waiting.withoutCheckRunWait().checkRunWait()).isEmpty();
+    }
+
+    @Test
+    void aCheckRunWaitStaysInTheJsonOfTheRecord() throws Exception {
+        IssueRecord waiting = queued.withCheckRunWait("commit", Instant.parse("2026-11-28T10:00:00Z"));
+
+        IssueRecord read = MAPPER.readValue(MAPPER.writeValueAsString(waiting), IssueRecord.class);
+
+        assertThat(read.checkRunWait()).isEqualTo(waiting.checkRunWait());
     }
 
     @Test

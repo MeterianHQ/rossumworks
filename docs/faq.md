@@ -55,8 +55,9 @@ desktop. See [A worker on a cloud VM](cloud-worker.md).
 You must define the build command in git, in `.factory/factory.yaml`. But the command runs locally, on the
 machine of the worker, in the worktree of the issue. The CI of GitHub can also gate the merge: name its check
 runs in `merge.required-checks`, and the merge gate waits until they pass on the head commit of the pull
-request. Without the key, the local build is the only build. The settings of the machine, for example `JAVA_HOME`, go in `build.environment` of
-`worker.yaml`, and `worker.yaml` is not in git. See [Factory definition](factory-definition.md).
+request. Without the key, the local build is the only build. The settings of the machine, for example
+`JAVA_HOME`, go in `build.environment` of `worker.yaml`, and `worker.yaml` is not in git. See
+[Factory definition](factory-definition.md).
 
 ### Where do I put my skills, my commands, and similar items?
 
