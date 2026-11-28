@@ -1,16 +1,23 @@
 package com.meterian.factory.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 import com.meterian.factory.configuration.ClaudeSettings;
 import com.meterian.factory.testing.TestTools;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class ClaudeCommandTest {
+
+    static final List<String> PARENT_SESSION_VARIABLES = List.of(
+            "CLAUDECODE", "CLAUDE_CODE_CHILD_NOTES_DIR", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+            "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_SESSION_ID", "CLAUDE_EFFORT", "CLAUDE_PID");
 
     private final ClaudeSettings settings = ClaudeSettings.createDefaults();
     private final UUID sessionId = UUID.randomUUID();
@@ -63,6 +70,22 @@ class ClaudeCommandTest {
                 "ANTHROPIC_BASE_URL", "f", "CLAUDE_CODE_USE_BEDROCK", "g");
 
         assertThat(ClaudeCommand.environment(parent)).containsOnlyKeys("PATH");
+    }
+
+    @Test
+    void removesTheVariablesOfAParentClaudeCodeSession() {
+        Map<String, String> parent = new HashMap<>();
+        PARENT_SESSION_VARIABLES.forEach(name -> parent.put(name, "parent"));
+        parent.put("PATH", "/bin");
+
+        assertThat(ClaudeCommand.environment(parent)).containsOnlyKeys("PATH");
+    }
+
+    @Test
+    void keepsTheOtherClaudeCodeVariables() {
+        Map<String, String> parent = Map.of("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000", "CLAUDECODE", "1");
+
+        assertThat(ClaudeCommand.environment(parent)).containsExactly(entry("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000"));
     }
 
     @Test

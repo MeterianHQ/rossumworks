@@ -110,6 +110,23 @@ class TmuxLiveSessionsTest {
     }
 
     @Test
+    void theSessionGetsNoVariableOfAParentClaudeCodeSession() throws Exception {
+        Map<String, String> parent = new HashMap<>(System.getenv());
+        ClaudeCommandTest.PARENT_SESSION_VARIABLES.forEach(name -> parent.put(name, "parent"));
+        parent.put("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000");
+
+        sessionsFor(Map.of(), parent, SUCCESS_TIMEOUT).open(ISSUE_NUMBER, UUID.randomUUID(), worktree, TestTools.ALLOWED_TOOLS);
+
+        String launchScript = Files.readString(directory.resolve("live/issue-7.launch.sh"));
+        List<String> environment = Files.readAllLines(directory.resolve("environment.txt"));
+        for (String name : ClaudeCommandTest.PARENT_SESSION_VARIABLES) {
+            assertThat(launchScript).doesNotContain(name + "=");
+            assertThat(environment).noneMatch(line -> line.startsWith(name + "="));
+        }
+        assertThat(environment).contains("CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000");
+    }
+
+    @Test
     void theSessionGetsAValueWithASingleQuoteUnchanged() throws Exception {
         Map<String, String> parent = new HashMap<>(System.getenv());
         parent.put("FACTORY_TEST_VALUE", "it's a 'test' $HOME");

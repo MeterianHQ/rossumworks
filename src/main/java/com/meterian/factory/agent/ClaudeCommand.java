@@ -12,6 +12,23 @@ public final class ClaudeCommand {
 
     private static final Set<String> REMOVED_NAMES = Set.of("GH_TOKEN", "GITHUB_TOKEN", "FACTORY_GITHUB_TOKEN");
 
+    /**
+     * The variables that a parent Claude Code session gives to the worker. With them, each session of the worker
+     * thinks that it is a child of that parent session. A fixed list, so that other CLAUDE_CODE_ variables stay.
+     */
+    public static final Set<String> PARENT_SESSION_NAMES = Set.of(
+            "CLAUDECODE",
+            "CLAUDE_CODE_CHILD_NOTES_DIR",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_EXECPATH",
+            "CLAUDE_CODE_MESSAGING_SOCKET",
+            "CLAUDE_CODE_MESSAGING_TOKEN",
+            "CLAUDE_CODE_SESSION_ATTENDED",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_EFFORT",
+            "CLAUDE_PID");
+
     /** The rule for each text that an agent writes to a human: a question, a description, or a conversation. */
     public static final String HUMAN_LANGUAGE_RULE = "When you write to a human, write in Simplified Technical "
             + "English (ASD-STE100): short sentences, active voice, simple tenses, and one word for one thing.";
@@ -55,6 +72,7 @@ public final class ClaudeCommand {
     }
 
     private static boolean isRemoved(String name) {
-        return REMOVED_NAMES.contains(name) || ChildEnvironment.hasCredentialPrefix(name);
+        return REMOVED_NAMES.contains(name) || PARENT_SESSION_NAMES.contains(name)
+                || ChildEnvironment.hasCredentialPrefix(name);
     }
 }

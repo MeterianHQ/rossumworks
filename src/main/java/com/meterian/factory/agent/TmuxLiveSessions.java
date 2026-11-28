@@ -291,7 +291,7 @@ public final class TmuxLiveSessions implements LiveSessions {
         return "#!/bin/bash\n" + ShellQuoting.join(words) + "\n";
     }
 
-    /** The same filter as a phase: no credential variable reaches the live session. */
+    /** The same filter as a phase: no credential variable and no variable of a parent session reach the live session. */
     private List<String> createEnvironmentAssignments() {
         List<String> assignments = new ArrayList<>();
         ClaudeCommand.environment(parentEnvironment).forEach((name, value) -> {
