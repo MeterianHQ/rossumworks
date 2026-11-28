@@ -96,7 +96,7 @@ public final class FakeGitHubServer implements AutoCloseable {
         refusesWithTheRateLimit = true;
     }
 
-    /** Each read of the checks of a commit gets a 403 with no remaining requests. The other requests pass. */
+    /** Each read of the check runs of a commit gets a 403 with no remaining requests. The other requests pass. */
     public void refuseTheCheckRunsReadsWithTheRateLimit(Instant reset) {
         sendRateLimitHeaders(0, reset);
         refusesTheCheckRunsReads = true;

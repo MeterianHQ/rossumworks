@@ -32,8 +32,15 @@ public sealed interface MergeResult {
     record NotForwarded(String pushedCommit, String pushedTree) implements MergeResult {
     }
 
-    /** The GitHub check runs of the pushed commit refuse the merge, for example a failed check run. */
+    /** The required check runs of the pushed commit refuse the merge, for example a failed check run. */
     record ChecksFailed(String reason) implements MergeResult {
+    }
+
+    /**
+     * The merger pushed a new head after a rebase and a passed build. GitHub creates its check runs later, so the
+     * next poll reads them. The worktree stays on the pushed commit.
+     */
+    record AwaitsCheckRuns(String pushedCommit, String builtTreeHash) implements MergeResult {
     }
 
     /** A step failed. The change does not merge. */

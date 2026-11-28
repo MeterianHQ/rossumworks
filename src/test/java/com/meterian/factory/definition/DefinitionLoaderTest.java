@@ -395,6 +395,37 @@ class DefinitionLoaderTest {
                 "factory.yaml: key merge.target-branch is missing");
     }
 
+    private static String withRequiredChecks(String list) {
+        return DEFAULT_YAML.replace("  target-branch: main\n", "  target-branch: main\n  required-checks: " + list
+                + "\n");
+    }
+
+    @Test
+    void readsTheRequiredChecks() throws Exception {
+        FactoryDefinition definition = DefinitionLoader.load(filesWith(
+                withRequiredChecks("[\"Build and test\", lint]")));
+
+        assertThat(definition.requiredChecks()).containsExactly("Build and test", "lint");
+    }
+
+    @Test
+    void readsNoRequiredCheckWithoutTheKey() throws Exception {
+        assertThat(DefinitionLoader.load(filesWith(DEFAULT_YAML)).requiredChecks()).isEmpty();
+    }
+
+    @Test
+    void refusesRequiredChecksThatAreNotAListOfTexts() {
+        assertRefused(withRequiredChecks("build"), "factory.yaml: key merge.required-checks must be a list");
+        assertRefused(withRequiredChecks("[1]"), "factory.yaml: key merge.required-checks must be a list of texts");
+    }
+
+    @Test
+    void refusesAnEmptyNameAndANameTwoTimesInTheRequiredChecks() {
+        assertRefused(withRequiredChecks("[build, \" \"]"), "factory.yaml: key merge.required-checks has an empty name");
+        assertRefused(withRequiredChecks("[build, build]"),
+                "factory.yaml: key merge.required-checks has the name build two times");
+    }
+
     private static void assertRefused(String yaml, String expectedMessage) {
         assertThatThrownBy(() -> DefinitionLoader.load(filesWith(yaml)))
                 .isInstanceOf(DefinitionException.class)

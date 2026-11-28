@@ -218,8 +218,11 @@ parallel limit.
    is the default branch. For another merge target branch, the issue stays
    open, because the fix is not in the default branch yet.
 
-The worker does not wait for GitHub Actions checks. The local build
-replaces CI (owner decision).
+GitHub Actions checks (owner decision, changed on 2026-11-28): the local
+build runs first. When `merge.required-checks` names check runs, the
+worker also waits until they pass on the head commit of the pull request.
+The first design did not wait for them. The owner changed it, because the
+local build and the build of GitHub can give different results.
 
 ### 6.0 Who can give a request (owner decision, changed on 2026-11-03)
 
@@ -240,6 +243,8 @@ experiment:
   change without a change of the files.
 - A passed build for the same tree hash.
 - No open question.
+- Each check run of `merge.required-checks` passed on the commit that the
+  squash merge takes. A missing check run waits, a failed one blocks.
 - The pull request is mergeable. After a rebase, GitHub can answer "not
   mergeable" for some seconds, so the check tries again 3 times.
 

@@ -28,7 +28,8 @@ record VersionServices(PromptLibrary prompts, BuildSettings build, List<String> 
         BuildSettings build = BuildSettings.combine(definition.build(), configuration.buildEnvironment());
         PromptLibrary prompts = new PromptLibrary(PromptTexts.from(definition), mergeTargetBranch);
         Merger merger = new Merger(services.git(), services.gitHub(), services.buildRunner(), clone,
-                mergeTargetBranch, build, gatekeeperDirectory, services.mergeRetryDelay(), services.ownershipGuard());
+                mergeTargetBranch, build, gatekeeperDirectory, services.mergeRetryDelay(), services.ownershipGuard(),
+                definition.requiredChecks());
         return new VersionServices(prompts, build, definition.allowedTools(), mergeTargetBranch, merger,
                 new ConflictResolution(services.git(), mergeTargetBranch),
                 new IssueWorkspace(configuration, services.git(), mergeTargetBranch),

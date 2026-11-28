@@ -93,6 +93,8 @@ final class MergeGateAction implements Action {
                     ActionResult.block(record, "The merge gate refuses: " + checksFailed.reason() + ".");
             case MergeResult.Failed failed -> ActionResult.block(record, "The merge failed: " + failed.reason());
             case MergeResult.Postponed postponed -> ActionResult.stay(record);
+            case MergeResult.AwaitsCheckRuns awaitsCheckRuns -> ActionResult.stay(
+                    record.withRebasedCommit(awaitsCheckRuns.pushedCommit(), awaitsCheckRuns.builtTreeHash()));
             case MergeResult.NotForwarded notForwarded -> services.forwardCheckFailure().count(
                     issue, record, record, notForwarded.pushedCommit(), notForwarded.pushedTree());
         };

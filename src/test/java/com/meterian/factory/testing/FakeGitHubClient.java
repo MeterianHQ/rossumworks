@@ -229,12 +229,12 @@ public final class FakeGitHubClient implements GitHubClient {
         checkRunsOfEachCommit = new CheckRunPage(checkRuns.length, List.of(checkRuns));
     }
 
-    /** The commits of each read of the checks, in the order of the reads. */
+    /** The commits of each read of the check runs, in the order of the reads. */
     public synchronized List<String> checkRunReads() {
         return List.copyOf(checkRunReads);
     }
 
-    /** The next read of the checks throws a GitHubRateLimitException with this reset time. */
+    /** The next read of the check runs throws a GitHubRateLimitException with this reset time. */
     public synchronized void refuseTheNextCheckRunsReadWithTheRateLimit(Instant resetTime) {
         checkRunsRateLimitReset = resetTime;
     }

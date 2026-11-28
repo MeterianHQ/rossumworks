@@ -3,6 +3,7 @@ package com.meterian.factory.worker;
 import static com.meterian.factory.testing.DefinitionCommits.builtInWithBuild;
 import static com.meterian.factory.testing.DefinitionCommits.commitDefinition;
 import static com.meterian.factory.testing.DefinitionCommits.mainFileFor;
+import static com.meterian.factory.testing.DefinitionCommits.mainFileWithRequiredChecks;
 import static com.meterian.factory.testing.TemporaryRepository.createBare;
 import static com.meterian.factory.testing.TemporaryRepository.createClone;
 import static com.meterian.factory.testing.TemporaryRepository.run;
@@ -163,6 +164,10 @@ class GitHubRequestBudgetTest {
     }
 
     private Worker createWorker(FakeAgentRunner agent) {
+        return createWorker(agent, mainFileFor(BUILD_COMMAND));
+    }
+
+    private Worker createWorker(FakeAgentRunner agent, String mainFile) {
         BoardState board = new BoardState(clock);
         FactoryConfiguration configuration = new FactoryConfiguration(createRepositoryName(),
                 temporaryDirectory.resolve("work"), temporaryDirectory.resolve("gatekeeper.git"),
@@ -171,7 +176,7 @@ class GitHubRequestBudgetTest {
                 FactoryConfiguration.DEFAULT_TERMINAL_COMMAND);
         BuildRunner buildRunner = new BuildRunner();
         PageRequests pageRequests = new PageRequests(Clock.systemUTC());
-        commitDefinition(clone, mainFileFor(BUILD_COMMAND));
+        commitDefinition(clone, mainFile);
         GitDefinitionVersions versions = new GitDefinitionVersions(git, clone, "main",
                 builtInWithBuild(BUILD_COMMAND));
         WorkspaceLayout layout = new WorkspaceLayout(configuration.workDirectory());
@@ -450,11 +455,11 @@ class GitHubRequestBudgetTest {
         return new CheckRun("build", "completed", Optional.of("success"), "https://github.com/checks/build");
     }
 
-    /** The checks of GitHub are not complete, so the issue stays in the merge state after the first poll. */
-    private void bringTheIssueToTheMergeWithQueuedChecks() throws InterruptedException {
+    /** The required check run is not complete, so the issue stays in the merge state after the first poll. */
+    private void bringTheIssueToTheMergeWithAQueuedCheckRun() throws InterruptedException {
         fakeGitHub.setCheckRunsOfEachCommit(queuedCheckRun());
         worker = createWorker(new FakeAgentRunner().thenChangeFile().thenApproveAllReviews()
-                .thenAssessRisk("low", true));
+                .thenAssessRisk("low", true), mainFileWithRequiredChecks(BUILD_COMMAND, "build"));
         worker.pollOnce();
         waitUntil(() -> worker.issuesInWork().isEmpty());
         assertThat(readRecord().orElseThrow().state()).isEqualTo("merge");
@@ -469,8 +474,8 @@ class GitHubRequestBudgetTest {
     }
 
     @Test
-    void eachMergeAttemptCostsOneReadOfTheChecks() throws InterruptedException {
-        bringTheIssueToTheMergeWithQueuedChecks();
+    void eachMergeAttemptCostsOneReadOfTheCheckRuns() throws InterruptedException {
+        bringTheIssueToTheMergeWithAQueuedCheckRun();
 
         for (int poll = 0; poll < MEASURED_POLLS; poll++) {
             Map<String, Integer> counts = measurePollUntilTheIssueThreadEnds();
@@ -488,8 +493,8 @@ class GitHubRequestBudgetTest {
     }
 
     @Test
-    void aRateLimitInTheReadOfTheChecksMakesTheWorkerWaitAndDoesNotBlock() throws InterruptedException {
-        bringTheIssueToTheMergeWithQueuedChecks();
+    void aRateLimitInTheReadOfTheCheckRunsMakesTheWorkerWaitAndDoesNotBlock() throws InterruptedException {
+        bringTheIssueToTheMergeWithAQueuedCheckRun();
         server.refuseTheCheckRunsReadsWithTheRateLimit(RESET);
 
         measurePollUntilTheIssueThreadEnds();

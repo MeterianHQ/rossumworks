@@ -237,6 +237,23 @@ public record IssueRecord(
     }
 
     /**
+     * The merger rebased the reviewed commit with the same patch id, built it, and pushed it. The reviews and an
+     * approval of the reviewed tree stay valid for the rebased tree, so the next merge attempt continues on the
+     * rebased commit and does not rebase or build again.
+     */
+    public IssueRecord withRebasedCommit(String commit, String treeHash) {
+        boolean isApprovedForTheReviewedTree = approvedTree.isPresent() && approvedTree.equals(reviewedTreeHash);
+        return copy(fields -> {
+            fields.reviewedHeadCommit = Optional.of(commit);
+            fields.reviewedTreeHash = Optional.of(treeHash);
+            fields.builtTreeHash = Optional.of(treeHash);
+            if (isApprovedForTheReviewedTree) {
+                fields.approvedTree = Optional.of(treeHash);
+            }
+        });
+    }
+
+    /**
      * Counts a check that did not find the pushed commit on GitHub. The key is the tree, because each rebase
      * makes a new commit of the same change. A new tree starts the count again.
      */

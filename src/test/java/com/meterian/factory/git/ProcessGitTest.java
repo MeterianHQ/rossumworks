@@ -75,6 +75,25 @@ class ProcessGitTest {
     }
 
     @Test
+    void twoRebasesOfTheSameCommitOnTheSameUpstreamGiveTheSameCommit() throws InterruptedException {
+        run(clone, "checkout", "-q", "-b", "feature");
+        commitFile(clone, "b.txt", "feature\n", "Feature commit");
+        String featureCommit = git.headCommit(clone);
+        run(clone, "checkout", "-q", "main");
+        commitFile(clone, "c.txt", "main\n", "Main commit");
+        run(clone, "checkout", "-q", "feature");
+        git.rebase(clone, "main");
+        String firstRebase = git.headCommit(clone);
+        git.resetHard(clone, featureCommit);
+        // A new second: a rebase that writes the time of the rebase would give another commit hash.
+        Thread.sleep(1100);
+
+        git.rebase(clone, "main");
+
+        assertThat(git.headCommit(clone)).isEqualTo(firstRebase).isNotEqualTo(featureCommit);
+    }
+
+    @Test
     void rebaseReportsAConflictAndLeavesACleanTree() {
         run(clone, "checkout", "-q", "-b", "feature");
         commitFile(clone, "a.txt", "feature\n", "Feature change");

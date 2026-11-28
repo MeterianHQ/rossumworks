@@ -3,6 +3,7 @@ package com.meterian.factory.definition;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +29,14 @@ public final class DefinitionLoader {
         DefinitionRules.verify(workflow);
         WorkflowGraph.verify(workflow);
         PromptPlaceholders.verify(workflow, promptTexts);
+        DefinitionNode merge = root.requireObject("merge");
+        merge.requireOnlyKeys(Set.of("target-branch", "required-checks"));
         return new FactoryDefinition(
                 workflow,
                 readBuild(root.requireObject("build")),
                 readAllowedTools(root),
-                readMergeTargetBranch(root.requireObject("merge")),
+                merge.requireText("target-branch"),
+                readRequiredChecks(merge),
                 root.findTextList("repositories"),
                 promptTexts);
     }
@@ -75,8 +79,18 @@ public final class DefinitionLoader {
         return allowedTools;
     }
 
-    private static String readMergeTargetBranch(DefinitionNode section) throws DefinitionException {
-        section.requireOnlyKeys(Set.of("target-branch"));
-        return section.requireText("target-branch");
+    /** Each name is the name of a check run: it is not empty, and it is in the list one time only. */
+    private static List<String> readRequiredChecks(DefinitionNode section) throws DefinitionException {
+        List<String> requiredChecks = section.findTextList("required-checks");
+        Set<String> names = new HashSet<>();
+        for (String name : requiredChecks) {
+            if (name.isBlank()) {
+                throw section.createInvalidKeyFailure("required-checks", "has an empty name");
+            }
+            if (!names.add(name)) {
+                throw section.createInvalidKeyFailure("required-checks", "has the name " + name + " two times");
+            }
+        }
+        return requiredChecks;
     }
 }
