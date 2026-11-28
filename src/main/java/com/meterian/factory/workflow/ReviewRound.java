@@ -18,7 +18,10 @@ import java.util.Map;
 
 /**
  * Runs the reviews of the definition on one tree, each in a new session. A result for another tree is a reject. The
- * record goes to GitHub at the start of the round and after each review, so the card shows each verdict at once.
+ * record goes to GitHub at the start of the round and after each review except the last, so the card shows each
+ * verdict at once. The workflow publishes the result of the action, and this result has the last verdict. A stop at
+ * the first review of a round still writes the record of the round start again, and issue #45 keeps this case out
+ * of scope.
  */
 final class ReviewRound {
 
@@ -83,7 +86,9 @@ final class ReviewRound {
             }
             ReviewResult result = ReviewResultReader.read(worktree, reviewName);
             Verdict verdict = judge(result, treeHash);
-            reviewed = statusPublisher.publish(issue, reviewed, reviewed.withReview(reviewName, verdict));
+            IssueRecord judged = reviewed.withReview(reviewName, verdict);
+            reviewed = isLastReview(reviewNames, reviewName) ? judged
+                    : statusPublisher.publish(issue, reviewed, judged);
             if (isForThisTree(result, treeHash)) {
                 result.notes().forEach(note -> notes.add(new ReviewNote(reviewName, note)));
             }
@@ -93,6 +98,11 @@ final class ReviewRound {
             findingCounts.put(reviewName, rejection.size());
         }
         return new Outcome(reviewed, findings, notes, reviewNames, findingCounts, false, false, false);
+    }
+
+    /** The workflow publishes the result of the action, so the last verdict needs no write of its own. */
+    private static boolean isLastReview(List<String> reviewNames, String reviewName) {
+        return reviewNames.getLast().equals(reviewName);
     }
 
     private SessionReport runReview(Issue issue, String reviewName, Path worktree, String treeHash)
