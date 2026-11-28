@@ -3,6 +3,7 @@ package com.meterian.factory.testing;
 import com.meterian.factory.git.GitException;
 import com.meterian.factory.github.AssignmentEvent;
 import com.meterian.factory.github.CheckRun;
+import com.meterian.factory.github.CheckRunPage;
 import com.meterian.factory.github.GitHubClient;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
@@ -42,9 +43,9 @@ public final class FakeGitHubClient implements GitHubClient {
     private final Map<Integer, String> baseBranches = new TreeMap<>();
     private final Map<Integer, String> mergeCommitTrees = new TreeMap<>();
     private final Map<String, String> branchHeads = new TreeMap<>();
-    private final Map<String, List<CheckRun>> checkRunsByCommit = new TreeMap<>();
+    private final Map<String, CheckRunPage> checkRunsByCommit = new TreeMap<>();
     private final List<String> checkRunReads = new ArrayList<>();
-    private List<CheckRun> checkRunsOfEachCommit = List.of();
+    private CheckRunPage checkRunsOfEachCommit = new CheckRunPage(0, List.of());
     private Instant checkRunsRateLimitReset;
     private SquashMergeSimulation squashMergeSimulation;
     private Path pullRequestRepository;
@@ -213,14 +214,19 @@ public final class FakeGitHubClient implements GitHubClient {
         answersAnOldPullRequestHead = true;
     }
 
-    /** GitHub has these checks on the commit. A commit without checks has none. */
+    /** GitHub has these check runs on the commit. A commit without check runs has none. */
     public synchronized void setCheckRuns(String commit, CheckRun... checkRuns) {
-        checkRunsByCommit.put(commit, List.of(checkRuns));
+        setCheckRunPage(commit, new CheckRunPage(checkRuns.length, List.of(checkRuns)));
     }
 
-    /** GitHub has these checks on each commit that has no checks of its own. */
+    /** GitHub gives this page for the commit, for example a page with a total count larger than its list. */
+    public synchronized void setCheckRunPage(String commit, CheckRunPage page) {
+        checkRunsByCommit.put(commit, page);
+    }
+
+    /** GitHub has these check runs on each commit that has no check runs of its own. */
     public synchronized void setCheckRunsOfEachCommit(CheckRun... checkRuns) {
-        checkRunsOfEachCommit = List.of(checkRuns);
+        checkRunsOfEachCommit = new CheckRunPage(checkRuns.length, List.of(checkRuns));
     }
 
     /** The commits of each read of the checks, in the order of the reads. */
@@ -498,7 +504,7 @@ public final class FakeGitHubClient implements GitHubClient {
     }
 
     @Override
-    public synchronized List<CheckRun> checkRuns(String commit) {
+    public synchronized CheckRunPage checkRuns(String commit) {
         if (checkRunsRateLimitReset != null) {
             Instant resetTime = checkRunsRateLimitReset;
             checkRunsRateLimitReset = null;

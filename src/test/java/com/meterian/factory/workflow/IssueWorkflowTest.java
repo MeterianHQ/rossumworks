@@ -23,6 +23,7 @@ import com.meterian.factory.git.Gatekeeper;
 import com.meterian.factory.git.Git;
 import com.meterian.factory.git.ProcessGit;
 import com.meterian.factory.github.CheckRun;
+import com.meterian.factory.github.CheckRunPage;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.GitHubRateLimitException;
 import com.meterian.factory.github.IssueComment;
@@ -1419,6 +1420,75 @@ class IssueWorkflowTest {
 
         assertThat(record.state()).isEqualTo("done");
         assertThat(gitHub.squashMergeCalls()).hasSize(1);
+    }
+
+    /** The check runs of the head before the rebase passed. The rebased commit is new on GitHub. */
+    private IssueRecord advanceToTheMergeOnAMovedBase(IssueWorkflow workflow) throws CredentialMismatchException {
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("build", "success"));
+        gitHub.setCheckRunsOfEachCommit(new CheckRun("build", "queued", Optional.empty(), "https://github.com/b"));
+        moveTheBase("c.txt", "base\n");
+        return beforeMerge;
+    }
+
+    @Test
+    void waitsForTheCheckRunsOfTheRebasedCommitAndRebasesToTheSameCommitAtTheNextPoll() throws Exception {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceToTheMergeOnAMovedBase(workflow);
+        String headBeforeTheRebase = pullRequestHead(beforeMerge);
+
+        IssueRecord waiting = workflow.advance(beforeMerge);
+        String rebasedCommit = pullRequestHead(beforeMerge);
+        // A new second: a rebase that writes the time of the rebase would give another commit hash.
+        Thread.sleep(1100);
+        IssueRecord stillWaiting = workflow.advance(waiting);
+
+        assertThat(rebasedCommit).isNotEqualTo(headBeforeTheRebase);
+        assertThat(waiting.state()).isEqualTo("merge");
+        assertThat(stillWaiting.state()).isEqualTo("merge");
+        assertThat(pullRequestHead(beforeMerge)).isEqualTo(rebasedCommit);
+        assertThat(gitHub.checkRunReads()).containsExactly(rebasedCommit, rebasedCommit);
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+
+        gitHub.setCheckRuns(rebasedCommit, completedCheckRun("build", "success"));
+        IssueRecord record = advanceUntilWaiting(workflow, stillWaiting);
+
+        assertThat(record.state()).isEqualTo("done");
+        assertThat(gitHub.squashMergeShas()).containsExactly(rebasedCommit);
+    }
+
+    @Test
+    void aFailedCheckRunOfTheRebasedCommitBlocksTheIssue() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceToTheMergeOnAMovedBase(workflow);
+        IssueRecord waiting = workflow.advance(beforeMerge);
+        gitHub.setCheckRuns(pullRequestHead(beforeMerge), completedCheckRun("build", "failure"));
+
+        IssueRecord record = workflow.advance(waiting);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the check build failed (https://github.com/checks/build)."));
+    }
+
+    @Test
+    void moreThanOneHundredCheckRunsOfGitHubBlockTheIssue() throws CredentialMismatchException {
+        IssueWorkflow workflow = createWorkflow("true");
+        IssueRecord beforeMerge = advanceToTheMergeWithLowRisk(workflow);
+        List<CheckRun> firstPage = new ArrayList<>();
+        for (int index = 0; index < 100; index++) {
+            firstPage.add(completedCheckRun("job-" + index, "success"));
+        }
+        gitHub.setCheckRunPage(pullRequestHead(beforeMerge), new CheckRunPage(101, firstPage));
+
+        IssueRecord record = workflow.advance(beforeMerge);
+
+        assertThat(record.state()).isEqualTo("blocked");
+        assertThat(gitHub.squashMergeCalls()).isEmpty();
+        assertThat(events.ofType("blocked")).singleElement().satisfies(line -> assertThat(line.path("reason").asText())
+                .isEqualTo("The merge gate refuses: the commit has 101 GitHub check runs, and the merge gate can"
+                        + " read only 100."));
     }
 
     @Test

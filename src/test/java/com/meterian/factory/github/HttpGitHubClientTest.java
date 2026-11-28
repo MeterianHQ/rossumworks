@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
@@ -353,6 +354,23 @@ class HttpGitHubClientTest {
         client.squashMerge(5, "abc123");
 
         assertThat(requests.get(0).body()).contains("\"sha\":\"abc123\"");
+    }
+
+    @Test
+    void readsTheCheckRunsAndTheTotalCountOfACommitWithOneRequest() {
+        responder = request -> new Answer(200, "{\"total_count\":101,\"check_runs\":["
+                + "{\"name\":\"build\",\"status\":\"completed\",\"conclusion\":\"failure\",\"html_url\":\"https://b\"},"
+                + "{\"name\":\"lint\",\"status\":\"queued\",\"conclusion\":null,\"html_url\":\"https://l\"}]}");
+
+        CheckRunPage page = client.checkRuns("abc123");
+
+        assertThat(page.totalCount()).isEqualTo(101);
+        assertThat(page.isIncomplete()).isTrue();
+        assertThat(page.checkRuns()).containsExactly(
+                new CheckRun("build", "completed", Optional.of("failure"), "https://b"),
+                new CheckRun("lint", "queued", Optional.empty(), "https://l"));
+        assertThat(requests).singleElement().satisfies(request -> assertThat(request.target())
+                .isEqualTo("/repos/o/r/commits/abc123/check-runs?per_page=100"));
     }
 
     @Test

@@ -272,7 +272,7 @@ The five checks:
 2. Each review approves.
 3. The reviews are for the current files.
 4. The build is for the current files.
-5. The GitHub checks of the head commit of the pull request passed.
+5. The GitHub check runs of the head commit of the pull request passed.
 
 The checks 2 and 3 apply only when the workflow has a `reviews` state. A workflow with `merge-gate` always has
 a `build` state (section 14, rule 2). Only the action `build` pushes the branch and opens the pull request.
@@ -280,13 +280,19 @@ a `build` state (section 14, rule 2). Only the action `build` pushes the branch 
 A failed check refuses the merge. The issue goes to the block state, with the reason in a note, for
 example "the files changed after the reviews".
 
-The merge gate makes the check 5 immediately before the merge, with one request to GitHub:
+The merge gate makes the check 5 immediately before the squash merge, with one request to GitHub. It reads the
+GitHub check runs of the commit that the squash merge takes:
 
-- A GitHub check that is not complete stops the merge. The issue stays in the merge state, and the merge gate
-  tries again at the next poll.
-- A failed GitHub check refuses the merge. The reason names each failed GitHub check and its link.
-- A GitHub check with the conclusion `success`, `skipped`, or `neutral` passed.
-- A commit without a GitHub check passes the check 5.
+- When the target branch moved, the merge gate rebases the branch, builds it, and pushes the new commit. The
+  GitHub check runs of the new commit are not complete at first, so the merge waits. At the next poll, the
+  rebase gives the same commit again, and the local build runs again.
+- A GitHub check run that is not complete stops the merge. The issue stays in the merge state, and the merge
+  gate tries again at the next poll.
+- A failed GitHub check run refuses the merge. The reason names each failed GitHub check run and its link.
+- A GitHub check run with the conclusion `success`, `skipped`, or `neutral` passed.
+- A commit without a GitHub check run passes the check 5.
+- GitHub gives 100 check runs or less in one answer. A commit with more than 100 GitHub check runs refuses the
+  merge, because the merge gate cannot read all of them.
 - When GitHub refuses the request because of the rate limit, the worker waits for the reset. The issue does not
   go to the block state.
 

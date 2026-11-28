@@ -24,7 +24,7 @@ When a new document needs a new term, add the term to this page first.
 | factory | All the parts together: the worker, the board, the gatekeeper, the definition, and the `claude` sessions. |
 | gate | A check that each change must pass before the merge: the build command, the reviews, the risk check, and the merge gate. See [FAQ](faq.md). |
 | gatekeeper | A local git repository. Each push of the worker goes through it, and it forwards the push to GitHub only when the push is safe. See [More than one factory](multiple-factories.md). |
-| GitHub check | A check run of GitHub on a commit, for example a job of GitHub Actions. The merge gate reads the GitHub checks of the head commit of the pull request. See [Factory definition](factory-definition.md). |
+| GitHub check run | A check run of GitHub on a commit, for example a job of GitHub Actions. The merge gate reads the GitHub check runs of the head commit of the pull request. Do not mix it up with the tile "Last GitHub check" of the board, which gives the time of the last poll. See [Factory definition](factory-definition.md). |
 | hidden entry | A file or a folder whose name starts with a dot, for example `.git`. The worker skips the hidden entries of the definition folder. |
 | live conversation | A conversation between you and the agent of an issue, through Remote Control. |
 | live files | The files of the live mode in the live folder of the machine. See [Live mode](live-mode.md). |

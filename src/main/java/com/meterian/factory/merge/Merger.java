@@ -18,7 +18,8 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, and squash merges. Only
+ * Rebases the branch, builds again when the base moved, pushes through the gatekeeper, waits for the GitHub check
+ * runs of the pushed commit, and squash merges. Only
  * one issue of a target merges at a time, and the base must not move between the rebase and the squash merge.
  * A failure of GitHub is transient: it leaves as a GitHubException, and the next poll runs the merge again.
  */
@@ -192,6 +193,10 @@ public final class Merger {
         if (!pushedCommitCheck.isOnGitHub(pullRequestNumber, headCommit, branch)) {
             return new MergeResult.NotForwarded(headCommit, builtTreeHash);
         }
+        Optional<MergeResult> refusal = findRefusalOfGitHubChecks(headCommit);
+        if (refusal.isPresent()) {
+            return refusal.get();
+        }
         for (int attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
             verifyBaseDidNotMove(worktree, upstreamCommit);
             ownershipGuard.verifyStillOwner(record.issueNumber());
@@ -207,6 +212,21 @@ public final class Merger {
             }
         }
         throw new GitHubException("GitHub refuses the merge of the pull request #" + pullRequestNumber + ".");
+    }
+
+    /**
+     * Reads the GitHub check runs of the commit that the squash merge takes. A rebased commit is new on GitHub, so
+     * its check runs are not complete at first: the next poll rebases to the same commit and reads them again.
+     */
+    private Optional<MergeResult> findRefusalOfGitHubChecks(String headCommit) {
+        GitHubChecks checks = GitHubChecks.evaluate(gitHub.checkRuns(headCommit));
+        return switch (checks) {
+            case GitHubChecks.Passed passed -> Optional.empty();
+            case GitHubChecks.NotComplete notComplete -> Optional.of(new MergeResult.Postponed(
+                    "The GitHub check runs of " + headCommit + " are not complete. The next poll tries again."));
+            case GitHubChecks.Failed failed -> Optional.of(new MergeResult.ChecksFailed(failed.describe()));
+            case GitHubChecks.TooMany tooMany -> Optional.of(new MergeResult.ChecksFailed(tooMany.describe()));
+        };
     }
 
     private void verifyBaseDidNotMove(Path worktree, String upstreamCommit) {

@@ -68,10 +68,10 @@ public interface GitHubClient {
     Optional<String> mergeCommit(int pullRequestNumber);
 
     /**
-     * Returns the checks of the commit, with one request. GitHub gives 100 checks or less in one answer, so the
-     * client reads only that first page. A commit without a check gives an empty list.
+     * Returns the first page of the check runs of the commit, with one request. GitHub gives 100 check runs or
+     * less in one answer. The page also gives the total count, so that the caller sees a missing check run.
      */
-    List<CheckRun> checkRuns(String commit);
+    CheckRunPage checkRuns(String commit);
 
     /** Merges only if the head of the pull request is the expected commit. */
     MergeOutcome squashMerge(int pullRequestNumber, String expectedHeadSha);

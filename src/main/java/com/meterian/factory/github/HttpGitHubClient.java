@@ -269,7 +269,7 @@ public final class HttpGitHubClient implements GitHubClient {
     }
 
     @Override
-    public List<CheckRun> checkRuns(String commit) {
+    public CheckRunPage checkRuns(String commit) {
         JsonNode answer = send("GET", repositoryPath + "/commits/" + encode(commit) + "/check-runs?per_page="
                 + PAGE_SIZE, null);
         List<CheckRun> checkRuns = new ArrayList<>();
@@ -279,7 +279,7 @@ public final class HttpGitHubClient implements GitHubClient {
                     conclusion.isTextual() ? Optional.of(conclusion.asText()) : Optional.empty(),
                     item.path("html_url").asText()));
         }
-        return List.copyOf(checkRuns);
+        return new CheckRunPage(answer.path("total_count").asInt(checkRuns.size()), checkRuns);
     }
 
     @Override

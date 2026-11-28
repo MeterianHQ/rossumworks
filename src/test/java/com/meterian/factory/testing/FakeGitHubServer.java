@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.meterian.factory.github.AssignmentEvent;
 import com.meterian.factory.github.CheckRun;
+import com.meterian.factory.github.CheckRunPage;
 import com.meterian.factory.github.GitHubException;
 import com.meterian.factory.github.Issue;
 import com.meterian.factory.github.IssueComment;
@@ -236,10 +237,10 @@ public final class FakeGitHubServer implements AutoCloseable {
         return notFound();
     }
 
-    private JsonNode toCheckRunsJson(List<CheckRun> checkRuns) {
-        ObjectNode answer = mapper.createObjectNode().put("total_count", checkRuns.size());
+    private JsonNode toCheckRunsJson(CheckRunPage page) {
+        ObjectNode answer = mapper.createObjectNode().put("total_count", page.totalCount());
         ArrayNode items = answer.putArray("check_runs");
-        for (CheckRun checkRun : checkRuns) {
+        for (CheckRun checkRun : page.checkRuns()) {
             ObjectNode item = items.addObject().put("name", checkRun.name()).put("status", checkRun.status())
                     .put("html_url", checkRun.url());
             checkRun.conclusion().ifPresentOrElse(conclusion -> item.put("conclusion", conclusion),

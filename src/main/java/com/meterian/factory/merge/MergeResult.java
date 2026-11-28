@@ -32,6 +32,10 @@ public sealed interface MergeResult {
     record NotForwarded(String pushedCommit, String pushedTree) implements MergeResult {
     }
 
+    /** The GitHub check runs of the pushed commit refuse the merge, for example a failed check run. */
+    record ChecksFailed(String reason) implements MergeResult {
+    }
+
     /** A step failed. The change does not merge. */
     record Failed(String reason) implements MergeResult {
     }
