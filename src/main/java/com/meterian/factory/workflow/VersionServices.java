@@ -35,8 +35,8 @@ record VersionServices(PromptLibrary prompts, BuildSettings build, List<String> 
                 new PullRequestPublisher(services.gitHub(), services.git(), mergeTargetBranch, gatekeeperDirectory,
                         services.ownershipGuard(), services.events()),
                 new ReviewedCommit(services.git(), clone, mergeTargetBranch),
-                new ReviewRound(services.phaseRunner(), services.statusPublisher(), services.publishedRecords(),
-                        prompts, definition.allowedTools()));
+                new ReviewRound(services.phaseRunner(), services.statusPublisher(), prompts,
+                        definition.allowedTools()));
     }
 
     String mergeTargetReference() {

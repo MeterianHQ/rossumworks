@@ -19,7 +19,6 @@ import java.util.Map;
  * @param mergeRetryDelay      the wait between two attempts of a squash merge
  * @param reviewNotesToPublish the notes of the review round of the current action, by issue number. Each issue
  *                             thread uses its own entry.
- * @param publishedRecords     the last record that the current action wrote to GitHub, by issue number
  * @param ownershipGuard       the check that this factory still owns the issue before a change on GitHub
  * @param events               the lines of the file events.jsonl, for a monitoring agent
  */
@@ -27,6 +26,5 @@ record ActionServices(FactoryConfiguration configuration, GitHubClient gitHub, G
                     Duration mergeRetryDelay, OwnerApproval ownerApproval, StatusPublisher statusPublisher,
                     ForwardCheckFailure forwardCheckFailure, PhaseRunner phaseRunner, LiveMode liveMode,
                     LiveSessions liveSessions, Map<Integer, List<ReviewNote>> reviewNotesToPublish,
-                    PublishedRecords publishedRecords, RetrySettings retrySettings, OwnershipGuard ownershipGuard,
-                    WorkerEvents events) {
+                    RetrySettings retrySettings, OwnershipGuard ownershipGuard, WorkerEvents events) {
 }

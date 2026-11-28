@@ -944,23 +944,6 @@ class IssueWorkflowTest {
     }
 
     @Test
-    void aStopAtTheFirstReviewOfARoundWritesOnlyTheStartOfTheRound() throws Exception {
-        agent.thenChangeFile().thenApproveReview().thenRejectReview("Bad style")
-                .thenChangeFile().thenApproveReview().thatIsStopped();
-        DefinitionLookup definitions = DefinitionLookup.builtInOnly(loadBuiltInWithSecurityAndStyleReviews());
-        IssueWorkflow workflow = createWorkflow("true", definitions);
-        IssueRecord firstRound = advanceUntilState(workflow, queuedRecord(), "review");
-        IssueRecord secondRound = advanceUntilState(workflow, workflow.advance(firstRound), "review");
-        int editsBeforeTheSecondRound = gitHub.editedBodies().size();
-
-        IssueRecord record = workflow.advance(secondRound);
-
-        assertThat(gitHub.editedBodies()).hasSize(editsBeforeTheSecondRound + 1);
-        assertThat(record.reviews()).isEmpty();
-        assertThat(readRecordFromGitHub().reviews()).isEmpty();
-    }
-
-    @Test
     void startsNoMoreReviewsWhenTheGuardClosesInTheRound() throws Exception {
         Instant now = Instant.now();
         agent.thenChangeFile().thenApproveReviewAnd(request -> usage.record(List.of(

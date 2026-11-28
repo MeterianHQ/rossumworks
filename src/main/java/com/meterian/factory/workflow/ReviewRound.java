@@ -53,22 +53,20 @@ final class ReviewRound {
 
     private final PhaseRunner phaseRunner;
     private final StatusPublisher statusPublisher;
-    private final PublishedRecords publishedRecords;
     private final PromptLibrary prompts;
     private final List<String> allowedTools;
 
-    ReviewRound(PhaseRunner phaseRunner, StatusPublisher statusPublisher, PublishedRecords publishedRecords,
-                PromptLibrary prompts, List<String> allowedTools) {
+    ReviewRound(PhaseRunner phaseRunner, StatusPublisher statusPublisher, PromptLibrary prompts,
+                List<String> allowedTools) {
         this.phaseRunner = phaseRunner;
         this.statusPublisher = statusPublisher;
-        this.publishedRecords = publishedRecords;
         this.prompts = prompts;
         this.allowedTools = List.copyOf(allowedTools);
     }
 
     Outcome review(Issue issue, IssueRecord record, Path worktree, String treeHash)
             throws AgentException, CredentialMismatchException {
-        IssueRecord reviewed = publish(issue, record, record.withoutReviews());
+        IssueRecord reviewed = statusPublisher.publish(issue, record, record.withoutReviews());
         List<Finding> findings = new ArrayList<>();
         List<ReviewNote> notes = new ArrayList<>();
         Map<String, Integer> findingCounts = new LinkedHashMap<>();
@@ -87,7 +85,8 @@ final class ReviewRound {
             ReviewResult result = ReviewResultReader.read(worktree, reviewName);
             Verdict verdict = judge(result, treeHash);
             IssueRecord judged = reviewed.withReview(reviewName, verdict);
-            reviewed = isLastReview(reviewNames, reviewName) ? judged : publish(issue, reviewed, judged);
+            reviewed = isLastReview(reviewNames, reviewName) ? judged
+                    : statusPublisher.publish(issue, reviewed, judged);
             if (isForThisTree(result, treeHash)) {
                 result.notes().forEach(note -> notes.add(new ReviewNote(reviewName, note)));
             }
@@ -97,12 +96,6 @@ final class ReviewRound {
             findingCounts.put(reviewName, rejection.size());
         }
         return new Outcome(reviewed, findings, notes, reviewNames, findingCounts, false, false, false);
-    }
-
-    private IssueRecord publish(Issue issue, IssueRecord before, IssueRecord after) {
-        IssueRecord published = statusPublisher.publish(issue, before, after);
-        publishedRecords.remember(published);
-        return published;
     }
 
     /** The workflow publishes the result of the action, so the last verdict needs no write of its own. */
